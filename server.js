@@ -200,8 +200,25 @@ app.get('/api/cameras/config', (req, res) => {
 app.post('/api/detections', (req, res) => {
   const result = storeDetection(req.body);
   if (!result) return res.status(400).json({ error: 'Missing plate or cameraId' });
-  if (result.status === 'cooldown') return res.json(result);
-  res.json({ status: 'stored', id: result.id });
+  if (result.status === 'cooldown') {
+    const norm = req.body.plate ? req.body.plate.toUpperCase().replace(/[^A-Z0-9]/g, '') : '';
+    const isWl = watchlist.has(norm);
+    return res.json({
+      status: 'cooldown',
+      plate: norm,
+      isWatchlisted: isWl,
+      watchlistReason: isWl ? watchlist.get(norm).reason : null
+    });
+  }
+  const isWl = watchlist.has(result.plate);
+  res.json({
+    status: 'stored',
+    id: result.id,
+    plate: result.plate,
+    detection: result,
+    isWatchlisted: isWl,
+    watchlistReason: isWl ? watchlist.get(result.plate).reason : null
+  });
 });
 
 /** Forward frame to Python ANPR Inference service */

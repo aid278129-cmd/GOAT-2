@@ -1,1 +1,1 @@
-[]
+[{"id":"4d34a859-84d3-40ef-b92b-25196981f826","plate":"KA03CD5678","cameraId":2,"cameraName":"Junction B","location":"T. Nagar","zone":"West","timestamp":"2026-09-12T15:09:16.876Z","confidence":0.94,"vehicleType":"car","lat":13.0731,"lng":80.2609,"simulated":false,"alertId":"835f6378-6ab5-4da4-b659-bb18a3b8adf1","reason":"BOLO: Stolen Luxury Sedan (SIH Demo)","alertTime":"2026-09-12T15:09:16.876Z"}]
