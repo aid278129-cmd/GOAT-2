@@ -46,7 +46,7 @@ app.add_middleware(
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PLATE_MODEL_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.pt")
-FALLBACK_PLATE_MODEL_PATH = os.path.join(BASE_DIR, "runs", "indian_plate_run", "weights", "best.pt")
+FALLBACK_PLATE_MODEL_PATH = PLATE_MODEL_PATH
 NODE_SERVER_URL = "https://127.0.0.1:3000/api/detections"
 
 # Set Tesseract binary path

@@ -66,18 +66,10 @@
       <span id="aiStatus" style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">Loading model…</span>
     </div>
     <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
-    <label class="sim-toggle" onclick="toggleSimMode()">
-      <div class="toggle-pill on" id="simTogglePill"></div>
-      <span id="simToggleLabel">SIM ON</span>
-    </label>
-    <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
     <span style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">TOTAL: <span id="totalDetCount" style="color:var(--green)">0</span></span>
     <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
     <button class="action-btn green" onclick="openScanModal()" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,255,65,0.15);border:1px solid var(--green);color:#00ff41;border-radius:3px;">
       <span>📸</span><span>SCAN CAR IMAGE</span>
-    </button>
-    <button class="action-btn" id="btnTestCarCam" onclick="testLiveCarOnCamera(4)" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,180,255,0.15);border:1px solid var(--blue);color:#5cd2ff;border-radius:3px;">
-      <span>🚗</span><span>TEST CAR ON CAM 4</span>
     </button>
   </div>
 
@@ -325,13 +317,6 @@
             Upload Car Photo
           </label>
           <input type="file" id="scanFileInput" accept="image/*" style="display:none;" onchange="handleScanUpload(event)" />
-
-          <div class="sample-buttons-row">
-            <span style="font-family:var(--text-mono);font-size:10px;color:var(--text-dim);">Presets:</span>
-            <button class="sample-chip" onclick="loadSampleCar(1)">Sample 1</button>
-            <button class="sample-chip" onclick="loadSampleCar(2)">Sample 2</button>
-            <button class="sample-chip" onclick="loadSampleCar(3)">Sample 3</button>
-          </div>
         </div>
 
         <div class="scan-canvas-container" id="scanCanvasContainer">
@@ -439,7 +424,6 @@ let activeCameraCount = 0;
 let serverIP    = '';
 let totalDet    = 0;
 let alertCount  = 0;
-let simModeOn   = true;
 
 // ── Clock ───────────────────────────────────────────────────
 function updateClock() {
@@ -546,16 +530,6 @@ function startANPRForCamera(id) {
     }
   };
   tryStart();
-}
-
-// Sim mode toggle
-function toggleSimMode() {
-  simModeOn = !simModeOn;
-  window.ANPR.setSimMode(simModeOn);
-  const pill  = document.getElementById('simTogglePill');
-  const label = document.getElementById('simToggleLabel');
-  pill.className  = `toggle-pill ${simModeOn ? 'on' : 'off'}`;
-  label.textContent = simModeOn ? 'SIM ON' : 'SIM OFF';
 }
 
 // AI Model status callbacks
@@ -848,26 +822,6 @@ function handleScanUpload(e) {
   reader.readAsDataURL(file);
 }
 
-async function loadSampleCar(index) {
-  openScanModal();
-  const loading = document.getElementById('scanLoadingSpinner');
-  loading.classList.add('active');
-  document.getElementById('scanLoadingText').textContent = `LOADING SAMPLE CAR ${index}...`;
-  try {
-    const resp = await fetch(`/sample_cars/sample${index}.jpg`);
-    const blob = await resp.blob();
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      runImageDetection(evt.target.result);
-    };
-    reader.readAsDataURL(blob);
-  } catch (err) {
-    console.error('Failed to load sample car:', err);
-    loading.classList.remove('active');
-    alert('Failed to load sample image');
-  }
-}
-
 function captureAndScan(camId) {
   openScanModal();
   const video = document.getElementById(`video-${camId}`);
@@ -880,7 +834,7 @@ function captureAndScan(camId) {
     const dataUrl = snapCanvas.toDataURL('image/jpeg', 0.92);
     runImageDetection(dataUrl, camId);
   } else {
-    loadSampleCar(1);
+    document.getElementById('scanFileInput').click();
   }
 }
 
@@ -1008,105 +962,6 @@ function copyPlateNumber() {
     btnText.textContent = '✓ Copied!';
     setTimeout(() => { btnText.textContent = 'Copy Plate'; }, 2000);
   });
-}
-
-// ── Live Camera Simulation / Test Function ────────────────────
-async function testLiveCarOnCamera(camId = 4) {
-  try {
-    const resp = await fetch('/sample_cars/sample2.jpg');
-    const blob = await resp.blob();
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      const dataUrl = evt.target.result;
-      const canvas = document.getElementById(`anpr-canvas-${camId}`);
-      if (!canvas) return;
-
-      const img = new Image();
-      img.onload = async () => {
-        const offline = document.getElementById(`offline-${camId}`);
-        if (offline) offline.classList.add('hidden');
-        const panel = document.getElementById(`panel-${camId}`);
-        if (panel) {
-          panel.classList.remove('disconnected');
-          panel.classList.add('connected');
-        }
-
-        canvas.width = canvas.clientWidth || 480;
-        canvas.height = canvas.clientHeight || 360;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        const dResp = await fetch('/api/anpr/detect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: dataUrl,
-            cameraId: camId,
-            cameraName: `CAM 0${camId}`,
-            forwardToDashboard: true
-          })
-        });
-
-        const dData = await dResp.json();
-        if (dData.success && dData.detected && dData.detection) {
-          const det = dData.detection;
-          window.ANPR.showLivePlateHUD(camId, det);
-
-          const scX = canvas.width / img.naturalWidth;
-          const scY = canvas.height / img.naturalHeight;
-          const [px, py, pw, ph] = det.bbox;
-          const psx = px * scX, psy = py * scY, psw = pw * scX, psh = ph * scY;
-
-          ctx.save();
-          ctx.strokeStyle = '#00ff41';
-          ctx.lineWidth = Math.max(3, Math.round(canvas.width / 160));
-          ctx.shadowColor = '#00ff41';
-          ctx.shadowBlur = 14;
-          ctx.strokeRect(psx, psy, psw, psh);
-
-          const cLen = Math.min(psw, psh) * 0.3;
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 4;
-          ctx.shadowBlur = 0;
-          ctx.beginPath();
-          ctx.moveTo(psx, psy + cLen); ctx.lineTo(psx, psy); ctx.lineTo(psx + cLen, psy);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(psx + psw - cLen, psy); ctx.lineTo(psx + psw, psy); ctx.lineTo(psx + psw, psy + cLen);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(psx, psy + psh - cLen); ctx.lineTo(psx, psy + psh); ctx.lineTo(psx + cLen, psy + psh);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(psx + psw - cLen, psy + psh); ctx.lineTo(psx + psw, psy + psh); ctx.lineTo(psx + psw, psy + psh - cLen);
-          ctx.stroke();
-
-          const labelText = ` 🇮🇳 ${det.plate} · ${Math.round(det.confidence * 100)}% `;
-          const fontSize = Math.max(12, Math.round(canvas.width / 26));
-          ctx.font = `bold ${fontSize}px "Share Tech Mono", monospace`;
-          const textW = ctx.measureText(labelText).width;
-          const bannerH = fontSize + 10;
-          const bannerY = Math.max(0, psy - bannerH - 3);
-
-          ctx.fillStyle = '#060810';
-          ctx.fillRect(psx, bannerY, textW + 8, bannerH);
-          ctx.strokeStyle = '#00ff41';
-          ctx.lineWidth = 1.5;
-          ctx.strokeRect(psx, bannerY, textW + 8, bannerH);
-
-          ctx.fillStyle = '#00ff41';
-          ctx.shadowColor = '#00ff41';
-          ctx.shadowBlur = 8;
-          ctx.fillText(labelText, psx + 4, bannerY + fontSize);
-          ctx.restore();
-        }
-      };
-      img.src = dataUrl;
-    };
-    reader.readAsDataURL(blob);
-  } catch (err) {
-    console.error('Test car on camera failed:', err);
-  }
 }
 
 // ── Init ─────────────────────────────────────────────────────

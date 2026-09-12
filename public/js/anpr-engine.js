@@ -15,22 +15,6 @@
  * 10. Fully configurable thresholds with live debug telemetry HUD and console diagnostics.
  */
 
-/* ──────────────────────────────────────────────────────────────────
-   Simulation plate pool — realistic Indian registration numbers
-─────────────────────────────────────────────────────────────────── */
-const SIM_PLATES = [
-  'TN45AB1234', 'MH02AQ7777', 'KA03CD5678', 'DL5SAF3210', 'TN09XY9876',
-  'TN22BC4521', 'MH14EF8899', 'KA01AB1111', 'DL4CAF2020', 'TN76PQ3344',
-  'TN55RS6677', 'MH09ZY4321', 'KA22MN8765', 'TN33UV5544', 'HR26DQ4321',
-  'RJ14DC0001', 'UP80GH4567', 'GJ05TY8901', 'PB10WX2345', 'TS09AB6789',
-];
-
-const TRAJECTORY_PLATES = [
-  'TN45AB1234', 'TN09XY9876', 'TN22BC4521', 'MH02AQ7777', 'DL5SAF3210',
-];
-
-const VEHICLE_TYPES = ['car', 'truck', 'motorcycle', 'bus'];
-
 // Recognised Indian State and Union Territory Codes (+ Bharat Series BH)
 const INDIAN_STATE_CODES = new Set([
   'AN', 'AP', 'AR', 'AS', 'BR', 'CG', 'CH', 'DD', 'DL', 'DN', 'GA', 'GJ',
@@ -49,8 +33,7 @@ class ANPREngine {
     this.modelReady     = false;
     this.ocrWorker      = null;
     this.ocrReady       = false;
-    this.processors     = {};      // cameraId -> { intervalId, simIntervalId }
-    this.simMode        = false;   // OFF by default for real camera testing
+    this.processors     = {};      // cameraId -> intervalId
     this.overlayData    = {};      // cameraId -> last detected plate/type
     this.statsPerCam    = {};      // cameraId -> { vehicleCount, lastPlate }
     this.onDetection    = null;    // callback(detectionObj)
@@ -181,32 +164,13 @@ class ANPREngine {
       this._processFrame(cameraId, videoEl, canvasEl);
     }, 600);
 
-    // Simulation: stagger start times so cameras fire at different moments
-    let simIntervalId = null;
-    if (this.simMode) {
-      const baseDelay   = (cameraId - 1) * 2500;
-      const minInterval = 6000;
-      const maxInterval = 18000;
-
-      const scheduleSim = () => {
-        const delay = minInterval + Math.random() * (maxInterval - minInterval);
-        simIntervalId = setTimeout(() => {
-          this._simulateDetection(cameraId);
-          scheduleSim();
-        }, delay);
-      };
-      setTimeout(scheduleSim, baseDelay);
-    }
-
-    this.processors[cameraId] = { intervalId, simIntervalId };
+    this.processors[cameraId] = intervalId;
     console.log(`ANPR: Started camera ${cameraId} with validation pipeline`);
   }
 
   stopCamera(cameraId) {
-    const p = this.processors[cameraId];
-    if (!p) return;
-    clearInterval(p.intervalId);
-    if (p.simIntervalId) clearTimeout(p.simIntervalId);
+    const intervalId = this.processors[cameraId];
+    if (intervalId) clearInterval(intervalId);
     delete this.processors[cameraId];
     delete this.temporalTrackers[cameraId];
 
@@ -216,19 +180,6 @@ class ANPREngine {
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
-  }
-
-  setSimMode(enabled) {
-    this.simMode = enabled;
-    const activeIds = Object.keys(this.processors).map(Number);
-    activeIds.forEach(id => {
-      const video  = document.getElementById(`video-${id}`);
-      const canvas = document.getElementById(`anpr-canvas-${id}`);
-      if (video) {
-        this.stopCamera(id);
-        this.startCamera(id, video, canvas);
-      }
-    });
   }
 
   /* ──────────────────────────────────────────────────────────────────
@@ -1030,51 +981,6 @@ class ANPREngine {
         msg = `REJ: ${cleanReason.slice(0, 25)}`;
       }
       ctx.fillText(msg, hudX + 8, hudY + 41);
-    }
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Simulation Mode
-  ─────────────────────────────────────────────────────────────────── */
-  _simulateDetection(cameraId) {
-    const useTrajectory = Math.random() < 0.55;
-    const pool  = useTrajectory ? TRAJECTORY_PLATES : SIM_PLATES;
-    const plate = pool[Math.floor(Math.random() * pool.length)];
-    const conf  = 0.76 + Math.random() * 0.21;
-    const vtype = VEHICLE_TYPES[Math.floor(Math.random() * VEHICLE_TYPES.length)];
-
-    this._recordDebug(cameraId, {
-      vehicleConfidence: 0.92,
-      plateConfidence:   0.84,
-      ocrConfidence:     0.95,
-      status:            'CONFIRMED',
-      reason:            'Simulated demo detection event',
-      candidatePlate:    plate,
-      vehicleType:       vtype,
-    });
-
-    this._emitDetection({
-      plate,
-      cameraId,
-      confidence:  conf,
-      vehicleType: vtype,
-      simulated:   true,
-      debug: {
-        vehicleConfidence: 0.92,
-        plateConfidence:   0.84,
-        ocrConfidence:     0.95,
-        hits:              2,
-        format:            'SIMULATED',
-      },
-    });
-
-    // Visual flash on canvas to indicate detection
-    const canvas = document.getElementById(`anpr-canvas-${cameraId}`);
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'rgba(0,255,65,0.12)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      setTimeout(() => ctx.clearRect(0, 0, canvas.width, canvas.height), 300);
     }
   }
 
