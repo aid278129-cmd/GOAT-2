@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Command Center — ANPR Intelligence Platform</title>
+  <meta name="description" content="City-Wide ANPR Trajectory Tracking and Urban Traffic Analytics Command Center" />
+  <link rel="stylesheet" href="style-dashboard.css" />
+  <link rel="stylesheet" href="style-pages.css" />
+  <!-- AI Libraries (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav class="top-nav">
+  <div class="nav-brand">
+    <div class="nav-logo"></div>
+    <span class="nav-title">ANPR Intelligence</span>
+  </div>
+  <div class="nav-links">
+    <a href="/dashboard.html"  class="nav-link active"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="/tracking.html"   class="nav-link"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="/analytics.html"  class="nav-link"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="/network.html"    class="nav-link"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="/watchlist.html"  class="nav-link"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+  </div>
+  <div class="nav-meta">
+    <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
+    <span class="nav-clock" id="navClock">--:--:--</span>
+  </div>
+</nav>
+
+<!-- ── Watchlist Alert Banner ── -->
+<div class="watchlist-alert-banner" id="wlBanner">
+  <span style="font-size:16px;">🚨</span>
+  <span class="wl-banner-text" id="wlBannerText">WATCHLIST ALERT</span>
+  <button class="wl-banner-close" onclick="document.getElementById('wlBanner').classList.remove('visible')">✕</button>
+</div>
+
+<div class="layout">
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 10.5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/><path d="M20 4h-3.17L15 2H9L7.17 4H4C2.9 4 2 4.9 2 6v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 13a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z"/></svg>
+        </div>
+        <span class="logo-text">LiveWatch</span>
+      </div>
+      <span class="system-time" id="clock">--:--:--</span>
+    </div>
+    <div class="header-right">
+      <div class="server-status"><div class="status-dot" id="serverDot"></div><span id="serverAddr">Connecting…</span></div>
+      <div class="rec-badge"><div class="rec-dot"></div>REC</div>
+    </div>
+  </header>
+
+  <!-- ── ANPR Toolbar ── -->
+  <div class="anpr-toolbar">
+    <span class="anpr-toolbar-label">AI ANPR ENGINE</span>
+    <div class="ai-status-indicator">
+      <div class="ai-dot loading" id="aiDot"></div>
+      <span id="aiStatus" style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">Loading model…</span>
+    </div>
+    <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
+    <label class="sim-toggle" onclick="toggleSimMode()">
+      <div class="toggle-pill on" id="simTogglePill"></div>
+      <span id="simToggleLabel">SIM ON</span>
+    </label>
+    <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
+    <span style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">TOTAL: <span id="totalDetCount" style="color:var(--green)">0</span></span>
+    <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
+    <button class="action-btn green" onclick="openScanModal()" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,255,65,0.15);border:1px solid var(--green);color:#00ff41;border-radius:3px;">
+      <span>📸</span><span>SCAN CAR IMAGE</span>
+    </button>
+    <button class="action-btn" id="btnTestCarCam" onclick="testLiveCarOnCamera(4)" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,180,255,0.15);border:1px solid var(--blue);color:#5cd2ff;border-radius:3px;">
+      <span>🚗</span><span>TEST CAR ON CAM 4</span>
+    </button>
+  </div>
+
+  <!-- ── Main area: grid + sidebar ── -->
+  <div class="main-area">
+    <main class="grid-container" id="gridContainer">
+
+      <!-- Camera 1 (Phone) -->
+      <div class="camera-panel disconnected" id="panel-1" data-id="1">
+        <div class="panel-topbar">
+          <span class="cam-label">CAM 01 · Junction A</span>
+          <span class="live-badge hidden" id="liveBadge-1"><div class="live-dot"></div>LIVE</span>
+        </div>
+        <canvas class="anpr-canvas" id="anpr-canvas-1"></canvas>
+        <video class="camera-video" id="video-1" autoplay playsinline muted></video>
+        <div class="live-plate-card" id="live-plate-card-1">
+          <div class="live-plate-pill">
+            <div class="live-plate-ind">IND</div>
+            <div class="live-plate-text" id="lpc-plate-1">------</div>
+          </div>
+          <div class="live-plate-meta">
+            <div class="live-plate-state" id="lpc-state-1">--</div>
+            <div class="live-plate-sub" id="lpc-sub-1">DETECTED · --%</div>
+          </div>
+        </div>
+        <div class="anpr-bar" id="anpr-bar-1"></div>
+        <div class="offline-overlay" id="offline-1">
+          <div class="offline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/></svg></div>
+          <div class="qr-section"><img class="qr-image" id="qr-1" src="" alt="QR" /><div class="qr-url" id="qrUrl-1">loading…</div></div>
+          <div class="offline-label">Scan to connect Camera 1</div>
+          <div class="offline-actions">
+            <button class="action-btn green" onclick="openQrModal(1)">QR Code</button>
+            <button class="action-btn green" onclick="reconnectCamera(1)">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-btmbar">
+          <div class="panel-stats">
+            <div class="stat-item"><div class="stat-dot"></div><span id="fps-1">-- FPS</span></div>
+            <span id="connStatus-1">OFFLINE</span>
+          </div>
+          <div class="panel-actions">
+            <button class="icon-btn" title="Snapshot & Scan Plate" onclick="captureAndScan(1); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg></button>
+            <button class="icon-btn" title="QR Code"   onclick="openQrModal(1); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5zM3 21h8v-8H3v8zm2-6h4v4H5v-4zM13 3v8h8V3h-8zm6 6h-4V5h4v4z"/></svg></button>
+            <button class="icon-btn" title="Reconnect" onclick="reconnectCamera(1); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+            <button class="icon-btn" title="Fullscreen" onclick="openFullscreen(1); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Camera 2 (Phone) -->
+      <div class="camera-panel disconnected" id="panel-2" data-id="2">
+        <div class="panel-topbar">
+          <span class="cam-label">CAM 02 · Junction B</span>
+          <span class="live-badge hidden" id="liveBadge-2"><div class="live-dot"></div>LIVE</span>
+        </div>
+        <canvas class="anpr-canvas" id="anpr-canvas-2"></canvas>
+        <video class="camera-video" id="video-2" autoplay playsinline muted></video>
+        <div class="live-plate-card" id="live-plate-card-2">
+          <div class="live-plate-pill">
+            <div class="live-plate-ind">IND</div>
+            <div class="live-plate-text" id="lpc-plate-2">------</div>
+          </div>
+          <div class="live-plate-meta">
+            <div class="live-plate-state" id="lpc-state-2">--</div>
+            <div class="live-plate-sub" id="lpc-sub-2">DETECTED · --%</div>
+          </div>
+        </div>
+        <div class="anpr-bar" id="anpr-bar-2"></div>
+        <div class="offline-overlay" id="offline-2">
+          <div class="offline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/></svg></div>
+          <div class="qr-section"><img class="qr-image" id="qr-2" src="" alt="QR" /><div class="qr-url" id="qrUrl-2">loading…</div></div>
+          <div class="offline-label">Scan to connect Camera 2</div>
+          <div class="offline-actions">
+            <button class="action-btn green" onclick="openQrModal(2)">QR Code</button>
+            <button class="action-btn green" onclick="reconnectCamera(2)">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-btmbar">
+          <div class="panel-stats"><div class="stat-item"><div class="stat-dot"></div><span id="fps-2">-- FPS</span></div><span id="connStatus-2">OFFLINE</span></div>
+          <div class="panel-actions">
+            <button class="icon-btn" title="Snapshot & Scan Plate" onclick="captureAndScan(2); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg></button>
+            <button class="icon-btn" onclick="openQrModal(2); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5z"/></svg></button>
+            <button class="icon-btn" onclick="reconnectCamera(2); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+            <button class="icon-btn" onclick="openFullscreen(2); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Camera 3 (Phone) -->
+      <div class="camera-panel disconnected" id="panel-3" data-id="3">
+        <div class="panel-topbar">
+          <span class="cam-label">CAM 03 · Junction C</span>
+          <span class="live-badge hidden" id="liveBadge-3"><div class="live-dot"></div>LIVE</span>
+        </div>
+        <canvas class="anpr-canvas" id="anpr-canvas-3"></canvas>
+        <video class="camera-video" id="video-3" autoplay playsinline muted></video>
+        <div class="live-plate-card" id="live-plate-card-3">
+          <div class="live-plate-pill">
+            <div class="live-plate-ind">IND</div>
+            <div class="live-plate-text" id="lpc-plate-3">------</div>
+          </div>
+          <div class="live-plate-meta">
+            <div class="live-plate-state" id="lpc-state-3">--</div>
+            <div class="live-plate-sub" id="lpc-sub-3">DETECTED · --%</div>
+          </div>
+        </div>
+        <div class="anpr-bar" id="anpr-bar-3"></div>
+        <div class="offline-overlay" id="offline-3">
+          <div class="offline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/></svg></div>
+          <div class="qr-section"><img class="qr-image" id="qr-3" src="" alt="QR" /><div class="qr-url" id="qrUrl-3">loading…</div></div>
+          <div class="offline-label">Scan to connect Camera 3</div>
+          <div class="offline-actions">
+            <button class="action-btn green" onclick="openQrModal(3)">QR Code</button>
+            <button class="action-btn green" onclick="reconnectCamera(3)">Refresh</button>
+          </div>
+        </div>
+        <div class="panel-btmbar">
+          <div class="panel-stats"><div class="stat-item"><div class="stat-dot"></div><span id="fps-3">-- FPS</span></div><span id="connStatus-3">OFFLINE</span></div>
+          <div class="panel-actions">
+            <button class="icon-btn" title="Snapshot & Scan Plate" onclick="captureAndScan(3); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg></button>
+            <button class="icon-btn" onclick="openQrModal(3); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 11h8V3H3v8zm2-6h4v4H5V5z"/></svg></button>
+            <button class="icon-btn" onclick="reconnectCamera(3); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+            <button class="icon-btn" onclick="openFullscreen(3); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Camera 4 (Local Webcam) -->
+      <div class="camera-panel disconnected" id="panel-4" data-id="4">
+        <div class="panel-topbar">
+          <span class="cam-label">CAM 04 · Highway Entry · LOCAL</span>
+          <span class="live-badge hidden" id="liveBadge-4"><div class="live-dot"></div>LIVE</span>
+        </div>
+        <canvas class="anpr-canvas" id="anpr-canvas-4"></canvas>
+        <video class="camera-video" id="video-4" autoplay playsinline muted></video>
+        <div class="live-plate-card" id="live-plate-card-4">
+          <div class="live-plate-pill">
+            <div class="live-plate-ind">IND</div>
+            <div class="live-plate-text" id="lpc-plate-4">------</div>
+          </div>
+          <div class="live-plate-meta">
+            <div class="live-plate-state" id="lpc-state-4">--</div>
+            <div class="live-plate-sub" id="lpc-sub-4">DETECTED · --%</div>
+          </div>
+        </div>
+        <div class="anpr-bar" id="anpr-bar-4"></div>
+        <div class="offline-overlay" id="offline-4">
+          <div class="offline-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="8" x2="16" y2="16"/></svg></div>
+          <div class="offline-label">Local Webcam (Camera 4)</div>
+          <div class="offline-actions">
+            <button class="action-btn green" onclick="initLocalWebcam()">Start Webcam</button>
+          </div>
+        </div>
+        <div class="panel-btmbar">
+          <div class="panel-stats"><div class="stat-item"><div class="stat-dot"></div><span id="fps-4">-- FPS</span></div><span id="connStatus-4">LOCAL CAM</span></div>
+          <div class="panel-actions">
+            <button class="icon-btn" title="Snapshot & Scan Plate" onclick="captureAndScan(4); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/></svg></button>
+            <button class="icon-btn" onclick="initLocalWebcam(); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+            <button class="icon-btn" onclick="openFullscreen(4); event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ── Intelligence Sidebar ── -->
+    <aside class="intel-sidebar">
+      <!-- Watchlist Alerts -->
+      <div class="sidebar-section" style="max-height:35%">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">🚨 Watchlist Alerts</span>
+          <span class="sidebar-count" id="alertSidebarCount">0</span>
+        </div>
+        <div class="sidebar-scroll" id="alertFeed">
+          <div style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">No alerts</div>
+        </div>
+      </div>
+      <!-- Recent Detections -->
+      <div class="sidebar-section">
+        <div class="sidebar-section-header">
+          <span class="sidebar-section-title">📋 Recent Detections</span>
+          <span class="sidebar-count" id="detSidebarCount">0</span>
+        </div>
+        <div class="sidebar-scroll" id="detectionFeed">
+          <div style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">Waiting for ANPR…</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ── Status Bar ── -->
+  <footer class="statusbar">
+    <div class="status-item"><div class="dot" id="sbDot" style="background:#4a5060"></div><span id="sbText">Initializing…</span></div>
+    <div class="status-item"><div class="dot green"></div><span id="sbCamCount">0 / 4 cameras active</span></div>
+    <div class="status-item"><div class="dot green"></div><span id="sbAnprCount">0 detections today</span></div>
+    <div class="status-item" style="margin-left:auto;"><span id="sbIp" style="color:#2a3040">--</span></div>
+  </footer>
+</div>
+
+<!-- Fullscreen Modal -->
+<div class="fullscreen-modal" id="fsModal">
+  <div class="fs-topbar">
+    <span class="fs-label" id="fsLabel">CAM 01</span>
+    <button class="fs-close" id="fsClose" onclick="closeFullscreen()">✕</button>
+  </div>
+  <video class="fs-video" id="fsVideo" autoplay playsinline muted></video>
+</div>
+
+<!-- QR Modal -->
+<div class="qr-modal-overlay" id="qrModal">
+  <div class="qr-modal-box">
+    <button class="qr-modal-close" onclick="closeQrModal()">✕</button>
+    <div class="qr-modal-title" id="qrModalTitle">CAMERA 1</div>
+    <img class="qr-modal-img" id="qrModalImg" src="" alt="QR Code" />
+    <div class="qr-modal-url" id="qrModalUrl"></div>
+    <div class="qr-instructions">
+      <span>1. Open your phone camera or QR scanner</span>
+      <span>2. Scan the code above</span>
+      <span>3. Accept the security warning once</span>
+      <span>4. Tap "Start Camera" to stream</span>
+    </div>
+  </div>
+</div>
+
+<!-- Car Image Plate Scan & Inspection Modal -->
+<div class="scan-modal-overlay" id="scanModal">
+  <div class="scan-modal-card">
+    <div class="scan-modal-header">
+      <div class="scan-modal-header-left">
+        <span class="scan-modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2h-3.17L15 2H9z"/></svg>
+          CAR ANPR SCANNER & PLATE INSPECTOR
+        </span>
+        <span class="scan-modal-badge" id="scanEngineStatus">YOLOv8 + EasyOCR</span>
+      </div>
+      <button class="scan-modal-close" onclick="closeScanModal()">✕</button>
+    </div>
+
+    <div class="scan-modal-body">
+      <!-- Left: Visual & Controls -->
+      <div class="scan-visual-pane">
+        <div class="scan-toolbar">
+          <label class="scan-upload-btn" for="scanFileInput">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+            Upload Car Photo
+          </label>
+          <input type="file" id="scanFileInput" accept="image/*" style="display:none;" onchange="handleScanUpload(event)" />
+
+          <div class="sample-buttons-row">
+            <span style="font-family:var(--text-mono);font-size:10px;color:var(--text-dim);">Presets:</span>
+            <button class="sample-chip" onclick="loadSampleCar(1)">Sample 1</button>
+            <button class="sample-chip" onclick="loadSampleCar(2)">Sample 2</button>
+            <button class="sample-chip" onclick="loadSampleCar(3)">Sample 3</button>
+          </div>
+        </div>
+
+        <div class="scan-canvas-container" id="scanCanvasContainer">
+          <div class="scan-loading-spinner" id="scanLoadingSpinner">
+            <div class="spinner-ring"></div>
+            <div class="spinner-text" id="scanLoadingText">NEURAL DETECTION IN PROGRESS...</div>
+          </div>
+          <canvas id="scanResultCanvas" style="display:none;"></canvas>
+          <div id="scanPlaceholder" style="text-align:center;padding:40px 20px;color:var(--text-dim);font-family:var(--text-mono);">
+            <div style="font-size:36px;margin-bottom:12px;">📸</div>
+            <div style="color:var(--text-primary);font-size:13px;font-weight:600;margin-bottom:6px;">Upload or capture a car image</div>
+            <div style="font-size:11px;">Supports JPEG, PNG, WebP or live snapshots from CCTV cameras</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: License Plate Details -->
+      <div class="scan-details-pane">
+        <!-- Indian Plate Badge Card -->
+        <div class="scan-card-section">
+          <div class="scan-section-title">Detected Number Plate</div>
+          <div class="ind-plate-wrapper">
+            <div class="ind-plate-inner">
+              <div class="ind-plate-flag">
+                <div class="ind-chakra-dot"></div>
+                <span>IND</span>
+              </div>
+              <div class="ind-plate-number" id="scanPlateNumber">------</div>
+              <div class="ind-plate-hsrp-stamp">
+                <div>HSRP</div>
+                <div style="font-size:6px;opacity:0.7;">AUTHENTIC</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telemetry & Specs -->
+        <div class="scan-card-section">
+          <div class="scan-section-title">Registration Telemetry</div>
+          <div class="plate-specs-grid">
+            <div class="plate-spec-item">
+              <div class="plate-spec-label">STATE / REGION</div>
+              <div class="plate-spec-val highlight" id="scanStateName">--</div>
+            </div>
+            <div class="plate-spec-item">
+              <div class="plate-spec-label">VEHICLE CLASS</div>
+              <div class="plate-spec-val" id="scanVehicleType">--</div>
+            </div>
+            <div class="plate-spec-item">
+              <div class="plate-spec-label">OVERALL CONFIDENCE</div>
+              <div class="plate-spec-val highlight" id="scanConfidenceVal">--%</div>
+              <div class="conf-meter-track">
+                <div class="conf-meter-bar" id="scanConfidenceBar"></div>
+              </div>
+            </div>
+            <div class="plate-spec-item">
+              <div class="plate-spec-label">PLATE FORMAT</div>
+              <div class="plate-spec-val" id="scanPlateType">Standard HSRP</div>
+            </div>
+            <div class="plate-spec-item" style="grid-column: span 2;">
+              <div class="plate-spec-label">BOUNDING BOX COORDS</div>
+              <div class="plate-spec-val" id="scanBoxCoords" style="font-family:var(--text-mono);font-size:11px;color:var(--text-dim);">--</div>
+            </div>
+            <div class="plate-spec-item" style="grid-column: span 2;">
+              <div class="plate-spec-label">DATABASE SYNC STATUS</div>
+              <div class="plate-spec-val" id="scanLogStatus" style="font-size:11px;color:var(--green);">Ready</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="scan-actions-row">
+          <button class="scan-action-btn primary" onclick="copyPlateNumber()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+            <span id="copyBtnText">Copy Plate</span>
+          </button>
+          <button class="scan-action-btn secondary" onclick="document.getElementById('scanFileInput').click()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            New Image
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/camera-config.js"></script>
+<script src="/js/anpr-engine.js"></script>
+<script>
+'use strict';
+
+// ── ICE Config ──────────────────────────────────────────────
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
+
+// ── State ───────────────────────────────────────────────────
+const peers     = {};
+const fpsData   = {};
+let activeCameraCount = 0;
+let serverIP    = '';
+let totalDet    = 0;
+let alertCount  = 0;
+let simModeOn   = true;
+
+// ── Clock ───────────────────────────────────────────────────
+function updateClock() {
+  const t = new Date().toTimeString().slice(0, 8);
+  document.getElementById('clock').textContent    = t;
+  document.getElementById('navClock').textContent = t;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Network Info ────────────────────────────────────────────
+async function fetchNetworkInfo() {
+  try {
+    const r = await fetch('/api/network-info');
+    const d = await r.json();
+    serverIP = d.ip;
+    document.getElementById('serverAddr').textContent = `${d.ip}:${d.port}`;
+    document.getElementById('sbIp').textContent = `SERVER: https://${d.ip}:${d.port}`;
+  } catch (e) { console.warn('Network info fetch failed', e); }
+}
+
+// ── QR Code Loaders ─────────────────────────────────────────
+async function loadQrCode(id) {
+  try {
+    const r = await fetch(`/api/qrcode/${id}`);
+    const d = await r.json();
+    document.getElementById(`qr-${id}`).src = d.qr;
+    document.getElementById(`qrUrl-${id}`).textContent = d.url;
+  } catch (e) { console.warn(`QR ${id} failed`, e); }
+}
+
+// ── Camera Panel UI ─────────────────────────────────────────
+function setCameraState(id, state) {
+  const panel   = document.getElementById(`panel-${id}`);
+  const offline = document.getElementById(`offline-${id}`);
+  const live    = document.getElementById(`liveBadge-${id}`);
+  const status  = document.getElementById(`connStatus-${id}`);
+
+  panel.classList.remove('connected', 'disconnected');
+  if (state === 'connected') {
+    panel.classList.add('connected');
+    offline.classList.add('hidden');
+    live.classList.remove('hidden');
+    status.textContent = 'ONLINE';
+    // Start ANPR on this camera
+    startANPRForCamera(id);
+  } else {
+    panel.classList.add('disconnected');
+    offline.classList.remove('hidden');
+    live.classList.add('hidden');
+    status.textContent = 'OFFLINE';
+    stopFpsCounter(id);
+    document.getElementById(`fps-${id}`).textContent = '-- FPS';
+    window.ANPR.stopCamera(id);
+  }
+  updateCameraCount();
+}
+
+function updateCameraCount() {
+  activeCameraCount = [...document.querySelectorAll('.camera-panel.connected')].length;
+  document.getElementById('sbCamCount').textContent = `${activeCameraCount} / 4 cameras active`;
+  const dot = document.getElementById('sbDot');
+  const txt = document.getElementById('sbText');
+  if (activeCameraCount === 4)      { dot.style.background='#00ff41'; txt.textContent='All cameras connected'; }
+  else if (activeCameraCount > 0)   { dot.style.background='#ffb400'; txt.textContent=`${activeCameraCount} camera(s) active`; }
+  else                               { dot.style.background='#ff3b30'; txt.textContent='No cameras connected'; }
+}
+
+// ── FPS Counter ─────────────────────────────────────────────
+function startFpsCounter(id) {
+  stopFpsCounter(id);
+  fpsData[id] = { frames: 0, lastTime: performance.now() };
+  const video = document.getElementById(`video-${id}`);
+  const el    = document.getElementById(`fps-${id}`);
+  function tick() {
+    if (!fpsData[id]) return;
+    fpsData[id].frames++;
+    const now   = performance.now();
+    const delta = now - fpsData[id].lastTime;
+    if (delta >= 1000) {
+      el.textContent = `${Math.round((fpsData[id].frames * 1000) / delta)} FPS`;
+      fpsData[id].frames = 0;
+      fpsData[id].lastTime = now;
+    }
+    fpsData[id].raf = video.requestVideoFrameCallback
+      ? video.requestVideoFrameCallback(tick) : requestAnimationFrame(tick);
+  }
+  fpsData[id].raf = video.requestVideoFrameCallback
+    ? video.requestVideoFrameCallback(tick) : requestAnimationFrame(tick);
+}
+function stopFpsCounter(id) { if (fpsData[id]) delete fpsData[id]; }
+
+// ── ANPR Integration ────────────────────────────────────────
+function startANPRForCamera(id) {
+  const video  = document.getElementById(`video-${id}`);
+  const canvas = document.getElementById(`anpr-canvas-${id}`);
+  if (!video || !canvas) return;
+  // Start after video has loaded
+  const tryStart = () => {
+    if (video.videoWidth > 0) {
+      window.ANPR.startCamera(id, video, canvas);
+    } else {
+      setTimeout(tryStart, 500);
+    }
+  };
+  tryStart();
+}
+
+// Sim mode toggle
+function toggleSimMode() {
+  simModeOn = !simModeOn;
+  window.ANPR.setSimMode(simModeOn);
+  const pill  = document.getElementById('simTogglePill');
+  const label = document.getElementById('simToggleLabel');
+  pill.className  = `toggle-pill ${simModeOn ? 'on' : 'off'}`;
+  label.textContent = simModeOn ? 'SIM ON' : 'SIM OFF';
+}
+
+// AI Model status callbacks
+async function initANPR() {
+  const dot    = document.getElementById('aiDot');
+  const status = document.getElementById('aiStatus');
+
+  dot.className = 'ai-dot loading';
+  status.textContent = 'Loading COCO-SSD…';
+
+  window.ANPR.onDetection = null; // handled via socket broadcast back
+
+  await window.ANPR.loadModel();
+  await window.ANPR.loadOCR();
+
+  if (window.ANPR.modelReady) {
+    dot.className = 'ai-dot ready';
+    status.textContent = 'AI Ready';
+  } else {
+    dot.className = 'ai-dot error';
+    status.textContent = 'Model failed (sim only)';
+  }
+
+  // Ensure ANPR pipeline is active for all cameras currently connected
+  [1, 2, 3, 4].forEach(id => {
+    const v = document.getElementById(`video-${id}`);
+    if (v && v.srcObject) startANPRForCamera(id);
+  });
+}
+
+// ── Socket.io ───────────────────────────────────────────────
+const socket = io({ secure: true, rejectUnauthorized: false });
+window.monitorSocket = socket; // expose for anpr-engine.js
+
+socket.on('connect', () => {
+  console.log('Socket connected:', socket.id);
+  socket.emit('dashboard:register');
+  document.getElementById('sbText').textContent = 'Server connected — waiting for cameras…';
+});
+
+socket.on('disconnect', () => {
+  document.getElementById('sbText').textContent = 'Server disconnected…';
+});
+
+socket.on('cameras:status', (status) => {
+  for (let i = 1; i <= 3; i++) {
+    if (status[i] === 'disconnected' && peers[i]) setCameraState(i, 'disconnected');
+  }
+});
+
+socket.on('camera:ready', async ({ cameraId }) => {
+  console.log(`Camera ${cameraId} ready`);
+  createPeer(cameraId);
+});
+
+socket.on('webrtc:offer', async ({ cameraId, sdp }) => {
+  let pc = peers[cameraId];
+  if (!pc) pc = createPeer(cameraId);
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('webrtc:answer', { cameraId, sdp: pc.localDescription });
+  } catch (err) { console.error(`Answer failed cam ${cameraId}:`, err); }
+});
+
+socket.on('webrtc:ice:phone', async ({ cameraId, candidate }) => {
+  const pc = peers[cameraId];
+  if (pc && candidate) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch(e){}
+  }
+});
+
+socket.on('camera:disconnected', ({ cameraId }) => {
+  setCameraState(cameraId, 'disconnected');
+  if (peers[cameraId]) { peers[cameraId].close(); delete peers[cameraId]; }
+  document.getElementById(`video-${cameraId}`).srcObject = null;
+});
+
+socket.on('camera:restart', ({ cameraId }) => {
+  socket.emit('camera:restart', { cameraId });
+});
+
+// ── ANPR Detection Broadcast ─────────────────────────────────
+socket.on('anpr:detection', (det) => {
+  totalDet++;
+  document.getElementById('totalDetCount').textContent = totalDet;
+  document.getElementById('sbAnprCount').textContent   = `${totalDet} detections today`;
+  addDetectionToSidebar(det);
+});
+
+socket.on('anpr:alert', (alert) => {
+  alertCount++;
+  addAlertToSidebar(alert);
+  showAlertBanner(alert);
+  // Update nav badge
+  document.getElementById('navAlertBadge').classList.remove('hidden');
+  document.getElementById('navAlertCount').textContent = alertCount;
+  document.getElementById('alertSidebarCount').textContent = alertCount;
+});
+
+// ── Sidebar Feed Functions ───────────────────────────────────
+const MAX_SIDEBAR_ITEMS = 50;
+
+function addDetectionToSidebar(det) {
+  const feed = document.getElementById('detectionFeed');
+  // Remove placeholder
+  const placeholder = feed.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+
+  const time  = new Date(det.timestamp).toTimeString().slice(0, 8);
+  const conf  = Math.round(det.confidence * 100);
+  const simTag = det.simulated ? '<span class="det-sim">SIM</span>' : '';
+
+  const el = document.createElement('div');
+  el.className = 'detection-item';
+  el.innerHTML = `
+    <div class="det-plate">${det.plate}</div>
+    <div class="det-meta">
+      <span class="det-cam">${det.cameraName}</span>
+      <span class="det-conf">${conf}%</span>
+      <span>${det.vehicleType}</span>
+      <span>${time}</span>
+      ${simTag}
+    </div>
+  `;
+  feed.insertBefore(el, feed.firstChild);
+
+  // Keep max items
+  while (feed.children.length > MAX_SIDEBAR_ITEMS) feed.removeChild(feed.lastChild);
+  document.getElementById('detSidebarCount').textContent = Math.min(totalDet, MAX_SIDEBAR_ITEMS);
+}
+
+function addAlertToSidebar(alert) {
+  const feed = document.getElementById('alertFeed');
+  const placeholder = feed.querySelector('[data-placeholder]');
+  if (placeholder) placeholder.remove();
+
+  const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0, 8);
+  const el   = document.createElement('div');
+  el.className = 'alert-item';
+  el.innerHTML = `
+    <div class="alert-plate">${alert.plate}</div>
+    <div class="det-meta">
+      <span class="det-cam">${alert.cameraName}</span>
+      <span>${time}</span>
+      <span>${alert.reason || ''}</span>
+    </div>
+  `;
+  feed.insertBefore(el, feed.firstChild);
+  while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+}
+
+function showAlertBanner(alert) {
+  const banner = document.getElementById('wlBanner');
+  const text   = document.getElementById('wlBannerText');
+  text.textContent = `WATCHLIST ALERT — ${alert.plate} detected at ${alert.cameraName} | ${new Date(alert.alertTime||alert.timestamp).toTimeString().slice(0,8)} | Reason: ${alert.reason || 'Watchlisted'}`;
+  banner.classList.add('visible');
+  setTimeout(() => banner.classList.remove('visible'), 12000);
+}
+
+// ── WebRTC Peer Setup ─────────────────────────────────────────
+function createPeer(cameraId) {
+  if (peers[cameraId]) { peers[cameraId].close(); delete peers[cameraId]; }
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  peers[cameraId] = pc;
+
+  pc.ontrack = (evt) => {
+    const video = document.getElementById(`video-${cameraId}`);
+    if (evt.streams?.[0]) {
+      video.srcObject = evt.streams[0];
+      video.onloadedmetadata = () => {
+        video.play().catch(()=>{});
+        setCameraState(cameraId, 'connected');
+        startFpsCounter(cameraId);
+      };
+    }
+  };
+
+  pc.onicecandidate = (evt) => {
+    if (evt.candidate) socket.emit('webrtc:ice:dashboard', { cameraId, candidate: evt.candidate });
+  };
+
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    if (state === 'failed' || state === 'disconnected') {
+      setCameraState(cameraId, 'disconnected');
+      setTimeout(() => reconnectCamera(cameraId), 3000);
+    }
+  };
+
+  return pc;
+}
+
+// ── Local Webcam ─────────────────────────────────────────────
+async function initLocalWebcam() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+      audio: false,
+    });
+    const video = document.getElementById('video-4');
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play().catch(()=>{});
+      setCameraState(4, 'connected');
+      startFpsCounter(4);
+    };
+  } catch (err) {
+    console.error('Webcam denied:', err);
+    alert('Could not access webcam. Please allow camera permission.');
+  }
+}
+
+// ── Reconnect ────────────────────────────────────────────────
+function reconnectCamera(id) {
+  if (id === 4) { initLocalWebcam(); return; }
+  socket.emit('camera:restart', { cameraId: id });
+  if (peers[id]) { peers[id].close(); delete peers[id]; }
+}
+
+// ── Fullscreen ───────────────────────────────────────────────
+let fsSourceId = null;
+function openFullscreen(id) {
+  const srcVideo = document.getElementById(`video-${id}`);
+  if (!srcVideo.srcObject) return;
+  const modal = document.getElementById('fsModal');
+  const fsVideo = document.getElementById('fsVideo');
+  fsVideo.srcObject = srcVideo.srcObject;
+  document.getElementById('fsLabel').textContent = `CAM 0${id}${id===4?' · LOCAL':''}`;
+  fsSourceId = id;
+  modal.classList.add('active');
+  if (modal.requestFullscreen) modal.requestFullscreen().catch(()=>{});
+}
+function closeFullscreen() {
+  const modal = document.getElementById('fsModal');
+  document.getElementById('fsVideo').srcObject = null;
+  modal.classList.remove('active');
+  if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  fsSourceId = null;
+}
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement) closeFullscreen(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeFullscreen(); });
+document.querySelectorAll('.camera-panel').forEach(panel => {
+  panel.addEventListener('click', () => openFullscreen(parseInt(panel.dataset.id, 10)));
+});
+
+// ── QR Modal ─────────────────────────────────────────────────
+const qrCache = {};
+async function openQrModal(id) {
+  const modal = document.getElementById('qrModal');
+  document.getElementById('qrModalTitle').textContent = `CAMERA ${id}`;
+  modal.classList.add('active');
+  if (!qrCache[id]) {
+    try {
+      const r = await fetch(`/api/qrcode/${id}`);
+      qrCache[id] = await r.json();
+    } catch(e) { return; }
+  }
+  document.getElementById('qrModalImg').src  = qrCache[id].qr;
+  document.getElementById('qrModalUrl').textContent = qrCache[id].url;
+}
+function closeQrModal() { document.getElementById('qrModal').classList.remove('active'); }
+document.getElementById('qrModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('qrModal')) closeQrModal();
+});
+
+// ── Car Image Scan Modal Functions ───────────────────────────
+function openScanModal() {
+  const modal = document.getElementById('scanModal');
+  modal.classList.add('active');
+}
+
+function closeScanModal() {
+  const modal = document.getElementById('scanModal');
+  modal.classList.remove('active');
+}
+
+document.getElementById('scanModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('scanModal')) closeScanModal();
+});
+
+function handleScanUpload(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    runImageDetection(evt.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function loadSampleCar(index) {
+  openScanModal();
+  const loading = document.getElementById('scanLoadingSpinner');
+  loading.classList.add('active');
+  document.getElementById('scanLoadingText').textContent = `LOADING SAMPLE CAR ${index}...`;
+  try {
+    const resp = await fetch(`/sample_cars/sample${index}.jpg`);
+    const blob = await resp.blob();
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      runImageDetection(evt.target.result);
+    };
+    reader.readAsDataURL(blob);
+  } catch (err) {
+    console.error('Failed to load sample car:', err);
+    loading.classList.remove('active');
+    alert('Failed to load sample image');
+  }
+}
+
+function captureAndScan(camId) {
+  openScanModal();
+  const video = document.getElementById(`video-${camId}`);
+  if (video && video.videoWidth > 0 && !video.paused) {
+    const snapCanvas = document.createElement('canvas');
+    snapCanvas.width = video.videoWidth;
+    snapCanvas.height = video.videoHeight;
+    const sctx = snapCanvas.getContext('2d');
+    sctx.drawImage(video, 0, 0, snapCanvas.width, snapCanvas.height);
+    const dataUrl = snapCanvas.toDataURL('image/jpeg', 0.92);
+    runImageDetection(dataUrl, camId);
+  } else {
+    loadSampleCar(1);
+  }
+}
+
+async function runImageDetection(dataUrl, camId = 1) {
+  openScanModal();
+  const spinner = document.getElementById('scanLoadingSpinner');
+  const spinnerTxt = document.getElementById('scanLoadingText');
+  const canvas = document.getElementById('scanResultCanvas');
+  const placeholder = document.getElementById('scanPlaceholder');
+  const ctx = canvas.getContext('2d');
+
+  spinner.classList.add('active');
+  spinnerTxt.textContent = 'EXTRACTING INDIAN NUMBER PLATE...';
+  placeholder.style.display = 'none';
+  canvas.style.display = 'block';
+
+  const img = new Image();
+  img.onload = async () => {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+
+    try {
+      const resp = await fetch('/api/anpr/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: dataUrl,
+          cameraId: camId,
+          forwardToDashboard: true
+        })
+      });
+
+      const res = await resp.json();
+      spinner.classList.remove('active');
+
+      if (res.detected && res.detection) {
+        const det = res.detection;
+        const [x, y, w, h] = det.bbox;
+
+        ctx.drawImage(img, 0, 0);
+
+        ctx.save();
+        ctx.strokeStyle = '#00ff41';
+        ctx.lineWidth = Math.max(4, Math.round(canvas.width / 250));
+        ctx.shadowColor = '#00ff41';
+        ctx.shadowBlur = 18;
+        ctx.strokeRect(x, y, w, h);
+
+        const cornerLen = Math.min(w, h) * 0.25;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = Math.max(5, Math.round(canvas.width / 200));
+
+        ctx.beginPath();
+        ctx.moveTo(x, y + cornerLen); ctx.lineTo(x, y); ctx.lineTo(x + cornerLen, y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - cornerLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + cornerLen);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x, y + h - cornerLen); ctx.lineTo(x, y + h); ctx.lineTo(x + cornerLen, y + h);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(x + w - cornerLen, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - cornerLen);
+        ctx.stroke();
+
+        const fontSize = Math.max(16, Math.round(canvas.width / 40));
+        ctx.font = `bold ${fontSize}px "Share Tech Mono", monospace`;
+        const labelText = ` ${det.plate} · ${Math.round(det.confidence * 100)}% `;
+        const textWidth = ctx.measureText(labelText).width;
+        const bannerHeight = fontSize + 12;
+        const bannerY = Math.max(0, y - bannerHeight - 4);
+
+        ctx.fillStyle = '#05060a';
+        ctx.fillRect(x, bannerY, textWidth + 10, bannerHeight);
+        ctx.strokeStyle = '#00ff41';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, bannerY, textWidth + 10, bannerHeight);
+
+        ctx.fillStyle = '#00ff41';
+        ctx.shadowColor = '#00ff41';
+        ctx.shadowBlur = 6;
+        ctx.fillText(labelText, x + 5, bannerY + fontSize);
+        ctx.restore();
+
+        document.getElementById('scanPlateNumber').textContent = det.plate;
+        document.getElementById('scanStateName').textContent = det.stateName || (det.stateCode ? 'State: ' + det.stateCode : 'India');
+        document.getElementById('scanVehicleType').textContent = det.vehicleType || 'Car / Passenger Vehicle';
+        const confPct = Math.round(det.confidence * 100);
+        document.getElementById('scanConfidenceVal').textContent = `${confPct}% Match`;
+        document.getElementById('scanConfidenceBar').style.width = `${Math.min(100, confPct)}%`;
+        document.getElementById('scanPlateType').textContent = det.plateType || 'Standard HSRP';
+        document.getElementById('scanBoxCoords').textContent = `x:${x} y:${y} w:${w} h:${h} (Detector: ${Math.round(det.detectorConfidence * 100)}%, OCR: ${Math.round(det.ocrConfidence * 100)}%)`;
+        document.getElementById('scanLogStatus').textContent = `✓ Logged in Real-Time Telemetry Database`;
+
+        totalDet++;
+        const totalEl = document.getElementById('totalDetCount');
+        if (totalEl) totalEl.textContent = totalDet;
+      } else {
+        ctx.drawImage(img, 0, 0);
+        document.getElementById('scanPlateNumber').textContent = 'NO PLATE';
+        document.getElementById('scanStateName').textContent = 'Unrecognized';
+        document.getElementById('scanConfidenceVal').textContent = '0%';
+        document.getElementById('scanConfidenceBar').style.width = '0%';
+        document.getElementById('scanBoxCoords').textContent = 'No license plate found in frame';
+        document.getElementById('scanLogStatus').textContent = 'Please retry with clearer car angle';
+      }
+    } catch (err) {
+      console.error('Detection API error:', err);
+      spinner.classList.remove('active');
+      document.getElementById('scanLogStatus').textContent = 'API Error: ' + err.message;
+    }
+  };
+  img.src = dataUrl;
+}
+
+function copyPlateNumber() {
+  const plate = document.getElementById('scanPlateNumber').textContent;
+  if (!plate || plate === '------' || plate === 'NO PLATE') return;
+  navigator.clipboard.writeText(plate).then(() => {
+    const btnText = document.getElementById('copyBtnText');
+    btnText.textContent = '✓ Copied!';
+    setTimeout(() => { btnText.textContent = 'Copy Plate'; }, 2000);
+  });
+}
+
+// ── Live Camera Simulation / Test Function ────────────────────
+async function testLiveCarOnCamera(camId = 4) {
+  try {
+    const resp = await fetch('/sample_cars/sample2.jpg');
+    const blob = await resp.blob();
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const dataUrl = evt.target.result;
+      const canvas = document.getElementById(`anpr-canvas-${camId}`);
+      if (!canvas) return;
+
+      const img = new Image();
+      img.onload = async () => {
+        const offline = document.getElementById(`offline-${camId}`);
+        if (offline) offline.classList.add('hidden');
+        const panel = document.getElementById(`panel-${camId}`);
+        if (panel) {
+          panel.classList.remove('disconnected');
+          panel.classList.add('connected');
+        }
+
+        canvas.width = canvas.clientWidth || 480;
+        canvas.height = canvas.clientHeight || 360;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const dResp = await fetch('/api/anpr/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: dataUrl,
+            cameraId: camId,
+            cameraName: `CAM 0${camId}`,
+            forwardToDashboard: true
+          })
+        });
+
+        const dData = await dResp.json();
+        if (dData.success && dData.detected && dData.detection) {
+          const det = dData.detection;
+          window.ANPR.showLivePlateHUD(camId, det);
+
+          const scX = canvas.width / img.naturalWidth;
+          const scY = canvas.height / img.naturalHeight;
+          const [px, py, pw, ph] = det.bbox;
+          const psx = px * scX, psy = py * scY, psw = pw * scX, psh = ph * scY;
+
+          ctx.save();
+          ctx.strokeStyle = '#00ff41';
+          ctx.lineWidth = Math.max(3, Math.round(canvas.width / 160));
+          ctx.shadowColor = '#00ff41';
+          ctx.shadowBlur = 14;
+          ctx.strokeRect(psx, psy, psw, psh);
+
+          const cLen = Math.min(psw, psh) * 0.3;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 4;
+          ctx.shadowBlur = 0;
+          ctx.beginPath();
+          ctx.moveTo(psx, psy + cLen); ctx.lineTo(psx, psy); ctx.lineTo(psx + cLen, psy);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(psx + psw - cLen, psy); ctx.lineTo(psx + psw, psy); ctx.lineTo(psx + psw, psy + cLen);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(psx, psy + psh - cLen); ctx.lineTo(psx, psy + psh); ctx.lineTo(psx + cLen, psy + psh);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(psx + psw - cLen, psy + psh); ctx.lineTo(psx + psw, psy + psh); ctx.lineTo(psx + psw, psy + psh - cLen);
+          ctx.stroke();
+
+          const labelText = ` 🇮🇳 ${det.plate} · ${Math.round(det.confidence * 100)}% `;
+          const fontSize = Math.max(12, Math.round(canvas.width / 26));
+          ctx.font = `bold ${fontSize}px "Share Tech Mono", monospace`;
+          const textW = ctx.measureText(labelText).width;
+          const bannerH = fontSize + 10;
+          const bannerY = Math.max(0, psy - bannerH - 3);
+
+          ctx.fillStyle = '#060810';
+          ctx.fillRect(psx, bannerY, textW + 8, bannerH);
+          ctx.strokeStyle = '#00ff41';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(psx, bannerY, textW + 8, bannerH);
+
+          ctx.fillStyle = '#00ff41';
+          ctx.shadowColor = '#00ff41';
+          ctx.shadowBlur = 8;
+          ctx.fillText(labelText, psx + 4, bannerY + fontSize);
+          ctx.restore();
+        }
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(blob);
+  } catch (err) {
+    console.error('Test car on camera failed:', err);
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────
+(async () => {
+  await fetchNetworkInfo();
+  for (let i = 1; i <= 3; i++) loadQrCode(i).then(d => { if(d) qrCache[i] = d; });
+  initLocalWebcam();
+  // Load ANPR models in background
+  initANPR();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Camera Stream</title>
+  <meta name="description" content="Mobile camera streaming page for the LiveWatch monitoring system" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="style-camera.css" />
+</head>
+<body>
+
+<!-- ── Top Strip ── -->
+<div class="top-strip">
+  <span class="brand">LiveWatch</span>
+  <span class="cam-slot-badge" id="slotBadge">CAM --</span>
+</div>
+
+<!-- ── Main Content ── -->
+<div class="main-content">
+
+  <!-- Status Card -->
+  <div class="status-card">
+    <div class="status-row">
+      <span>Server</span>
+      <div class="status-value">
+        <div class="sdot" id="sdotServer" style="background:#4a5060"></div>
+        <span id="statusServer">Connecting…</span>
+      </div>
+    </div>
+    <div class="status-row">
+      <span>Camera</span>
+      <div class="status-value">
+        <div class="sdot dim" id="sdotCam"></div>
+        <span id="statusCam">Not started</span>
+      </div>
+    </div>
+    <div class="status-row">
+      <span>Stream</span>
+      <div class="status-value">
+        <div class="sdot dim" id="sdotStream"></div>
+        <span id="statusStream">Idle</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Video Preview -->
+  <div class="video-wrap">
+    <video class="preview-video" id="previewVideo" autoplay playsinline muted></video>
+    <div class="video-overlay-label">SELF VIEW</div>
+    <div class="streaming-badge hidden" id="streamingBadge">
+      <div class="live-dot"></div>STREAMING
+    </div>
+    <div class="video-placeholder" id="videoPlaceholder">
+      <div class="placeholder-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>
+      </div>
+      <div class="placeholder-text">Camera not active</div>
+    </div>
+  </div>
+
+  <!-- Error / Info Banner -->
+  <div class="banner" id="banner"></div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn-primary" id="btnStart" onclick="startCamera()">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+      </svg>
+      Start Camera
+    </button>
+
+    <button class="btn-primary" id="btnSnapPlate" style="background:linear-gradient(135deg, #00b4ff, #00ff41);color:#040508;font-weight:700;margin-top:6px;" onclick="snapAndScanPlate()">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
+        <path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+      </svg>
+      📸 Snap & Detect Number Plate
+    </button>
+    <input type="file" id="mobileFileInput" accept="image/*" capture="environment" style="display:none;" onchange="handleMobileFile(event)" />
+
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnFlip" onclick="flipCamera()" disabled>
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+          <path d="M20 5h-3.17L15 3H9L7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-10 9V9l5 2.5-5 2.5z"/>
+        </svg>
+        Flip Camera
+      </button>
+      <button class="btn-secondary" id="btnReconnect" onclick="reconnect()" disabled>
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+          <path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+        </svg>
+        Reconnect
+      </button>
+    </div>
+
+    <button class="btn-stop" id="btnStop" onclick="stopCamera()">
+      ■ Stop Streaming
+    </button>
+  </div>
+
+  <!-- Instructions -->
+  <div class="instructions">
+    <div class="instructions-title">How It Works</div>
+    <ul class="step-list">
+      <li><span class="step-num">1</span>Tap "Start Camera" and allow camera access</li>
+      <li><span class="step-num">2</span>You'll see a live preview above</li>
+      <li><span class="step-num">3</span>Your camera automatically streams to the main monitor</li>
+      <li><span class="step-num">4</span>Use "Flip Camera" to switch front/rear</li>
+      <li><span class="step-num">5</span>Keep this page open while monitoring</li>
+    </ul>
+  </div>
+
+</div>
+
+<!-- Mobile Plate Detection Modal -->
+<div class="mobile-scan-overlay" id="mobileScanModal">
+  <div class="mobile-scan-card">
+    <div class="mobile-scan-header">
+      <span class="mobile-scan-title">⚡ PLATE DETECTED</span>
+      <button class="mobile-scan-close" onclick="closeMobileScan()">✕</button>
+    </div>
+
+    <div class="mobile-scan-canvas-wrap">
+      <canvas id="mobileCanvas"></canvas>
+    </div>
+
+    <div class="mobile-plate-box">
+      <div class="mobile-plate-flag">IND</div>
+      <div class="mobile-plate-text" id="mobilePlateText">------</div>
+    </div>
+
+    <div class="mobile-meta-grid">
+      <div class="mobile-meta-item">
+        <span class="mobile-meta-lbl">STATE</span>
+        <span class="mobile-meta-val green" id="mobileStateName">--</span>
+      </div>
+      <div class="mobile-meta-item">
+        <span class="mobile-meta-lbl">CONFIDENCE</span>
+        <span class="mobile-meta-val green" id="mobileConfVal">--%</span>
+      </div>
+      <div class="mobile-meta-item">
+        <span class="mobile-meta-lbl">TYPE</span>
+        <span class="mobile-meta-val" id="mobilePlateType">HSRP</span>
+      </div>
+      <div class="mobile-meta-item">
+        <span class="mobile-meta-lbl">DATABASE</span>
+        <span class="mobile-meta-val green">Synced ✓</span>
+      </div>
+    </div>
+
+    <button class="btn-primary" style="margin-top:6px;padding:10px;" onclick="closeMobileScan()">
+      Done / Scan Again
+    </button>
+  </div>
+</div>
+
+<!-- ── Scripts ── -->
+<script src="/socket.io/socket.io.js"></script>
+<script>
+'use strict';
+
+// ── URL Params ─────────────────────────────────────────
+const params = new URLSearchParams(window.location.search);
+const CAMERA_ID = parseInt(params.get('id') || '1', 10);
+
+if (CAMERA_ID < 1 || CAMERA_ID > 3) {
+  showBanner('error', `Invalid camera ID: ${CAMERA_ID}. Use ?id=1, ?id=2, or ?id=3`);
+}
+
+document.getElementById('slotBadge').textContent = `CAM 0${CAMERA_ID}`;
+document.title = `Camera ${CAMERA_ID} — LiveWatch`;
+
+// ── State ──────────────────────────────────────────────
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
+
+let localStream = null;
+let pc = null;
+let facingMode = 'environment'; // start with rear camera
+let isStreaming = false;
+
+// ── UI helpers ─────────────────────────────────────────
+function setSdot(id, color) {
+  const el = document.getElementById(id);
+  el.className = 'sdot';
+  if (color === 'green') { el.classList.add('green'); }
+  else if (color === 'red')   { el.classList.add('red'); }
+  else if (color === 'amber') { el.classList.add('amber'); }
+  else                         { el.classList.add('dim'); }
+}
+
+function setStatus(id, text) {
+  document.getElementById(id).textContent = text;
+}
+
+function showBanner(type, msg) {
+  const b = document.getElementById('banner');
+  b.className = `banner ${type} visible`;
+  b.textContent = msg;
+}
+
+function hideBanner() {
+  document.getElementById('banner').className = 'banner';
+}
+
+function setPlaceholder(show) {
+  document.getElementById('videoPlaceholder').classList.toggle('hidden', !show);
+}
+
+function setStreamingBadge(show) {
+  document.getElementById('streamingBadge').classList.toggle('hidden', !show);
+}
+
+// ── Socket.io ──────────────────────────────────────────
+const socket = io({ secure: true, rejectUnauthorized: false });
+
+socket.on('connect', () => {
+  console.log('Connected:', socket.id);
+  setSdot('sdotServer', 'green');
+  setStatus('statusServer', 'Connected');
+  hideBanner();
+
+  // Register this camera slot
+  socket.emit('camera:register', { cameraId: CAMERA_ID });
+});
+
+socket.on('disconnect', () => {
+  console.warn('Disconnected from server');
+  setSdot('sdotServer', 'red');
+  setStatus('statusServer', 'Disconnected');
+  setSdot('sdotStream', 'red');
+  setStatus('statusStream', 'Lost connection');
+  isStreaming = false;
+  setStreamingBadge(false);
+});
+
+socket.on('connect_error', () => {
+  showBanner('error', 'Cannot reach server. Make sure you\'re on the same Wi-Fi network.');
+});
+
+// Receive SDP answer from dashboard
+socket.on('webrtc:answer', async ({ sdp }) => {
+  if (!pc) return;
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    console.log('Remote description set');
+  } catch (err) {
+    console.error('setRemoteDescription failed:', err);
+  }
+});
+
+// Receive ICE candidates from dashboard
+socket.on('webrtc:ice:dashboard', async ({ candidate }) => {
+  if (!pc || !candidate) return;
+  try {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (e) { /* ignore stale */ }
+});
+
+// Dashboard requests a restart (reconnect button was clicked)
+socket.on('camera:restart', () => {
+  console.log('Dashboard requested restart');
+  if (localStream) {
+    startOffer();
+  }
+});
+
+// ── Camera Access ──────────────────────────────────────
+async function getStream(facing) {
+  if (localStream) {
+    localStream.getTracks().forEach((t) => t.stop());
+  }
+  const constraints = {
+    video: {
+      facingMode: facing,
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 30 },
+    },
+    audio: false,
+  };
+  return navigator.mediaDevices.getUserMedia(constraints);
+}
+
+async function startCamera() {
+  try {
+    document.getElementById('btnStart').disabled = true;
+    setStatus('statusCam', 'Requesting permission…');
+
+    localStream = await getStream(facingMode);
+
+    const preview = document.getElementById('previewVideo');
+    preview.srcObject = localStream;
+    setPlaceholder(false);
+
+    setSdot('sdotCam', 'green');
+    setStatus('statusCam', `Active (${facingMode === 'environment' ? 'Rear' : 'Front'})`);
+    document.getElementById('btnFlip').disabled = false;
+    document.getElementById('btnStop').classList.add('visible');
+    document.getElementById('btnStart').textContent = '▶  Camera Active';
+
+    hideBanner();
+    await startOffer();
+  } catch (err) {
+    console.error('Camera error:', err);
+    setSdot('sdotCam', 'red');
+    setStatus('statusCam', 'Permission denied');
+    document.getElementById('btnStart').disabled = false;
+
+    if (err.name === 'NotAllowedError') {
+      showBanner('error', '🚫 Camera permission denied.\nPlease allow camera access in your browser settings, then reload.');
+    } else if (err.name === 'NotFoundError') {
+      showBanner('error', '📷 No camera found on this device.');
+    } else {
+      showBanner('error', `Camera error: ${err.message}`);
+    }
+  }
+}
+
+// ── WebRTC Offer ───────────────────────────────────────
+async function startOffer() {
+  // Tear down existing peer
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  isStreaming = false;
+  setStreamingBadge(false);
+
+  if (!localStream) return;
+
+  pc = new RTCPeerConnection(RTC_CONFIG);
+
+  // Add all tracks to peer
+  localStream.getTracks().forEach((track) => {
+    pc.addTrack(track, localStream);
+  });
+
+  // Send ICE candidates to dashboard via server
+  pc.onicecandidate = (evt) => {
+    if (evt.candidate) {
+      socket.emit('webrtc:ice:phone', {
+        cameraId: CAMERA_ID,
+        candidate: evt.candidate,
+      });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState;
+    console.log('Peer state:', state);
+    if (state === 'connected') {
+      isStreaming = true;
+      setSdot('sdotStream', 'green');
+      setStatus('statusStream', 'Streaming ✓');
+      setStreamingBadge(true);
+      showBanner('success', '✅ You are live! Your camera is streaming to the monitor.');
+      setTimeout(hideBanner, 4000);
+      document.getElementById('btnReconnect').disabled = false;
+    } else if (state === 'failed' || state === 'disconnected') {
+      isStreaming = false;
+      setSdot('sdotStream', 'amber');
+      setStatus('statusStream', 'Reconnecting…');
+      setStreamingBadge(false);
+      // Auto retry after 3s
+      setTimeout(() => {
+        if (localStream) startOffer();
+      }, 3000);
+    } else if (state === 'connecting') {
+      setSdot('sdotStream', 'amber');
+      setStatus('statusStream', 'Connecting…');
+    }
+  };
+
+  try {
+    const offer = await pc.createOffer({
+      offerToReceiveVideo: false,
+      offerToReceiveAudio: false,
+    });
+    await pc.setLocalDescription(offer);
+    socket.emit('webrtc:offer', {
+      cameraId: CAMERA_ID,
+      sdp: pc.localDescription,
+    });
+    setSdot('sdotStream', 'amber');
+    setStatus('statusStream', 'Waiting for dashboard…');
+  } catch (err) {
+    console.error('Offer failed:', err);
+    showBanner('error', 'WebRTC offer failed. Please tap Reconnect.');
+  }
+}
+
+// ── Flip Camera ────────────────────────────────────────
+async function flipCamera() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  try {
+    const newStream = await getStream(facingMode);
+    localStream = newStream;
+
+    const preview = document.getElementById('previewVideo');
+    preview.srcObject = localStream;
+
+    setStatus('statusCam', `Active (${facingMode === 'environment' ? 'Rear' : 'Front'})`);
+
+    // Replace tracks in peer connection if active
+    if (pc) {
+      const senders = pc.getSenders();
+      const videoTrack = localStream.getVideoTracks()[0];
+      const sender = senders.find((s) => s.track && s.track.kind === 'video');
+      if (sender && videoTrack) {
+        await sender.replaceTrack(videoTrack);
+      }
+    }
+  } catch (err) {
+    showBanner('error', `Could not flip camera: ${err.message}`);
+    facingMode = facingMode === 'environment' ? 'user' : 'environment'; // revert
+  }
+}
+
+// ── Stop ───────────────────────────────────────────────
+function stopCamera() {
+  if (localStream) {
+    localStream.getTracks().forEach((t) => t.stop());
+    localStream = null;
+  }
+  if (pc) {
+    pc.close();
+    pc = null;
+  }
+  isStreaming = false;
+  setStreamingBadge(false);
+  setPlaceholder(true);
+  document.getElementById('previewVideo').srcObject = null;
+  setSdot('sdotCam', 'dim');
+  setStatus('statusCam', 'Stopped');
+  setSdot('sdotStream', 'dim');
+  setStatus('statusStream', 'Idle');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStart').textContent = '▶  Start Camera';
+  document.getElementById('btnFlip').disabled = true;
+  document.getElementById('btnReconnect').disabled = true;
+  document.getElementById('btnStop').classList.remove('visible');
+}
+
+// ── Reconnect ──────────────────────────────────────────
+function reconnect() {
+  if (localStream) startOffer();
+  else startCamera();
+}
+
+// ── Re-register on reconnect ───────────────────────────
+socket.on('connect', () => {
+  // Re-register after reconnection (socket may have reset)
+  socket.emit('camera:register', { cameraId: CAMERA_ID });
+  if (localStream) {
+    setTimeout(() => startOffer(), 500);
+  }
+});
+
+// ── Keep screen awake (Wake Lock API) ─────────────────
+async function requestWakeLock() {
+  if ('wakeLock' in navigator) {
+    try {
+      await navigator.wakeLock.request('screen');
+    } catch (e) { /* not critical */ }
+  }
+}
+requestWakeLock();
+// ── Mobile Plate Scanning ─────────────────────────────
+function snapAndScanPlate() {
+  const video = document.getElementById('previewVideo');
+  if (localStream && video && video.videoWidth > 0) {
+    const snapCanvas = document.createElement('canvas');
+    snapCanvas.width = video.videoWidth;
+    snapCanvas.height = video.videoHeight;
+    const sctx = snapCanvas.getContext('2d');
+    sctx.drawImage(video, 0, 0);
+    const dataUrl = snapCanvas.toDataURL('image/jpeg', 0.9);
+    runMobileDetection(dataUrl);
+  } else {
+    document.getElementById('mobileFileInput').click();
+  }
+}
+
+function handleMobileFile(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    runMobileDetection(evt.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function closeMobileScan() {
+  document.getElementById('mobileScanModal').classList.remove('active');
+}
+
+async function runMobileDetection(dataUrl) {
+  const modal = document.getElementById('mobileScanModal');
+  modal.classList.add('active');
+  const canvas = document.getElementById('mobileCanvas');
+  const ctx = canvas.getContext('2d');
+
+  document.getElementById('mobilePlateText').textContent = 'SCANNING...';
+  document.getElementById('mobileStateName').textContent = 'Processing...';
+  document.getElementById('mobileConfVal').textContent = '--%';
+
+  const img = new Image();
+  img.onload = async () => {
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    ctx.drawImage(img, 0, 0);
+
+    try {
+      const resp = await fetch('/api/anpr/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: dataUrl,
+          cameraId: CAMERA_ID,
+          forwardToDashboard: true
+        })
+      });
+
+      const res = await resp.json();
+      if (res.detected && res.detection) {
+        const det = res.detection;
+        const [x, y, w, h] = det.bbox;
+
+        ctx.drawImage(img, 0, 0);
+        ctx.strokeStyle = '#00ff41';
+        ctx.lineWidth = Math.max(4, Math.round(canvas.width / 200));
+        ctx.strokeRect(x, y, w, h);
+
+        document.getElementById('mobilePlateText').textContent = det.plate;
+        document.getElementById('mobileStateName').textContent = det.stateName || 'India';
+        document.getElementById('mobileConfVal').textContent = Math.round(det.confidence * 100) + '%';
+        document.getElementById('mobilePlateType').textContent = det.plateType || 'HSRP';
+      } else {
+        document.getElementById('mobilePlateText').textContent = 'NOT DETECTED';
+        document.getElementById('mobileStateName').textContent = 'Retry with clear car photo';
+      }
+    } catch (e) {
+      document.getElementById('mobilePlateText').textContent = 'ERROR';
+      document.getElementById('mobileStateName').textContent = e.message;
+    }
+  };
+  img.src = dataUrl;
+}
+</script>
+</body>
+</html>

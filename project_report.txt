@@ -1,0 +1,48 @@
+Project Name: ANPR Traffic Intelligence Platform (Multi-Camera Monitor)
+Path: d:\college work\Hackaton projects\new zyn
+
+1. Overview
+The project is a Node.js-based backend server using Express and Socket.io to provide a Multi-Camera Live Monitoring System. It incorporates WebRTC for camera streaming and Automatic Number Plate Recognition (ANPR) capabilities. The system tracks vehicles across multiple camera nodes, maintains watchlists for suspicious vehicles, and computes real-time traffic analytics.
+
+2. Core Features
+
+A. WebRTC Live Camera Streaming
+- Supports up to 3 mobile cameras acting as video nodes (`camera.html`).
+- The server relays WebRTC signaling (offers, answers, ICE candidates) via WebSockets (Socket.io) between the camera nodes and the main dashboard (`dashboard.html`).
+- Dynamic QR code generation for quick pairing of mobile phone cameras to the local server.
+
+B. Automatic Number Plate Recognition (ANPR)
+- Receives detected license plate data via HTTP POST (`/api/detections`) or WebSocket (`anpr:submit`).
+- Data includes the license plate string, camera ID, confidence score, vehicle type, and timestamp.
+- Detections are bounded by a 30-second cooldown per plate-camera combination to prevent spam.
+- Stores up to 10,000 recent detections.
+
+C. Vehicle Tracking (Trajectory Analysis)
+- The `/api/detections/trajectory/:plate` endpoint reconstructs a vehicle's path.
+- It chronologically orders all sightings of a specific plate across different cameras, calculating travel times between nodes to map its route.
+
+D. Watchlist & Alerts System
+- Users can flag specific license plates to a watchlist (`/api/watchlist`) along with a reason (e.g., "Suspicious vehicle").
+- When a watchlisted plate is detected, the system immediately generates an alert, saves it to history, and broadcasts a live notification via WebSockets (`anpr:alert`).
+
+E. Traffic Analytics
+- Provides real-time insights via `/api/detections/analytics`.
+- Computes metrics like total detections, vehicles per minute, busiest cameras, and peak traffic hours.
+- Identifies common routes by analyzing the sequence of cameras vehicles pass through.
+
+3. Data Persistence
+Instead of a database, the system uses file-based persistence, periodically saving data to JSON files in the `data/` directory every 30 seconds:
+- `data/detections.json`: Logs historical plate detections.
+- `data/watchlist.json`: Stores watchlisted plates.
+- `data/alerts.json`: Logs watchlist hit alerts.
+
+4. Server Configuration
+- Runs on local IP at port 3000 over HTTPS.
+- Automatically generates self-signed TLS certificates upon startup to allow secure context requirements needed by modern browsers for WebRTC and Camera APIs.
+- The system is configured with 4 predefined camera nodes with geographical coordinates (e.g., Chennai Central, T. Nagar, Perambur, Guindy).
+
+5. User Interface (Frontend)
+- Command Center (`dashboard.html` / `index.html`): The main view for managing cameras and live data.
+- Vehicle Tracking (`tracking.html`): View historical trajectories of specific vehicles.
+- Analytics (`analytics.html`): Visualize traffic statistics.
+- Watchlist Management (`watchlist.html`): Manage flagged license plates.

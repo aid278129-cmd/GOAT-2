@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vehicle Tracking — ANPR Intelligence Platform</title>
+  <link rel="stylesheet" href="style-pages.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+<!-- Nav injected by shared.js -->
+<nav class="top-nav">
+  <div class="nav-brand">
+    <div class="nav-logo"></div>
+    <span class="nav-title">ANPR Intelligence</span>
+  </div>
+  <div class="nav-links">
+    <a href="/dashboard.html"  class="nav-link"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="/tracking.html"   class="nav-link active"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="/analytics.html"  class="nav-link"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="/network.html"    class="nav-link"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="/watchlist.html"  class="nav-link"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+  </div>
+  <div class="nav-meta">
+    <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
+    <span class="nav-clock" id="navClock">--:--:--</span>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">🚗 Vehicle Trajectory Tracking</div>
+      <div class="page-subtitle">SEARCH BY REGISTRATION NUMBER · CROSS-CAMERA JOURNEY ANALYSIS</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn" onclick="loadRecentPlates()">↻ Recent Plates</button>
+      <a href="/watchlist.html" class="btn danger">+ Add to Watchlist</a>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="search-container">
+    <input type="text" class="search-input" id="searchInput"
+      placeholder="e.g. TN45AB1234" maxlength="12"
+      oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase()"
+      onkeydown="if(event.key==='Enter')searchPlate()" />
+    <button class="search-btn" onclick="searchPlate()">🔍 Track Vehicle</button>
+  </div>
+
+  <!-- Recent plates quick-pick -->
+  <div id="recentPlatesBubbles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;min-height:30px"></div>
+
+  <!-- Results -->
+  <div id="resultSection" style="display:none">
+
+    <!-- Journey Summary Stats -->
+    <div class="stats-grid" id="journeyStats" style="margin-bottom:16px"></div>
+
+    <!-- Main content: map + timeline side by side -->
+    <div style="display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start">
+
+      <!-- Leaflet Map -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📍 Trajectory Map</span>
+          <span id="mapStatus" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+        </div>
+        <div id="trackMap" style="height:480px;border-radius:0 0 10px 10px"></div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">⏱ Journey Timeline</span>
+          <span id="plateDisplay" class="plate-tag" style="font-size:11px"></span>
+        </div>
+        <div class="card-body" style="padding:0">
+          <div id="timelineContainer" style="padding:12px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Detection Table -->
+    <div class="card" style="margin-top:16px">
+      <div class="card-header">
+        <span class="card-title">📋 All Sightings</span>
+        <div style="display:flex;gap:8px">
+          <span id="detTableCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+          <button class="btn" id="addWlBtn" onclick="addCurrentToWatchlist()">+ Watchlist</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="detTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Camera</th>
+              <th>Location</th>
+              <th>Time</th>
+              <th>Conf</th>
+              <th>Type</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="detTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="empty-state">
+    <div class="empty-icon">🚗</div>
+    <div style="font-size:14px;color:var(--text-dim)">Enter a registration number above to track a vehicle's journey across all camera nodes</div>
+    <div style="font-size:11px;color:var(--text-muted)">Try: TN45AB1234 · MH02AQ7777 · KA03CD5678</div>
+  </div>
+
+  <!-- No results -->
+  <div id="noResultState" class="empty-state" style="display:none">
+    <div class="empty-icon">🔍</div>
+    <div>No detections found for this plate</div>
+    <div style="font-size:11px;color:var(--text-muted)">Ensure simulation mode is ON on the Command Center, or enter a plate from the simulation pool</div>
+  </div>
+
+</div>
+
+<script src="/js/camera-config.js"></script>
+<script>
+'use strict';
+
+// Clock
+function tick() { document.getElementById('navClock').textContent = new Date().toTimeString().slice(0,8); }
+setInterval(tick, 1000); tick();
+
+let map        = null;
+let currentPlate = null;
+const markerColors = ['#00ff41','#00b4ff','#ffb400','#ff3b30'];
+
+function initMap() {
+  if (map) return;
+  map = L.map('trackMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    className: 'dark-tiles',
+  }).addTo(map);
+
+  // Dark overlay
+  document.querySelector('#trackMap .leaflet-tile-pane').style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+
+  // Add all camera nodes
+  CAMERA_NODES.forEach((cam, i) => {
+    const icon = L.divIcon({
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:#1a1d2e;border:2px solid #4a5570;"></div>`,
+      className: '', iconAnchor: [7,7],
+    });
+    L.marker([cam.lat, cam.lng], { icon })
+      .addTo(map)
+      .bindPopup(`<b style="color:#dde2ec">${cam.name}</b><br><small style="color:#4a5570">${cam.location}</small>`);
+  });
+}
+
+async function searchPlate() {
+  const plate = document.getElementById('searchInput').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if (!plate) return;
+  currentPlate = plate;
+
+  document.getElementById('resultSection').style.display  = 'none';
+  document.getElementById('emptyState').style.display     = 'none';
+  document.getElementById('noResultState').style.display  = 'none';
+
+  try {
+    const data = await fetch(`/api/detections/trajectory/${plate}`).then(r => r.json());
+    if (!data.found || data.trail.length === 0) {
+      document.getElementById('noResultState').style.display = 'flex';
+      return;
+    }
+    renderResults(data);
+  } catch (e) {
+    alert('Failed to fetch trajectory data');
+  }
+}
+
+function renderResults(data) {
+  document.getElementById('resultSection').style.display = 'block';
+  document.getElementById('plateDisplay').textContent    = data.plate;
+  document.getElementById('addWlBtn').textContent        = `+ Watchlist: ${data.plate}`;
+
+  // Stats
+  const stats = document.getElementById('journeyStats');
+  stats.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Registration</div>
+      <div class="stat-value" style="font-size:18px;color:var(--green)">${data.plate}</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Total Sightings</div>
+      <div class="stat-value blue">${data.totalSightings}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">First Seen</div>
+      <div class="stat-value" style="font-size:16px">${new Date(data.firstSeen).toTimeString().slice(0,8)}</div>
+      <div class="stat-meta">${new Date(data.firstSeen).toLocaleDateString('en-IN')}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last Seen</div>
+      <div class="stat-value" style="font-size:16px">${new Date(data.lastSeen).toTimeString().slice(0,8)}</div>
+      <div class="stat-meta">${new Date(data.lastSeen).toLocaleDateString('en-IN')}</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">Travel Time</div>
+      <div class="stat-value amber">${data.totalMinutes}</div>
+      <div class="stat-meta">minutes</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Cameras Hit</div>
+      <div class="stat-value">${data.cameras.length}</div>
+      <div class="stat-meta">${data.cameras.join(' → ')}</div>
+    </div>
+  `;
+
+  // Timeline
+  renderTimeline(data.trail, data.segments);
+
+  // Map
+  initMap();
+  renderMap(data.trail);
+
+  // Table
+  renderTable(data.trail);
+  document.getElementById('detTableCount').textContent = `${data.trail.length} sightings`;
+}
+
+function renderTimeline(trail, segments) {
+  const container = document.getElementById('timelineContainer');
+  let html = '<div class="timeline">';
+  trail.forEach((det, i) => {
+    const time = new Date(det.timestamp).toTimeString().slice(0,8);
+    const conf = Math.round(det.confidence * 100);
+    html += `
+      <div class="timeline-item">
+        <div class="timeline-dot"></div>
+        <div class="timeline-content">
+          <div class="timeline-cam">${det.cameraName}</div>
+          <div class="timeline-meta">${det.location} · ${time} · ${conf}% conf · ${det.vehicleType}</div>
+        </div>
+      </div>
+    `;
+    if (segments && segments[i]) {
+      html += `<div class="timeline-travel">↓ ${segments[i].travelMins} min travel</div>`;
+    }
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderMap(trail) {
+  // Clear previous layers (except base tiles + camera dots)
+  map.eachLayer(layer => {
+    if (layer._isTrajectoryLayer) map.removeLayer(layer);
+  });
+
+  const coords = [...new Map(trail.map(d => [d.cameraId, [d.lat, d.lng]])).values()];
+  const unique  = trail.filter((d,i,arr) => arr.findIndex(x => x.cameraId === d.cameraId) === i);
+
+  // Trajectory polyline
+  if (coords.length > 1) {
+    const line = L.polyline(coords, {
+      color: '#00ff41', weight: 3, opacity: 0.7,
+      dashArray: '8 5',
+    });
+    line._isTrajectoryLayer = true;
+    line.addTo(map);
+  }
+
+  // Highlight detected cameras
+  unique.forEach((det, i) => {
+    const size  = 20;
+    const color = markerColors[i % markerColors.length];
+    const icon  = L.divIcon({
+      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid #050508;box-shadow:0 0 12px ${color};display:flex;align-items:center;justify-content:center;color:#050508;font-weight:bold;font-size:9px">${det.cameraId}</div>`,
+      className: '', iconAnchor: [size/2, size/2],
+    });
+    const marker = L.marker([det.lat, det.lng], { icon });
+    marker._isTrajectoryLayer = true;
+    const time = new Date(det.timestamp).toTimeString().slice(0,8);
+    marker.addTo(map).bindPopup(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+        <div style="color:${color};font-size:13px;font-weight:bold;margin-bottom:4px">${det.plate}</div>
+        <div style="color:#dde2ec">${det.cameraName}</div>
+        <div style="color:#4a5570">${det.location}</div>
+        <div style="color:#4a5570;margin-top:4px">${time}</div>
+        <div style="color:#4a5570">${Math.round(det.confidence*100)}% confidence</div>
+      </div>
+    `);
+  });
+
+  // Direction arrow (if >1 point)
+  if (coords.length > 1) {
+    document.getElementById('mapStatus').textContent = `${coords.length} nodes · route visualized`;
+  }
+
+  map.fitBounds(coords, { padding: [30, 30] });
+}
+
+function renderTable(trail) {
+  const tbody = document.getElementById('detTableBody');
+  tbody.innerHTML = '';
+  [...trail].reverse().forEach((det, i) => {
+    const time = new Date(det.timestamp).toLocaleString('en-IN', {hour12:false});
+    const conf = Math.round(det.confidence * 100);
+    const srcBadge = det.simulated
+      ? '<span class="badge amber">SIM</span>'
+      : '<span class="badge green">LIVE</span>';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:var(--text-dim)">${trail.length - i}</td>
+      <td><span class="badge blue">${det.cameraName}</span></td>
+      <td style="color:var(--text-dim)">${det.location}</td>
+      <td style="font-family:'Share Tech Mono',monospace;font-size:11px">${time}</td>
+      <td>${conf}%</td>
+      <td style="text-transform:capitalize">${det.vehicleType}</td>
+      <td>${srcBadge}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadRecentPlates() {
+  try {
+    const dets = await fetch('/api/detections?limit=200').then(r => r.json());
+    const plates = [...new Set(dets.map(d => d.plate))].slice(0, 20);
+    const container = document.getElementById('recentPlatesBubbles');
+    container.innerHTML = plates.map(p => `
+      <button onclick="document.getElementById('searchInput').value='${p}';searchPlate()"
+        style="background:rgba(0,255,65,0.08);border:1px solid rgba(0,255,65,0.25);border-radius:4px;
+               padding:4px 10px;font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green);
+               cursor:pointer;transition:all 0.15s">
+        ${p}
+      </button>
+    `).join('');
+  } catch(e) {}
+}
+
+async function addCurrentToWatchlist() {
+  if (!currentPlate) return;
+  const reason = prompt(`Add ${currentPlate} to watchlist. Reason:`, 'Suspicious vehicle');
+  if (!reason) return;
+  try {
+    await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plate: currentPlate, reason }),
+    });
+    alert(`${currentPlate} added to watchlist`);
+  } catch(e) { alert('Failed to add'); }
+}
+
+// Init
+loadRecentPlates();
+</script>
+</body>
+</html>
