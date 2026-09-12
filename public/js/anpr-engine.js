@@ -307,6 +307,26 @@ class ANPREngine {
                 vehicleType: 'vehicle',
                 plateBbox: origBbox
               });
+            } else if (data.success && !data.detected) {
+              const status = data.status || 'NO_PLATE';
+              let reasonMsg = data.reason || 'Scanning frame...';
+              if (status === 'CANDIDATE_TRACKING') {
+                reasonMsg = 'Plate candidate sighted — verifying temporal consistency across frames...';
+              } else if (status === 'REJECTED_NO_VEHICLE') {
+                reasonMsg = 'Zero vehicles detected in scene — noise suppressed.';
+              } else if (status === 'NO_PLATE_CANDIDATES') {
+                reasonMsg = 'Vehicles present but no valid license plate candidates passed geometric filters.';
+              }
+              const hasVeh = data.vehicles && data.vehicles.length > 0;
+              this._recordDebug(cameraId, {
+                vehicleConfidence: hasVeh ? data.vehicles[0].confidence : 0,
+                plateConfidence: 0,
+                ocrConfidence: 0,
+                status: status === 'REJECTED_NO_VEHICLE' ? 'REJECTED' : (status === 'CANDIDATE_TRACKING' ? 'CANDIDATE' : 'MONITORING'),
+                reason: reasonMsg,
+                candidatePlate: null,
+                vehicleType: hasVeh ? data.vehicles[0].class : null
+              });
             }
           }
         } catch (err) {
