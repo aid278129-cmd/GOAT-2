@@ -67,6 +67,10 @@ class ANPREngine {
     };
 
     // Telemetry & Debug Tracking
+    this.developerMode     = true;       // Live Visual Overlays & 16-Point Telemetry HUD
+    this._lastServerDebug  = {};        // cameraId -> full 16-point debug payload from server
+    this._lastServerVehicles = {};      // cameraId -> array of vehicle boxes
+    this._lastServerCandidates = {};    // cameraId -> array of plate candidate boxes
     this.debugState        = {};        // cameraId -> current debug object
     this.debugHistory      = [];        // Rolling debug log
     this.temporalTrackers  = {};        // cameraId -> candidate tracker array
@@ -80,6 +84,12 @@ class ANPREngine {
     this._ocrCtx           = null;
     this._captureCanvas    = null;
     this._captureCtx       = null;
+  }
+
+  toggleDeveloperMode() {
+    this.developerMode = !this.developerMode;
+    console.log(`🛠️ ANPR: Developer HUD mode is now ${this.developerMode ? 'ENABLED' : 'DISABLED'}`);
+    return this.developerMode;
   }
 
   /* ── Configuration getters & setters (Requirement 10) ── */
@@ -201,12 +211,13 @@ class ANPREngine {
           const capCtx    = this._captureCtx;
           const vw = videoEl.videoWidth;
           const vh = videoEl.videoHeight;
-          const scale = Math.min(1.0, 640 / Math.max(vw, vh));
+          const maxDim = this.config.captureMaxDimension || 960;
+          const scale = Math.min(1.0, maxDim / Math.max(vw, vh));
           capCanvas.width  = Math.round(vw * scale);
           capCanvas.height = Math.round(vh * scale);
           capCtx.drawImage(videoEl, 0, 0, capCanvas.width, capCanvas.height);
 
-          const base64Img = capCanvas.toDataURL('image/jpeg', 0.82);
+          const base64Img = capCanvas.toDataURL('image/jpeg', 0.88);
 
           const resp = await fetch('/api/anpr/detect', {
             method: 'POST',
@@ -215,15 +226,40 @@ class ANPREngine {
               image: base64Img,
               cameraId: cameraId,
               cameraName: `CAM 0${cameraId}`,
-              forwardToDashboard: true
+              forwardToDashboard: true,
+              developerMode: this.developerMode
             })
           });
 
           if (resp.ok) {
             const data = await resp.json();
+            const inv = 1.0 / scale;
+
+            if (data.debug) {
+              this._lastServerDebug[cameraId] = data.debug;
+            }
+
+            if (data.vehicles && Array.isArray(data.vehicles)) {
+              this._lastServerVehicles[cameraId] = data.vehicles.map(v => ({
+                class: v.class,
+                score: v.confidence,
+                bbox: [v.box[0] * inv, v.box[1] * inv, (v.box[2] - v.box[0]) * inv, (v.box[3] - v.box[1]) * inv]
+              }));
+            } else {
+              this._lastServerVehicles[cameraId] = [];
+            }
+
+            if (data.debug && data.debug.candidates && Array.isArray(data.debug.candidates)) {
+              this._lastServerCandidates[cameraId] = data.debug.candidates.map(c => ({
+                ...c,
+                bbox: [c.bbox[0] * inv, c.bbox[1] * inv, c.bbox[2] * inv, c.bbox[3] * inv]
+              }));
+            } else {
+              this._lastServerCandidates[cameraId] = [];
+            }
+
             if (data.success && data.detected && data.detection) {
               const det = data.detection;
-              const inv = 1.0 / scale;
               const origBbox = [det.bbox[0] * inv, det.bbox[1] * inv, det.bbox[2] * inv, det.bbox[3] * inv];
 
               this._lastPlateOverlay[cameraId] = {
@@ -246,7 +282,7 @@ class ANPREngine {
               this.showLivePlateHUD(cameraId, this._lastPlateOverlay[cameraId]);
 
               // Redraw overlay on canvas immediately
-              this._drawOverlay(cameraId, canvasEl, videoEl, [], this._lastPlateOverlay[cameraId]);
+              this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], this._lastPlateOverlay[cameraId], this._lastServerCandidates[cameraId]);
 
               this._recordDebug(cameraId, {
                 vehicleConfidence: 0.95,
@@ -255,7 +291,7 @@ class ANPREngine {
                 status: 'CONFIRMED',
                 reason: `Detected Indian plate: ${det.plate} (${det.stateName || ''})`,
                 candidatePlate: det.plate,
-                vehicleType: 'vehicle',
+                vehicleType: det.vehicleType || 'vehicle',
                 plateBbox: origBbox
               });
             } else if (data.success && !data.detected) {
@@ -271,13 +307,16 @@ class ANPREngine {
               const hasVeh = data.vehicles && data.vehicles.length > 0;
               this._recordDebug(cameraId, {
                 vehicleConfidence: hasVeh ? data.vehicles[0].confidence : 0,
-                plateConfidence: 0,
+                plateConfidence: (data.debug && data.debug["6_plateConfidences"] && data.debug["6_plateConfidences"][0]) || 0,
                 ocrConfidence: 0,
                 status: status === 'REJECTED_NO_VEHICLE' ? 'REJECTED' : (status === 'CANDIDATE_TRACKING' ? 'CANDIDATE' : 'MONITORING'),
                 reason: reasonMsg,
                 candidatePlate: null,
                 vehicleType: hasVeh ? data.vehicles[0].class : null
               });
+
+              // Redraw overlay with rejected candidates and vehicle boxes immediately
+              this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], null, this._lastServerCandidates[cameraId]);
             }
           }
         } catch (err) {
@@ -703,8 +742,6 @@ class ANPREngine {
         hits: match.hits,
         alreadyEmitted,
       };
-    } else {
-      // New candidate sighting (isolated 1st frame)
       tracker.push({
         plate,
         firstSeen:         now,
@@ -730,7 +767,6 @@ class ANPREngine {
     for (let i = tracker.length - 1; i >= 0; i--) {
       if (now - tracker[i].lastSeen > this.config.temporalWindowMs) {
         const expired = tracker.splice(i, 1)[0];
-        // Reject isolated one-frame detections (Requirement 9)
         if (expired.hits < this.config.minConsecutiveFrames) {
           this._recordDebug(cameraId, {
             vehicleConfidence: null,
@@ -752,7 +788,6 @@ class ANPREngine {
     const l2 = str2.length;
     if (Math.abs(l1 - l2) > 2) return 0;
 
-    // Levenshtein distance calculation
     const track = Array(l2 + 1).fill(null).map(() => Array(l1 + 1).fill(null));
     for (let i = 0; i <= l1; i += 1) track[0][i] = i;
     for (let j = 0; j <= l2; j += 1) track[j][0] = j;
@@ -772,47 +807,9 @@ class ANPREngine {
   }
 
   /* ──────────────────────────────────────────────────────────────────
-     Debug Telemetry Recording & Console Output
+     Canvas Overlay Drawing & Live 16-Point Developer HUD
   ─────────────────────────────────────────────────────────────────── */
-  _recordDebug(cameraId, info) {
-    const record = {
-      timestamp:         new Date().toISOString(),
-      cameraId,
-      vehicleConfidence: info.vehicleConfidence,
-      plateConfidence:   info.plateConfidence,
-      ocrConfidence:     info.ocrConfidence,
-      status:            info.status, // 'CONFIRMED' | 'PENDING' | 'REJECTED'
-      reason:            info.reason,
-      candidatePlate:    info.candidatePlate || null,
-      vehicleType:       info.vehicleType || null,
-      plateBbox:         info.plateBbox || null,
-      vehicleBbox:       info.vehicleBbox || null,
-    };
-
-    this.debugState[cameraId] = record;
-    this.debugHistory.push(record);
-    if (this.debugHistory.length > 100) this.debugHistory.shift();
-
-    if (this.config.debug && this.config.logToConsole) {
-      const v = info.vehicleConfidence != null ? `${Math.round(info.vehicleConfidence * 100)}%` : 'N/A';
-      const p = info.plateConfidence != null ? `${Math.round(info.plateConfidence * 100)}%` : 'N/A';
-      const o = info.ocrConfidence != null ? `${Math.round(info.ocrConfidence * 100)}%` : 'N/A';
-      const style =
-        info.status === 'CONFIRMED' ? 'color:#00ff41; font-weight:bold;' :
-        info.status === 'PENDING'   ? 'color:#ffb400; font-weight:bold;' :
-                                      'color:#ff5252; font-weight:bold;';
-
-      console.log(
-        `%c[ANPR ${info.status}] CAM-0${cameraId} | Veh: ${v} | Plt: ${p} | OCR: ${o} | ${info.reason}`,
-        style
-      );
-    }
-  }
-
-  /* ──────────────────────────────────────────────────────────────────
-     Canvas Overlay Drawing & Live Debug Telemetry HUD
-  ─────────────────────────────────────────────────────────────────── */
-  _drawOverlay(cameraId, canvasEl, videoEl, vehicles, activeCandidate) {
+  _drawOverlay(cameraId, canvasEl, videoEl, vehicles, activeCandidate, plateCandidates) {
     if (!canvasEl) return;
     canvasEl.width  = videoEl.clientWidth  || videoEl.offsetWidth  || 320;
     canvasEl.height = videoEl.clientHeight || videoEl.offsetHeight || 240;
@@ -823,39 +820,71 @@ class ANPREngine {
     const scX = canvasEl.width  / videoEl.videoWidth;
     const scY = canvasEl.height / videoEl.videoHeight;
 
-    // Draw validated vehicle bounding boxes
-    vehicles.forEach(v => {
+    const serverDebug = this._lastServerDebug[cameraId];
+    const candidates = plateCandidates || this._lastServerCandidates[cameraId] || [];
+
+    // 1. Draw vehicle bounding boxes
+    const vList = vehicles && vehicles.length > 0 ? vehicles : (this._lastServerVehicles[cameraId] || []);
+    vList.forEach(v => {
       const [x, y, w, h] = v.bbox;
       const sx = x * scX, sy = y * scY, sw = w * scX, sh = h * scY;
 
-      // Vehicle bounding box
-      ctx.strokeStyle = '#00ff41';
+      ctx.strokeStyle = '#00e5ff';
       ctx.lineWidth   = 2;
-      ctx.shadowColor = '#00ff41';
+      ctx.shadowColor = '#00e5ff';
       ctx.shadowBlur  = 6;
       ctx.strokeRect(sx, sy, sw, sh);
       ctx.shadowBlur  = 0;
 
-      // Corner brackets
-      const br = 10;
-      [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]].forEach(([cx, cy], i) => {
-        ctx.beginPath();
-        ctx.moveTo(cx + (i % 2 === 0 ? br : -br), cy);
-        ctx.lineTo(cx, cy);
-        ctx.lineTo(cx, cy + (i < 2 ? br : -br));
-        ctx.stroke();
-      });
-
       // Label pill
-      ctx.fillStyle = 'rgba(0,255,65,0.85)';
-      ctx.roundRect ? ctx.roundRect(sx, sy - 22, sw, 20, 3) : ctx.fillRect(sx, sy - 22, sw, 20);
-      ctx.fill();
+      const vScore = v.score != null ? Math.round(v.score * 100) : (v.confidence != null ? Math.round(v.confidence * 100) : 80);
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.88)';
+      ctx.fillRect(sx, Math.max(0, sy - 20), Math.min(sw, 140), 18);
       ctx.fillStyle = '#050508';
       ctx.font      = 'bold 10px "Share Tech Mono", monospace';
-      ctx.fillText(`${v.class.toUpperCase()}  ${Math.round(v.score * 100)}%`, sx + 5, sy - 7);
+      ctx.fillText(`🚘 ${v.class.toUpperCase()} ${vScore}%`, sx + 4, Math.max(12, sy - 6));
     });
 
-    // Draw validated plate candidate region if present
+    // 2. Draw plate candidates (both accepted and rejected with exact reasons)
+    candidates.forEach((cand, idx) => {
+      const [cx, cy, cw, ch] = cand.bbox;
+      const csx = cx * scX, csy = cy * scY, csw = cw * scX, csh = ch * scY;
+
+      if (!cand.passedValidation) {
+        // Discarded / Rejected candidate: Red dashed box with rejection reason
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#ff3b30';
+        ctx.lineWidth = 1.8;
+        ctx.strokeRect(csx, csy, csw, csh);
+
+        const rejText = `[REJ] ${cand.rejectionReason ? cand.rejectionReason.split(':')[0] : 'FILTERED'} (${Math.round(cand.detectorConfidence * 100)}%)`;
+        ctx.font = 'bold 9px "Share Tech Mono", monospace';
+        const rw = ctx.measureText(rejText).width;
+        ctx.fillStyle = 'rgba(255, 59, 48, 0.85)';
+        ctx.fillRect(csx, Math.min(canvasEl.height - 16, csy + csh + 2), rw + 6, 14);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(rejText, csx + 3, Math.min(canvasEl.height - 4, csy + csh + 13));
+        ctx.restore();
+      } else if (!activeCandidate) {
+        // Valid candidate accumulating frames: Amber box
+        ctx.save();
+        ctx.strokeStyle = '#ffb400';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(csx, csy, csw, csh);
+
+        const candText = `⏳ CANDIDATE (${Math.round(cand.detectorConfidence * 100)}%)`;
+        ctx.font = 'bold 9px "Share Tech Mono", monospace';
+        const cwText = ctx.measureText(candText).width;
+        ctx.fillStyle = 'rgba(255, 180, 0, 0.85)';
+        ctx.fillRect(csx, Math.max(0, csy - 16), cwText + 6, 14);
+        ctx.fillStyle = '#050508';
+        ctx.fillText(candText, csx + 3, Math.max(10, csy - 5));
+        ctx.restore();
+      }
+    });
+
+    // 3. Draw confirmed plate candidate region if present
     if (activeCandidate) {
       const [px, py, pw, ph] = activeCandidate.bbox;
       const psx = px * scX, psy = py * scY, psw = pw * scX, psh = ph * scY;
@@ -879,7 +908,7 @@ class ANPREngine {
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(psx + psw - cLen, psy); ctx.lineTo(psx + psw, psy); ctx.lineTo(psx + psw, psy + cLen);
+      ctx.moveTo(psx + psw - cLen, psy); ctx.lineTo(psx + psw); ctx.lineTo(psx + psw, psy + cLen);
       ctx.stroke();
 
       ctx.beginPath();
@@ -911,7 +940,6 @@ class ANPREngine {
       ctx.shadowBlur = 6;
       ctx.fillText(labelText, psx + 4, bannerY + fontSize);
 
-      // State label under the plate if known
       if (activeCandidate.stateName) {
         const stateText = ` ${activeCandidate.stateName.toUpperCase()} `;
         ctx.font = `bold ${Math.max(9, Math.round(fontSize * 0.75))}px "Share Tech Mono", monospace`;
@@ -925,62 +953,56 @@ class ANPREngine {
       ctx.restore();
     }
 
-    // Show vehicle count tag
-    if (vehicles.length > 0) {
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(4, 4, 95, 20);
-      ctx.fillStyle = '#00ff41';
-      ctx.font = '10px "Share Tech Mono", monospace';
-      ctx.fillText(`${vehicles.length} VEHICLE${vehicles.length > 1 ? 'S' : ''}`, 8, 17);
-    }
-
-    // Live Debug Telemetry HUD (Requirements: vehicle conf, plate conf, OCR conf, rejection reason)
-    const debug = this.debugState[cameraId];
-    if (this.config.showCanvasHUD && debug) {
-      const hudW = Math.min(230, canvasEl.width - 16);
-      const hudH = 50;
+    // 4. Temporary Developer HUD: Visual telemetry overlay (Requirement)
+    if (this.developerMode) {
+      const hudW = Math.min(260, canvasEl.width - 16);
+      const hudH = 68;
       const hudX = canvasEl.width - hudW - 8;
       const hudY = 8;
 
-      ctx.fillStyle = 'rgba(5, 5, 8, 0.88)';
+      ctx.save();
+      ctx.fillStyle = 'rgba(5, 7, 12, 0.92)';
       ctx.fillRect(hudX, hudY, hudW, hudH);
 
-      const statusBorderColor =
-        debug.status === 'CONFIRMED' ? '#00ff41' :
-        debug.status === 'PENDING'   ? '#ffb400' :
-                                       'rgba(255, 59, 48, 0.65)';
-      ctx.strokeStyle = statusBorderColor;
-      ctx.lineWidth   = 1;
+      const statusColor = activeCandidate ? '#00ff41' : (candidates.length > 0 ? '#ffb400' : '#ff3b30');
+      ctx.strokeStyle = statusColor;
+      ctx.lineWidth = 1.2;
       ctx.strokeRect(hudX, hudY, hudW, hudH);
 
-      ctx.fillStyle = '#00ff41';
-      ctx.font      = 'bold 9px "Share Tech Mono", monospace';
-      ctx.fillText(`ANPR VALIDATION · CAM-0${cameraId}`, hudX + 8, hudY + 13);
+      // Title & Cam ID
+      ctx.fillStyle = statusColor;
+      ctx.font = 'bold 9px "Share Tech Mono", monospace';
+      ctx.fillText(`⚡ DEV HUD · 16-PT DIAGNOSTICS (CAM 0${cameraId})`, hudX + 6, hudY + 12);
 
-      const vStr = debug.vehicleConfidence != null ? `${Math.round(debug.vehicleConfidence * 100)}%` : '--';
-      const pStr = debug.plateConfidence != null ? `${Math.round(debug.plateConfidence * 100)}%` : '--';
-      const oStr = debug.ocrConfidence != null ? `${Math.round(debug.ocrConfidence * 100)}%` : '--';
+      // Telemetry metrics
+      const sharp = serverDebug ? serverDebug.sharpnessScore : '--';
+      const blurTag = serverDebug && serverDebug.isBlurry ? ' [BLURRY]' : '';
+      const vCount = vList.length;
+      const pCount = candidates.length;
 
       ctx.fillStyle = '#a0aec0';
-      ctx.font      = '8.5px "Share Tech Mono", monospace';
-      ctx.fillText(`VEH: ${vStr} | PLT: ${pStr} | OCR: ${oStr}`, hudX + 8, hudY + 27);
+      ctx.font = '8px "Share Tech Mono", monospace';
+      ctx.fillText(`SHARPNESS: ${sharp}${blurTag} | VEHICLES: ${vCount} | PLT CANDS: ${pCount}`, hudX + 6, hudY + 25);
 
-      const statusColor =
-        debug.status === 'CONFIRMED' ? '#00ff41' :
-        debug.status === 'PENDING'   ? '#ffb400' :
-                                       '#ff5252';
-      ctx.fillStyle = statusColor;
+      const bestCand = candidates[0];
+      const pScoreStr = bestCand ? `${Math.round(bestCand.detectorConfidence * 100)}% (AR:${bestCand.aspectRatio})` : 'NONE';
+      const ocrStr = (serverDebug && serverDebug["13_normalizedOcrResults"] && serverDebug["13_normalizedOcrResults"][0]) || '--';
+      ctx.fillText(`BEST PLT: ${pScoreStr} | OCR: "${ocrStr}"`, hudX + 6, hudY + 38);
 
-      let msg = '';
-      if (debug.status === 'CONFIRMED') {
-        msg = `PASS: ${debug.candidatePlate || 'VERIFIED'}`;
-      } else if (debug.status === 'PENDING') {
-        msg = `PENDING: ${debug.candidatePlate || 'AWAITING 2ND'}`;
+      // Rejection or Confirmation state
+      let diagMsg = '';
+      if (activeCandidate) {
+        diagMsg = `CONFIRMED: ${activeCandidate.plate} (${Math.round(activeCandidate.confidence * 100)}%)`;
+        ctx.fillStyle = '#00ff41';
+      } else if (serverDebug && serverDebug.summary) {
+        const rawReason = serverDebug.summary.reason || 'Scanning...';
+        diagMsg = `STATUS: ${rawReason.slice(0, 36)}`;
+        ctx.fillStyle = serverDebug.summary.status.includes('REJECTED') ? '#ff5252' : '#ffb400';
       } else {
-        const cleanReason = debug.reason.replace(/Plate detection confidence too low/, 'Plt conf low');
-        msg = `REJ: ${cleanReason.slice(0, 25)}`;
+        diagMsg = 'MONITORING LIVE FEED...';
+        ctx.fillStyle = '#a0aec0';
       }
-      ctx.fillText(msg, hudX + 8, hudY + 41);
+      ctx.fillText(diagMsg, hudX + 6, hudY + 52);
     }
   }
 

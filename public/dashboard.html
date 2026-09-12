@@ -66,8 +66,13 @@
       <span id="aiStatus" style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">Loading model…</span>
     </div>
     <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
-    <span style="font-family:var(--text-mono);font-size:9px;color:var(--text-dim);">TOTAL: <span id="totalDetCount" style="color:var(--green)">0</span></span>
     <div style="width:1px;height:14px;background:var(--border);margin:0 4px;"></div>
+    <button id="btnToggleDevHUD" class="action-btn" onclick="toggleDeveloperHUD()" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(255,180,0,0.15);border:1px solid #ffb400;color:#ffb400;border-radius:3px;">
+      <span>🛠️</span><span id="devHudStatusText">DEV HUD: ON</span>
+    </button>
+    <button id="btn16PtDiagnostics" class="action-btn" onclick="openDiagnosticsModal()" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,180,255,0.15);border:1px solid #00b4ff;color:#00b4ff;border-radius:3px;">
+      <span>🔬</span><span>16-PT DIAGNOSTICS</span>
+    </button>
     <button class="action-btn green" onclick="openScanModal()" style="font-size:10px;padding:3px 10px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;background:rgba(0,255,65,0.15);border:1px solid var(--green);color:#00ff41;border-radius:3px;">
       <span>📸</span><span>SCAN CAR IMAGE</span>
     </button>
@@ -397,6 +402,105 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
             New Image
           </button>
+        </div>
+      </div>
+    </div>
+  </div>
+<!-- ── 16-Point Pipeline Diagnostics Modal ── -->
+<div class="scan-modal-overlay" id="diagModalOverlay" onclick="if(event.target===this) closeDiagnosticsModal()">
+  <div class="scan-modal-card" style="max-width:980px;max-height:90vh;display:flex;flex-direction:column;">
+    <div class="scan-modal-header" style="background:#090d16;border-bottom:1px solid rgba(0,180,255,0.3);">
+      <div class="scan-modal-title" style="color:#00b4ff;display:flex;align-items:center;gap:8px;">
+        <span style="font-size:18px;">🔬</span>
+        <span>ANPR PIPELINE DIAGNOSTICS & TELEMETRY (16-POINT INSPECTION)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <label style="font-family:var(--text-mono);font-size:10px;color:var(--text-dim);display:flex;align-items:center;gap:4px;">
+          CAM:
+          <select id="diagCamSelect" onchange="fetchDiagnosticsNow()" style="background:#101726;color:#00e5ff;border:1px solid #1e293b;border-radius:3px;padding:2px 6px;font-size:10px;">
+            <option value="1">CAM 01</option>
+            <option value="2">CAM 02</option>
+            <option value="3">CAM 03</option>
+            <option value="4">CAM 04</option>
+          </select>
+        </label>
+        <button class="scan-modal-close" onclick="closeDiagnosticsModal()">&times;</button>
+      </div>
+    </div>
+
+    <div class="scan-modal-body" style="overflow-y:auto;flex:1;padding:16px;display:grid;grid-template-columns:360px 1fr;gap:16px;">
+      <!-- Left Column: Image Archival & Frame Quality -->
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="background:#0b0f19;border:1px solid rgba(0,180,255,0.2);border-radius:4px;padding:10px;">
+          <div style="font-family:var(--text-mono);font-size:10px;color:#00b4ff;margin-bottom:6px;font-weight:bold;">📸 LAST INCOMING STREAM FRAME (SAVED)</div>
+          <div style="position:relative;background:#000;border-radius:3px;overflow:hidden;min-height:180px;display:flex;align-items:center;justify-content:center;">
+            <img id="diagFrameImg" src="" alt="Incoming Frame" style="width:100%;height:auto;display:none;" />
+            <span id="diagFramePlaceholder" style="font-family:var(--text-mono);font-size:10px;color:#4a5568;">No frame captured yet</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px;font-family:var(--text-mono);font-size:9px;color:#a0aec0;">
+            <span>RES: <strong id="diagRes" style="color:#fff;">--</strong></span>
+            <span>SHARPNESS: <strong id="diagSharpness" style="color:#00ff41;">--</strong></span>
+            <span id="diagBlurTag" style="color:#ff5252;font-weight:bold;"></span>
+          </div>
+        </div>
+
+        <div style="background:#0b0f19;border:1px solid rgba(0,180,255,0.2);border-radius:4px;padding:10px;">
+          <div style="font-family:var(--text-mono);font-size:10px;color:#00b4ff;margin-bottom:6px;font-weight:bold;">🔍 PRE-OCR PLATE CROP (SAVED)</div>
+          <div style="position:relative;background:#000;border-radius:3px;overflow:hidden;min-height:70px;display:flex;align-items:center;justify-content:center;">
+            <img id="diagCropImg" src="" alt="Plate Crop" style="max-height:80px;width:auto;display:none;border:1px solid #ffb400;" />
+            <span id="diagCropPlaceholder" style="font-family:var(--text-mono);font-size:10px;color:#4a5568;">No plate crop sent to OCR yet</span>
+          </div>
+        </div>
+
+        <!-- Runtime Configurable Thresholds Form -->
+        <div style="background:#0b0f19;border:1px solid rgba(255,180,0,0.25);border-radius:4px;padding:10px;">
+          <div style="font-family:var(--text-mono);font-size:10px;color:#ffb400;margin-bottom:8px;font-weight:bold;">⚙️ RUNTIME CONFIGURABLE THRESHOLDS</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-family:var(--text-mono);font-size:9px;">
+            <div>
+              <label style="color:#718096;display:block;">VEHICLE CONF</label>
+              <input type="number" id="cfgVehConf" step="0.05" min="0.05" max="1.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+            <div>
+              <label style="color:#718096;display:block;">PLATE CONF</label>
+              <input type="number" id="cfgPlateConf" step="0.05" min="0.05" max="1.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+            <div>
+              <label style="color:#718096;display:block;">MIN OCR CONF</label>
+              <input type="number" id="cfgOcrConf" step="0.05" min="0.05" max="1.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+            <div>
+              <label style="color:#718096;display:block;">CONFIRM FRAMES</label>
+              <input type="number" id="cfgFrames" step="1" min="1" max="10" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+            <div>
+              <label style="color:#718096;display:block;">MIN AR</label>
+              <input type="number" id="cfgMinAR" step="0.1" min="1.0" max="4.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+            <div>
+              <label style="color:#718096;display:block;">MAX AR</label>
+              <input type="number" id="cfgMaxAR" step="0.1" min="3.0" max="8.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
+            </div>
+          </div>
+          <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="cfgAllowFallback" />
+            <label for="cfgAllowFallback" style="font-family:var(--text-mono);font-size:9px;color:#a0aec0;">Allow Full-Frame Fallback if 0 Vehicles</label>
+          </div>
+          <button onclick="saveDiagnosticsConfig()" class="action-btn" style="width:100%;margin-top:8px;font-size:10px;padding:4px;background:rgba(255,180,0,0.15);border:1px solid #ffb400;color:#ffb400;border-radius:3px;cursor:pointer;">
+            Apply Threshold Updates
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Column: 16-Point Telemetry Checklist -->
+      <div style="background:#0b0f19;border:1px solid rgba(0,180,255,0.2);border-radius:4px;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+        <div style="font-family:var(--text-mono);font-size:11px;color:#00e5ff;font-weight:bold;border-bottom:1px solid #1a2333;padding-bottom:6px;display:flex;justify-content:space-between;">
+          <span>📋 16-POINT FRAME PIPELINE TELEMETRY</span>
+          <span id="diagStatusBadge" style="padding:1px 6px;border-radius:3px;font-size:9px;background:#ff3b30;color:#fff;">STANDBY</span>
+        </div>
+
+        <div id="diagPointsList" style="display:flex;flex-direction:column;gap:6px;font-family:var(--text-mono);font-size:10px;">
+          <!-- Telemetry items will be dynamically populated here -->
+          <div style="color:#718096;text-align:center;padding:20px;">Fetching live camera telemetry...</div>
         </div>
       </div>
     </div>
@@ -962,6 +1066,177 @@ function copyPlateNumber() {
     btnText.textContent = '✓ Copied!';
     setTimeout(() => { btnText.textContent = 'Copy Plate'; }, 2000);
   });
+}
+
+// ── Developer HUD & Diagnostics Controller ──────────────────
+function toggleDeveloperHUD() {
+  if (window.ANPR && typeof window.ANPR.toggleDeveloperMode === 'function') {
+    const isDev = window.ANPR.toggleDeveloperMode();
+    const btnText = document.getElementById('devHudStatusText');
+    const btn = document.getElementById('btnToggleDevHUD');
+    if (isDev) {
+      btnText.textContent = 'DEV HUD: ON';
+      btn.style.borderColor = '#ffb400';
+      btn.style.color = '#ffb400';
+    } else {
+      btnText.textContent = 'DEV HUD: OFF';
+      btn.style.borderColor = 'var(--border)';
+      btn.style.color = 'var(--text-dim)';
+    }
+  }
+}
+
+let diagInterval = null;
+
+async function openDiagnosticsModal() {
+  document.getElementById('diagModalOverlay').classList.add('active');
+  await loadDiagnosticsConfig();
+  await fetchDiagnosticsNow();
+  if (diagInterval) clearInterval(diagInterval);
+  diagInterval = setInterval(fetchDiagnosticsNow, 1500);
+}
+
+function closeDiagnosticsModal() {
+  document.getElementById('diagModalOverlay').classList.remove('active');
+  if (diagInterval) {
+    clearInterval(diagInterval);
+    diagInterval = null;
+  }
+}
+
+async function loadDiagnosticsConfig() {
+  try {
+    const res = await fetch('/api/anpr/config');
+    if (res.ok) {
+      const cfg = await res.json();
+      document.getElementById('cfgVehConf').value = cfg.vehicle_conf_threshold;
+      document.getElementById('cfgPlateConf').value = cfg.plate_conf_threshold;
+      document.getElementById('cfgOcrConf').value = cfg.min_ocr_conf;
+      document.getElementById('cfgFrames').value = cfg.min_consecutive_sightings;
+      document.getElementById('cfgMinAR').value = cfg.min_plate_aspect_ratio;
+      document.getElementById('cfgMaxAR').value = cfg.max_plate_aspect_ratio;
+      document.getElementById('cfgAllowFallback').checked = !!cfg.allow_fullframe_fallback;
+    }
+  } catch (e) {
+    console.warn('Could not load config:', e);
+  }
+}
+
+async function saveDiagnosticsConfig() {
+  try {
+    const payload = {
+      vehicle_conf_threshold: parseFloat(document.getElementById('cfgVehConf').value),
+      plate_conf_threshold: parseFloat(document.getElementById('cfgPlateConf').value),
+      min_ocr_conf: parseFloat(document.getElementById('cfgOcrConf').value),
+      min_consecutive_sightings: parseInt(document.getElementById('cfgFrames').value),
+      min_plate_aspect_ratio: parseFloat(document.getElementById('cfgMinAR').value),
+      max_plate_aspect_ratio: parseFloat(document.getElementById('cfgMaxAR').value),
+      allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked
+    };
+    const res = await fetch('/api/anpr/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      alert('Thresholds updated successfully in ANPR pipeline!');
+      await fetchDiagnosticsNow();
+    }
+  } catch (e) {
+    alert('Config update failed: ' + e.message);
+  }
+}
+
+async function fetchDiagnosticsNow() {
+  const camSelect = document.getElementById('diagCamSelect');
+  if (!camSelect) return;
+  const camId = camSelect.value;
+  try {
+    const res = await fetch(`/api/anpr/debug/last?cameraId=${camId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || data.message) {
+      document.getElementById('diagPointsList').innerHTML = `<div style="color:#a0aec0;text-align:center;padding:20px;">No frames processed yet for Camera ${camId}</div>`;
+      return;
+    }
+
+    // Frame preview
+    const frameImg = document.getElementById('diagFrameImg');
+    const framePl = document.getElementById('diagFramePlaceholder');
+    if (data.frameUrl) {
+      frameImg.src = data.frameUrl + '?t=' + Date.now();
+      frameImg.style.display = 'block';
+      framePl.style.display = 'none';
+    }
+
+    // Crop preview
+    const cropImg = document.getElementById('diagCropImg');
+    const cropPl = document.getElementById('diagCropPlaceholder');
+    const crops = data["10_plateCropsSaved"] || [];
+    if (crops.length > 0) {
+      cropImg.src = crops[0] + '?t=' + Date.now();
+      cropImg.style.display = 'block';
+      cropPl.style.display = 'none';
+    } else {
+      cropImg.style.display = 'none';
+      cropPl.style.display = 'block';
+    }
+
+    // Frame metrics
+    document.getElementById('diagRes').textContent = data.resolution || '--';
+    document.getElementById('diagSharpness').textContent = data.sharpnessScore != null ? data.sharpnessScore : '--';
+    document.getElementById('diagBlurTag').textContent = data.isBlurry ? '⚠️ BLURRY' : '✓ CRISP';
+
+    // Badge
+    const badge = document.getElementById('diagStatusBadge');
+    badge.textContent = data["16_finalDecision"] || 'REJECTED';
+    badge.style.background = data["16_finalDecision"] === 'ACCEPTED' ? '#00ff41' : (data["16_finalDecision"] === 'CANDIDATE_ACCUMULATING' ? '#ffb400' : '#ff3b30');
+    badge.style.color = data["16_finalDecision"] === 'ACCEPTED' ? '#05060a' : '#fff';
+
+    // 16 points
+    const pList = document.getElementById('diagPointsList');
+    const vNames = (data["2_vehicleClassAndConf"] || []).map(v => `${v.class} (${Math.round(v.confidence*100)}%)`).join(', ');
+    const vBoxes = (data["3_vehicleBoundingBoxes"] || []).map(b => `[${b.join(',')}]`).join(' ');
+    const cConf = (data["6_plateConfidences"] || []).map(c => Math.round(c*100)+'%').join(', ');
+    const cAR = (data["7_plateBoundingBoxesAndAR"] || []).map(b => `${b.size} (AR:${b.aspectRatio})`).join(', ');
+    const cRej = (data["9_candidateRejectionReasons"] || []).join('; ');
+    const rawOcr = (data["11_ocrRawResults"] || []).join(', ');
+    const cleanOcr = (data["13_normalizedOcrResults"] || []).join(', ');
+    const ocrConf = (data["12_ocrConfidences"] || []).map(c => Math.round(c*100)+'%').join(', ');
+    const synFmt = (data["14_indianFormatValidationResults"] || []).map(s => `${s.valid ? '✓ VALID' : '✗ INVALID'} [${s.syntax}] State:${s.state}`).join(', ');
+
+    const items = [
+      { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
+      { id: 2, label: 'Vehicle Class & Confidence', val: vNames || 'None', status: vNames ? 'info' : 'fail' },
+      { id: 3, label: 'Vehicle Bounding Box', val: vBoxes || 'None', status: 'info' },
+      { id: 4, label: 'Plate Detection Attempted', val: data["4_plateDetectionAttempted"] ? `YES (${data["4_plateAttemptReason"]})` : `NO (${data["4_plateAttemptReason"]})`, status: data["4_plateDetectionAttempted"] ? 'pass' : 'fail' },
+      { id: 5, label: 'Plate Candidates Found', val: `${data["5_plateCandidateCount"]} candidates`, status: data["5_plateCandidateCount"] > 0 ? 'pass' : 'fail' },
+      { id: 6, label: 'Plate Candidate Confidences', val: cConf || 'None', status: cConf ? 'info' : 'fail' },
+      { id: 7, label: 'Candidate Size & Aspect Ratio', val: cAR || 'None', status: 'info' },
+      { id: 8, label: 'Candidate Geometric Validation', val: data["8_candidatesValidationPassed"] && data["8_candidatesValidationPassed"].includes(true) ? 'PASSED' : 'FAILED', status: data["8_candidatesValidationPassed"] && data["8_candidatesValidationPassed"].includes(true) ? 'pass' : 'fail' },
+      { id: 9, label: 'Exact Candidate Rejection Reason', val: cRej || (data.summary && data.summary.reason) || 'None', status: cRej ? 'fail' : 'pass' },
+      { id: 10, label: 'Pre-OCR Plate Crop Saved', val: crops.length > 0 ? `YES (${crops.length} crop)` : 'NO', status: crops.length > 0 ? 'pass' : 'info' },
+      { id: 11, label: 'OCR Raw Recognition Text', val: rawOcr ? `"${rawOcr}"` : 'None', status: rawOcr ? 'info' : 'fail' },
+      { id: 12, label: 'OCR Recognition Confidence', val: ocrConf || '--', status: ocrConf ? 'info' : 'fail' },
+      { id: 13, label: 'Normalized OCR Text (Post-Disambiguation)', val: cleanOcr ? `"${cleanOcr}"` : 'None', status: cleanOcr ? 'pass' : 'fail' },
+      { id: 14, label: 'Indian Registration Syntax Match', val: synFmt || 'Not Evaluated', status: synFmt.includes('VALID') ? 'pass' : 'fail' },
+      { id: 15, label: 'Multi-Frame Confirmation Status', val: data["15_multiFrameConfirmationStatus"] || 'NONE', status: data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'warn' },
+      { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' }
+    ];
+
+    pList.innerHTML = items.map(it => {
+      const color = it.status === 'pass' ? '#00ff41' : (it.status === 'warn' ? '#ffb400' : (it.status === 'fail' ? '#ff5252' : '#00e5ff'));
+      return `
+        <div style="background:#131b2c;padding:6px 8px;border-radius:3px;border-left:3px solid ${color};">
+          <div style="color:#718096;font-size:8px;">POINT ${it.id} · ${it.label}</div>
+          <div style="color:${color};font-weight:bold;margin-top:2px;word-break:break-all;">${it.val}</div>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.warn('Diagnostics fetch error:', err);
+  }
 }
 
 // ── Init ─────────────────────────────────────────────────────

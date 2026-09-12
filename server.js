@@ -47,6 +47,7 @@ const io = new Server(httpsServer, {
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/debug_output', express.static(path.join(__dirname, 'debug_output')));
 
 // ─────────────────────────────────────────────
 //  Camera Node Configuration
@@ -236,6 +237,63 @@ app.post('/api/anpr/detect', async (req, res) => {
   }
 });
 
+/** Proxy debug and configuration endpoints to Python ANPR Inference service */
+app.get('/api/anpr/debug/last', async (req, res) => {
+  try {
+    const cam = req.query.cameraId ? `?cameraId=${req.query.cameraId}` : '';
+    const pyResp = await fetch(`http://127.0.0.1:5001/debug/last${cam}`);
+    const data = await pyResp.json();
+    res.json(data);
+  } catch (err) {
+    res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/history', async (req, res) => {
+  try {
+    const lim = req.query.limit ? `?limit=${req.query.limit}` : '';
+    const pyResp = await fetch(`http://127.0.0.1:5001/debug/history${lim}`);
+    const data = await pyResp.json();
+    res.json(data);
+  } catch (err) {
+    res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/stats', async (req, res) => {
+  try {
+    const pyResp = await fetch('http://127.0.0.1:5001/debug/stats');
+    const data = await pyResp.json();
+    res.json(data);
+  } catch (err) {
+    res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
+  }
+});
+
+app.get('/api/anpr/config', async (req, res) => {
+  try {
+    const pyResp = await fetch('http://127.0.0.1:5001/config');
+    const data = await pyResp.json();
+    res.json(data);
+  } catch (err) {
+    res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
+  }
+});
+
+app.post('/api/anpr/config', async (req, res) => {
+  try {
+    const pyResp = await fetch('http://127.0.0.1:5001/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const data = await pyResp.json();
+    res.json(data);
+  } catch (err) {
+    res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
+  }
+});
+
 /** Query detections */
 app.get('/api/detections', (req, res) => {
   let results = [...detections];
@@ -383,6 +441,77 @@ app.delete('/api/watchlist/:plate', (req, res) => {
 app.get('/api/alerts', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
   res.json(alertHistory.slice(-limit).reverse());
+});
+
+// ─────────────────────────────────────────────
+//  ANPR Debugging & Diagnostics Proxy (Port 5001)
+// ─────────────────────────────────────────────
+const ANPR_SERVICE_URL = 'http://127.0.0.1:5001';
+
+app.get('/api/anpr/config', async (req, res) => {
+  try {
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/config`);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
+});
+
+app.post('/api/anpr/config', async (req, res) => {
+  try {
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body)
+    });
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/last', async (req, res) => {
+  try {
+    const camId = req.query.cameraId || '';
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/debug/last?cameraId=${camId}`);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/history', async (req, res) => {
+  try {
+    const limit = req.query.limit || 20;
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/debug/history?limit=${limit}`);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/stats', async (req, res) => {
+  try {
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/debug/stats`);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
+});
+
+app.get('/api/anpr/debug/frames', async (req, res) => {
+  try {
+    const upstream = await fetch(`${ANPR_SERVICE_URL}/debug/frames`);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ANPR server unreachable', details: err.message });
+  }
 });
 
 // ─────────────────────────────────────────────

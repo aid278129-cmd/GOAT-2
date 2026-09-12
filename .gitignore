@@ -19,6 +19,7 @@ dataset/images/
 
 # Temporary Tesseract training scratch directory
 tess_training/
+debug_output/
 
 # OS metadata
 .DS_Store

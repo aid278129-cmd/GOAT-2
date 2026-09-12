@@ -3,15 +3,16 @@ anpr_server.py
 High-Performance Local ANPR Inference Service for Indian License Plates
 SIH Problem Statement ID: 26127 (BEL)
 
-Layered Vision Pipeline:
+Layered Vision Pipeline with Comprehensive 16-Point Per-Frame Diagnostics:
   1. Vehicle-First Detection (YOLOv8 COCO: car, motorcycle, bus, truck)
   2. Vehicle ROI Extraction & Spatial Verification
-  3. License Plate Detection inside Vehicle ROI (Trained Indian Plate YOLOv8)
+  3. License Plate Candidate Detection inside Vehicle ROI (Trained Indian Plate YOLOv8)
   4. Geometric & Aspect Ratio Filtering
   5. Optimized OCR (Tesseract v5.4.0 with CLAHE/Dual-Otsu + EasyOCR fallback)
   6. Indian Registration Syntax Scoring & Positional Disambiguation
   7. Multi-Frame Temporal Confirmation Tracker (Rejects isolated single-frame noise)
   8. Confirmed ANPR Event Forwarding to Node.js Backend
+  9. Full Frame & Plate Crop Archival + Real-time 16-point Diagnostics Telemetry
 """
 
 import os
@@ -24,9 +25,11 @@ import numpy as np
 from PIL import Image
 import cv2
 import pytesseract
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 import uvicorn
 import requests
 import easyocr
@@ -49,6 +52,17 @@ PLATE_MODEL_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.pt")
 FALLBACK_PLATE_MODEL_PATH = PLATE_MODEL_PATH
 NODE_SERVER_URL = "https://127.0.0.1:3000/api/detections"
 
+# Debug output directories
+DEBUG_DIR = os.path.join(BASE_DIR, "debug_output")
+DEBUG_FRAMES_DIR = os.path.join(DEBUG_DIR, "frames")
+DEBUG_CROPS_DIR = os.path.join(DEBUG_DIR, "crops")
+
+os.makedirs(DEBUG_FRAMES_DIR, exist_ok=True)
+os.makedirs(DEBUG_CROPS_DIR, exist_ok=True)
+
+# Mount debug static directory so client/browser can inspect saved frames and crops
+app.mount("/debug_output", StaticFiles(directory=DEBUG_DIR), name="debug_output")
+
 # Set Tesseract binary path
 TESSERACT_DEFAULT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 if os.path.exists(TESSERACT_DEFAULT_PATH):
@@ -58,21 +72,22 @@ else:
     print("Using system default tesseract command")
 
 # ──────────────────────────────────────────────────────────────────
-# Centralized, Configurable Settings (No Arbitrary Hardcoding)
+# Centralized, Configurable Settings (Runtime Configurable)
 # ──────────────────────────────────────────────────────────────────
 ANPR_CONFIG = {
     # Stage 1: Vehicle Detection
     "vehicle_detection_enabled": True,
     "vehicle_classes": [2, 3, 5, 7],         # COCO classes: 2=car, 3=motorcycle, 5=bus, 7=truck
-    "vehicle_conf_threshold": 0.22,           # Lowered slightly for partial bumper framing
+    "vehicle_conf_threshold": 0.22,           # Lowered for partial bumper framing
     "vehicle_roi_padding": 0.05,             # 5% padding around vehicle crop
 
     # Stage 2: License Plate Candidate Detection
     "plate_conf_threshold": 0.40,             # Min plate candidate confidence
-    "closeup_plate_conf_threshold": 0.60,     # Strict threshold if no full vehicle body in frame
+    "closeup_plate_conf_threshold": 0.45,     # Threshold if searching full frame
+    "allow_fullframe_fallback": True,         # Fall back to full-frame plate search if 0 vehicles detected
 
     # Stage 3: Geometric & Spatial Validation
-    "min_plate_aspect_ratio": 1.5,           # Width / Height
+    "min_plate_aspect_ratio": 1.1,           # Width / Height (1.1 allows MoRTH Rule 50 square/two-row plates)
     "max_plate_aspect_ratio": 6.2,           # Standard rectangular plates
     "min_plate_width": 20,                   # Pixels
     "min_plate_height": 8,                   # Pixels
@@ -86,10 +101,37 @@ ANPR_CONFIG = {
     "strict_indian_state_required": True,
 
     # Stage 5: Multi-Frame Temporal Confirmation
-    "temporal_window_sec": 3.0,              # Sliding window duration
+    "temporal_window_sec": 10.0,             # Sliding window duration (10s handles CPU inference and traversal)
     "min_consecutive_sightings": 2,          # Minimum frames to confirm (isolated 1-frame spikes rejected)
     "temporal_similarity_threshold": 0.80,  # String similarity ratio
+
+    # Diagnostics & Storage
+    "save_debug_frames": True,               # Save exact incoming WebRTC frame to disk
+    "save_debug_crops": True,                # Save pre-OCR plate crops to disk
+    "max_saved_frames": 200,                 # Frame cache limit
 }
+
+# ──────────────────────────────────────────────────────────────────
+# Diagnostic Memory Store
+# ──────────────────────────────────────────────────────────────────
+RECENT_DEBUG_LOGS: List[Dict[str, Any]] = []
+LATEST_DEBUG_PER_CAM: Dict[int, Dict[str, Any]] = {}
+DEBUG_STATS = {
+    "total_frames_processed": 0,
+    "vehicle_detected_count": 0,
+    "plate_attempted_count": 0,
+    "plate_candidates_found_count": 0,
+    "ocr_attempted_count": 0,
+    "syntax_valid_count": 0,
+    "confirmed_count": 0,
+    "rejection_reasons_breakdown": {}
+}
+
+def record_rejection_stat(reason_code: str):
+    prefix = reason_code.split(":")[0].strip() if ":" in reason_code else reason_code
+    DEBUG_STATS["rejection_reasons_breakdown"][prefix] = (
+        DEBUG_STATS["rejection_reasons_breakdown"].get(prefix, 0) + 1
+    )
 
 # ──────────────────────────────────────────────────────────────────
 # Model Holders
@@ -156,6 +198,43 @@ INDIAN_STATE_NAMES = {
 # ──────────────────────────────────────────────────────────────────
 # Indian Registration Syntax Validation & Repair
 # ──────────────────────────────────────────────────────────────────
+STATE_REPAIRS = {
+    'MG': 'MH', 'MN': 'MH', 'NH': 'MH',
+    'OL': 'DL', 'D1': 'DL', 'DI': 'DL',
+    'K1': 'KL', 'KI': 'KL',
+    'TM': 'TN', 'TI': 'TN',
+    'HR': 'HR', 'HA': 'HR',
+    'GJ': 'GJ', 'CJ': 'GJ',
+    'VP': 'UP', 'UF': 'UP',
+    'AP': 'AP', 'AF': 'AP',
+    'TS': 'TS', 'T5': 'TS',
+    'WB': 'WB', 'WE': 'WB',
+    'PB': 'PB', 'P8': 'PB',
+    'RJ': 'RJ', 'R1': 'RJ',
+}
+
+def repair_inverted_two_row(text):
+    """
+    On Indian square / 2-row plates (Rule 50 MoRTH), OCR frequently reads the bottom row 
+    (registration number) before the top row (State + District RTO code).
+    E.g. '0074AHAP29' -> 'AP29AH0074'.
+    """
+    if len(text) < 7:
+        return text
+    # Check if a valid Indian state prefix is embedded inside or at the end
+    for i in range(1, len(text) - 1):
+        st = text[i:i+2]
+        repaired_st = STATE_REPAIRS.get(st, st)
+        if repaired_st in INDIAN_STATES:
+            rto_match = re.match(r"^([A-Z]{2}\d{1,2})", repaired_st + text[i+2:])
+            if rto_match:
+                state_rto = rto_match.group(1)
+                rem = text[:i] + text[i+len(state_rto):]
+                rem_letters = re.findall(r"[A-Z]+", rem)
+                rem_digits = re.findall(r"\d+", rem)
+                return f"{state_rto}{''.join(rem_letters)}{''.join(rem_digits)}"
+    return text
+
 def clean_plate_text(raw_text):
     """Normalize and repair common OCR character confusions based on character position."""
     if not raw_text:
@@ -170,21 +249,42 @@ def clean_plate_text(raw_text):
 
     chars = list(cleaned)
 
-    # First 2 chars: State prefix must be letters (unless BH series)
-    is_bh_start = len(chars) >= 4 and chars[0].isdigit() and chars[1].isdigit()
-    if not is_bh_start:
-        for i in [0, 1]:
-            if i < len(chars) and chars[i] in digit_to_char:
-                chars[i] = digit_to_char[chars[i]]
-
     # Check BH Series format: YY BH #### XX
-    bh_match = re.match(r"^(\d{2})(BH)(\d{4})([A-Z]{1,2})$", "".join(chars))
-    if bh_match:
+    is_bh_candidate = len(chars) >= 6 and chars[0].isdigit() and chars[1].isdigit() and "".join(chars[2:4]) in ['BH', '8H']
+    if is_bh_candidate:
+        chars[2] = 'B'
+        chars[3] = 'H'
+        for i in range(4, min(8, len(chars))):
+            if chars[i] in char_to_digit:
+                chars[i] = char_to_digit[chars[i]]
         return "".join(chars)
 
-    # Standard State prefix check
+    # Check if inverted 2-row plate before character substitutions
+    if "".join(chars[:2]) not in INDIAN_STATES:
+        reordered = repair_inverted_two_row("".join(chars))
+        if reordered[:2] in INDIAN_STATES:
+            chars = list(reordered)
+
+    # First 2 chars: State prefix must be letters
+    for i in [0, 1]:
+        if i < len(chars) and chars[i] in digit_to_char:
+            chars[i] = digit_to_char[chars[i]]
+
+    # Standard State prefix check & optical repair
     state = "".join(chars[:2])
-    if state in INDIAN_STATES and len(chars) >= 7:
+    if state not in INDIAN_STATES and len(chars) >= 6:
+        if state in STATE_REPAIRS:
+            repaired = STATE_REPAIRS[state]
+            chars[0] = repaired[0]
+            chars[1] = repaired[1]
+            state = repaired
+        else:
+            reordered = repair_inverted_two_row("".join(chars))
+            if reordered[:2] in INDIAN_STATES:
+                chars = list(reordered)
+                state = "".join(chars[:2])
+
+    if state in INDIAN_STATES and len(chars) >= 6:
         # Positions 2 & 3: RTO number must be digits
         for i in [2, 3]:
             if i < len(chars) and chars[i] in char_to_digit:
@@ -204,14 +304,14 @@ def validate_indian_plate_syntax(text):
     Returns: (is_valid, score, state_code, state_name, match_type)
     """
     if not text or len(text) < ANPR_CONFIG["min_plate_chars"] or len(text) > ANPR_CONFIG["max_plate_chars"]:
-        return False, 0.0, "", "Unknown", "REJECTED_LENGTH"
+        return False, 0.0, "", "Unknown", f"REJECTED_LENGTH (got {len(text)} chars, expected {ANPR_CONFIG['min_plate_chars']}-{ANPR_CONFIG['max_plate_chars']})"
 
     state_code = text[:2]
     is_state_valid = state_code in INDIAN_STATES
     is_bh = bool(re.match(r"^\d{2}BH", text))
 
     if ANPR_CONFIG["strict_indian_state_required"] and not is_state_valid and not is_bh:
-        return False, 0.0, state_code, "Invalid State Prefix", "REJECTED_INVALID_STATE"
+        return False, 0.0, state_code, "Invalid State Prefix", f"REJECTED_INVALID_STATE (prefix '{state_code}' not a recognised Indian State/UT code)"
 
     # Tier 1: Standard MoRTH format (e.g., TN45AB1234, DL3CD1210)
     if re.match(r"^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$", text):
@@ -227,7 +327,7 @@ def validate_indian_plate_syntax(text):
         state_name = INDIAN_STATE_NAMES.get(state_code, "Indian Registered Vehicle")
         return True, 0.85, state_code, state_name, "VALID_HISTORICAL"
 
-    return False, 0.0, state_code, "Unrecognized Syntax", "REJECTED_SYNTAX"
+    return False, 0.0, state_code, "Unrecognized Syntax", "REJECTED_SYNTAX (Pattern mismatch against MoRTH/BH series)"
 
 # ──────────────────────────────────────────────────────────────────
 # Tesseract OCR & Image Enhancement
@@ -256,14 +356,18 @@ def preprocess_for_tesseract(crop_bgr):
     return [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
 
 def extract_plate_ocr(crop_bgr):
-    """Recognize Indian vehicle registration plate text using Tesseract OCR (with EasyOCR fallback)."""
+    """
+    Recognize Indian vehicle registration plate text using Tesseract OCR (with EasyOCR fallback).
+    Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine)
+    """
     if crop_bgr is None or crop_bgr.size == 0:
-        return "", 0.0, "None"
+        return "", "", 0.0, "None"
 
     variants = preprocess_for_tesseract(crop_bgr)
     whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
     best_text = ""
+    best_raw = ""
     best_conf = 0.0
     best_engine = "Tesseract OCR v5.4.0"
 
@@ -290,11 +394,37 @@ def extract_plate_ocr(crop_bgr):
                 if score > best_conf and len(cleaned) >= 4:
                     best_conf = score
                     best_text = cleaned
+                    best_raw = raw_combined
                     best_engine = f"Tesseract OCR (PSM {psm}, {vname})"
                     if is_valid and score >= 0.80:
-                        return best_text, min(0.99, best_conf), best_engine
+                        return best_text, best_raw, min(0.99, best_conf), best_engine
             except Exception:
                 continue
+
+    # 1b. Multi-Row Stacked Line OCR for Two-Row Indian Plates (AR < 2.0)
+    h_c, w_c = crop_bgr.shape[:2]
+    crop_ar = w_c / float(max(1, h_c))
+    if crop_ar < 2.0:
+        try:
+            top_half = crop_bgr[:int(h_c * 0.55), :]
+            bot_half = crop_bgr[int(h_c * 0.45):, :]
+            top_vars = preprocess_for_tesseract(top_half)
+            bot_vars = preprocess_for_tesseract(bot_half)
+            if top_vars and bot_vars:
+                t_data = pytesseract.image_to_data(top_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                b_data = pytesseract.image_to_data(bot_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                t_tokens = [t_data['text'][i] for i in range(len(t_data['text'])) if t_data['text'][i].strip()]
+                b_tokens = [b_data['text'][i] for i in range(len(b_data['text'])) if b_data['text'][i].strip()]
+                if t_tokens and b_tokens:
+                    t_str = "".join(t_tokens)
+                    b_str = "".join(b_tokens)
+                    stacked_raw = f"{t_str}{b_str}"
+                    stacked_clean = clean_plate_text(stacked_raw)
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(stacked_clean)
+                    if is_valid:
+                        return stacked_clean, stacked_raw, 0.88, "Tesseract OCR (Two-Row Sliced)"
+        except Exception:
+            pass
 
     # 2. Fallback to EasyOCR if Tesseract confidence is low or length < 5
     if len(best_text) < 5 or best_conf < ANPR_CONFIG["min_ocr_conf"]:
@@ -309,7 +439,15 @@ def extract_plate_ocr(crop_bgr):
                     paragraph=False
                 )
                 if results:
-                    sorted_res = sorted(results, key=lambda r: (min(pt[1] for pt in r[0]) // 25, min(pt[0] for pt in r[0])))
+                    h_v, w_v = img_variant.shape[:2]
+                    var_ar = w_v / float(max(1, h_v))
+                    if var_ar >= 2.0:
+                        # Single-row horizontal plate: sort left-to-right by X
+                        sorted_res = sorted(results, key=lambda r: min(pt[0] for pt in r[0]))
+                    else:
+                        # Two-row square plate: sort by row then by X
+                        row_h = max(20, h_v // 2)
+                        sorted_res = sorted(results, key=lambda r: (min(pt[1] for pt in r[0]) // row_h, min(pt[0] for pt in r[0])))
                     raw_combined = "".join([r[1] for r in sorted_res])
                     confs = [float(r[2]) for r in sorted_res if len(r) > 2]
                     avg_conf = float(np.mean(confs)) if confs else 0.5
@@ -321,12 +459,13 @@ def extract_plate_ocr(crop_bgr):
                     if score > best_conf and len(cleaned) >= 4:
                         best_conf = score
                         best_text = cleaned
+                        best_raw = raw_combined
                         best_engine = "EasyOCR (Fallback)"
                         break
         except Exception:
             pass
 
-    return best_text, min(0.99, best_conf), best_engine
+    return best_text, best_raw, min(0.99, best_conf), best_engine
 
 # ──────────────────────────────────────────────────────────────────
 # Stage 5: Multi-Frame Temporal Confirmation Tracker
@@ -411,6 +550,7 @@ class Base64DetectRequest(BaseModel):
     cameraName: str = "Camera 1"
     forwardToDashboard: bool = True
     manualScan: bool = False  # Set True for manual snapshot uploads
+    developerMode: bool = False
 
 @app.get("/health")
 def health():
@@ -420,28 +560,73 @@ def health():
         "status": "ok",
         "vehicle_detector_ready": vm is not None,
         "plate_detector_ready": pm is not None,
-        "tesseract_ready": os.path.exists(pytesseract.pytesseract.tesseract_cmd)
+        "tesseract_ready": os.path.exists(pytesseract.pytesseract.tesseract_cmd),
+        "debug_output_ready": os.path.exists(DEBUG_FRAMES_DIR) and os.path.exists(DEBUG_CROPS_DIR),
+        "config": ANPR_CONFIG
     }
 
 @app.get("/config")
 def get_config():
+    """Expose runtime-configurable values."""
     return ANPR_CONFIG
 
 @app.post("/config")
 def update_config(new_config: dict):
+    """Update runtime-configurable values without restarting server."""
     for k, v in new_config.items():
         if k in ANPR_CONFIG:
-            ANPR_CONFIG[k] = v
+            ANPR_CONFIG[k] = type(ANPR_CONFIG[k])(v)
     temporal_tracker.min_sightings = ANPR_CONFIG["min_consecutive_sightings"]
     temporal_tracker.window_sec = ANPR_CONFIG["temporal_window_sec"]
     return {"status": "updated", "config": ANPR_CONFIG}
 
+@app.get("/debug/last")
+def get_debug_last(cameraId: Optional[int] = None):
+    """Return latest 16-point debug record for specified camera or all cameras."""
+    if cameraId is not None:
+        return LATEST_DEBUG_PER_CAM.get(cameraId, {"message": f"No debug frames yet for Camera {cameraId}"})
+    return LATEST_DEBUG_PER_CAM
+
+@app.get("/debug/history")
+def get_debug_history(limit: int = 20):
+    """Return history of recent per-frame debug logs."""
+    return RECENT_DEBUG_LOGS[-min(limit, 100):]
+
+@app.get("/debug/stats")
+def get_debug_stats():
+    """Return comparative pipeline funnel diagnostics statistics."""
+    total = DEBUG_STATS["total_frames_processed"]
+    return {
+        **DEBUG_STATS,
+        "pass_rates": {
+            "vehicle_detection_rate": round(DEBUG_STATS["vehicle_detected_count"] / max(1, total), 3),
+            "plate_localization_rate": round(DEBUG_STATS["plate_candidates_found_count"] / max(1, total), 3),
+            "syntax_validation_rate": round(DEBUG_STATS["syntax_valid_count"] / max(1, total), 3),
+            "final_confirmation_rate": round(DEBUG_STATS["confirmed_count"] / max(1, total), 3),
+        }
+    }
+
+@app.get("/debug/frames")
+def list_debug_frames(limit: int = 20):
+    """List recently saved incoming frames and plate crops."""
+    frames = sorted(os.listdir(DEBUG_FRAMES_DIR), reverse=True)[:limit]
+    crops = sorted(os.listdir(DEBUG_CROPS_DIR), reverse=True)[:limit]
+    return {
+        "frames": [f"/debug_output/frames/{f}" for f in frames],
+        "crops": [f"/debug_output/crops/{c}" for c in crops]
+    }
+
 # ──────────────────────────────────────────────────────────────────
-# Core Detection Endpoint: Vehicle-First + Two-Stage ANPR
+# Core Detection Endpoint: Comprehensive 16-Point Diagnostics
 # ──────────────────────────────────────────────────────────────────
 @app.post("/detect")
 async def detect_plate(req: Base64DetectRequest):
     try:
+        DEBUG_STATS["total_frames_processed"] += 1
+        now_ts = int(time.time() * 1000)
+        frame_id = f"cam{req.cameraId}_{now_ts}"
+
+        # Decode incoming frame
         header, encoded = req.image.split(",", 1) if "," in req.image else ("", req.image)
         img_bytes = base64.b64decode(encoded)
         np_arr = np.frombuffer(img_bytes, np.uint8)
@@ -450,11 +635,34 @@ async def detect_plate(req: Base64DetectRequest):
             raise HTTPException(status_code=400, detail="Invalid image data")
 
         h_img, w_img = img.shape[:2]
+
+        # ── EXACT INCOMING FRAME ARCHIVAL ───────────────────────────
+        # Save exact incoming frame from mobile WebRTC stream before ANY processing
+        frame_filename = f"frame_{frame_id}.jpg"
+        frame_saved_path = os.path.join(DEBUG_FRAMES_DIR, frame_filename)
+        frame_relative_url = f"/debug_output/frames/{frame_filename}"
+
+        if ANPR_CONFIG.get("save_debug_frames", True):
+            cv2.imwrite(frame_saved_path, img)
+
+        # Cap max frame dimension to 1280 for real-time inference latency while preserving full detail
+        max_dim = 1280
+        if max(h_img, w_img) > max_dim:
+            scale = max_dim / float(max(h_img, w_img))
+            img = cv2.resize(img, (int(w_img * scale), int(h_img * scale)), interpolation=cv2.INTER_AREA)
+            h_img, w_img = img.shape[:2]
+
+        # Calculate Image Quality Metrics (sharpness / blur / brightness)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        mean_brightness = float(np.mean(gray))
+        is_blurry = laplacian_var < 75.0
+
         v_model = get_vehicle_model()
         p_model = get_plate_model()
 
         # ──────────────────────────────────────────────────────────
-        # STAGE 1: Vehicle-First Detection
+        # POINT 1, 2, 3: Vehicle Detection
         # ──────────────────────────────────────────────────────────
         detected_vehicles = []
         if ANPR_CONFIG["vehicle_detection_enabled"]:
@@ -477,33 +685,103 @@ async def detect_plate(req: Base64DetectRequest):
                         "box": xyxy.tolist()
                     })
 
-        # CRITICAL FALSE POSITIVE SUPPRESSION:
-        # If no vehicles detected and not a manual snapshot scan, reject immediately!
-        if len(detected_vehicles) == 0 and not req.manualScan:
+        vehicle_detected = len(detected_vehicles) > 0
+        if vehicle_detected:
+            DEBUG_STATS["vehicle_detected_count"] += 1
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 4: Plate Detection Attempt Evaluation
+        # ──────────────────────────────────────────────────────────
+        allow_fallback = ANPR_CONFIG.get("allow_fullframe_fallback", False)
+        attempt_plate_detection = vehicle_detected or req.manualScan or (not ANPR_CONFIG["vehicle_detection_enabled"]) or allow_fallback
+
+        if attempt_plate_detection:
+            DEBUG_STATS["plate_attempted_count"] += 1
+            if vehicle_detected:
+                attempt_reason = f"Attempted plate detection inside {len(detected_vehicles)} vehicle ROI(s)"
+            elif req.manualScan:
+                attempt_reason = "Attempted full-frame plate detection (manual scan override)"
+            elif not ANPR_CONFIG["vehicle_detection_enabled"]:
+                attempt_reason = "Attempted full-frame plate detection (vehicle gating disabled)"
+            else:
+                attempt_reason = "Attempted full-frame plate detection (fallback enabled)"
+        else:
+            attempt_reason = f"SKIPPED: Zero vehicles detected in scene (threshold={ANPR_CONFIG['vehicle_conf_threshold']}). Vehicle gating active."
+
+        # If vehicle gating rejects frame before plate attempt
+        if not attempt_plate_detection:
+            rejection_reason = f"REJECTED_NO_VEHICLE: No vehicle detected above confidence threshold ({ANPR_CONFIG['vehicle_conf_threshold']}). Plate detection skipped."
+            record_rejection_stat("REJECTED_NO_VEHICLE")
+
+            frame_telemetry = {
+                "frameId": frame_id,
+                "timestamp": now_ts,
+                "cameraId": req.cameraId,
+                "cameraName": req.cameraName,
+                "frameSavedPath": frame_saved_path,
+                "frameUrl": frame_relative_url,
+                "resolution": f"{w_img}x{h_img}",
+                "sharpnessScore": round(laplacian_var, 1),
+                "isBlurry": is_blurry,
+                "meanBrightness": round(mean_brightness, 1),
+
+                # 16-point diagnostic records
+                "1_vehicleDetected": False,
+                "2_vehicleClassAndConf": [],
+                "3_vehicleBoundingBoxes": [],
+                "4_plateDetectionAttempted": False,
+                "4_plateAttemptReason": attempt_reason,
+                "5_plateCandidateCount": 0,
+                "6_plateConfidences": [],
+                "7_plateBoundingBoxesAndAR": [],
+                "8_candidatesValidationPassed": [],
+                "9_candidateRejectionReasons": [rejection_reason],
+                "10_plateCropsSaved": [],
+                "11_ocrRawResults": [],
+                "12_ocrConfidences": [],
+                "13_normalizedOcrResults": [],
+                "14_indianFormatValidationResults": [],
+                "15_multiFrameConfirmationStatus": "SKIPPED",
+                "16_finalDecision": "REJECTED",
+
+                "summary": {
+                    "status": "REJECTED_NO_VEHICLE",
+                    "reason": rejection_reason,
+                    "failureStage": "Stage 1: Vehicle Detection",
+                },
+                "candidates": []
+            }
+
+            LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+            RECENT_DEBUG_LOGS.append(frame_telemetry)
+            if len(RECENT_DEBUG_LOGS) > 100:
+                RECENT_DEBUG_LOGS.pop(0)
+
             return {
                 "success": True,
                 "detected": False,
                 "status": "REJECTED_NO_VEHICLE",
-                "reason": "No vehicle detected in scene. Frame safely rejected to prevent false positives.",
+                "reason": rejection_reason,
                 "vehicles": [],
-                "detections": []
+                "detections": [],
+                "debug": frame_telemetry
             }
 
         # ──────────────────────────────────────────────────────────
-        # STAGE 2: Plate Candidate Detection inside Vehicle ROI
+        # POINT 5 to 9: Plate Candidate Detection & Geometric Validation
         # ──────────────────────────────────────────────────────────
-        candidate_plates = []
+        raw_candidates_evaluated = []
+        valid_candidates_to_ocr = []
 
-        if len(detected_vehicles) > 0:
+        if vehicle_detected:
             # Search inside each detected vehicle's bounding box
-            for v in detected_vehicles:
+            for v_idx, v in enumerate(detected_vehicles):
                 vx1, vy1, vx2, vy2 = v["box"]
                 vw = vx2 - vx1
                 vh = vy2 - vy1
-                if vw < 25 or vh < 25:
+                if vw < 20 or vh < 20:
                     continue
 
-                # Add configurable padding around vehicle
                 pad_x = int(vw * ANPR_CONFIG["vehicle_roi_padding"])
                 pad_y = int(vh * ANPR_CONFIG["vehicle_roi_padding"])
                 cx1 = max(0, vx1 - pad_x)
@@ -514,7 +792,7 @@ async def detect_plate(req: Base64DetectRequest):
                 v_crop = img[cy1:cy2, cx1:cx2]
                 p_results = p_model.predict(
                     v_crop,
-                    conf=ANPR_CONFIG["plate_conf_threshold"],
+                    conf=0.15,  # Run lower detector threshold internally so we can log rejected confidence candidates
                     verbose=False
                 )
 
@@ -531,70 +809,164 @@ async def detect_plate(req: Base64DetectRequest):
                         bw = fx2 - fx1
                         bh = fy2 - fy1
 
-                        # STAGE 3: Geometric & Spatial Validation
-                        if bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
-                            continue
-                        aspect_ratio = float(bw) / float(bh)
-                        if aspect_ratio < ANPR_CONFIG["min_plate_aspect_ratio"] or aspect_ratio > ANPR_CONFIG["max_plate_aspect_ratio"]:
-                            continue
-
-                        # Plate area must be realistic fraction of vehicle area
+                        aspect_ratio = float(bw) / float(max(1, bh))
                         plate_area = bw * bh
-                        vehicle_area = vw * vh
-                        if (plate_area / vehicle_area) > ANPR_CONFIG["max_plate_to_vehicle_area"]:
-                            continue
-
-                        # Plate must be in lower portion of vehicle (never on roof)
+                        vehicle_area = max(1, vw * vh)
+                        area_ratio = plate_area / float(vehicle_area)
                         rel_y = (fy1 + bh / 2.0 - vy1) / float(vh)
-                        if rel_y < ANPR_CONFIG["plate_vertical_pos_min"]:
-                            continue
 
-                        candidate_plates.append({
-                            "detectorConfidence": p_conf,
-                            "bbox": [fx1, fy1, bw, bh],
-                            "vehicleType": v["class"],
-                            "vehicleConfidence": v["confidence"]
-                        })
+                        # Check validation criteria
+                        reject_reason = None
+                        passed_val = True
+
+                        if p_conf < ANPR_CONFIG["plate_conf_threshold"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {ANPR_CONFIG['plate_conf_threshold']:.2f}"
+                        elif bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_TOO_SMALL: size {bw}x{bh}px < min {ANPR_CONFIG['min_plate_width']}x{ANPR_CONFIG['min_plate_height']}px"
+                        elif aspect_ratio < ANPR_CONFIG["min_plate_aspect_ratio"] or aspect_ratio > ANPR_CONFIG["max_plate_aspect_ratio"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_ASPECT_RATIO: AR {aspect_ratio:.2f} not in [{ANPR_CONFIG['min_plate_aspect_ratio']}, {ANPR_CONFIG['max_plate_aspect_ratio']}]"
+                        elif area_ratio > ANPR_CONFIG["max_plate_to_vehicle_area"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_AREA_RATIO: plate area {area_ratio*100:.1f}% exceeds max {ANPR_CONFIG['max_plate_to_vehicle_area']*100:.0f}% of vehicle"
+                        elif rel_y < ANPR_CONFIG["plate_vertical_pos_min"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_VERTICAL_POSITION: rel_y {rel_y:.2f} < min {ANPR_CONFIG['plate_vertical_pos_min']} (mounted too high)"
+
+                        cand_obj = {
+                            "candidateIndex": int(len(raw_candidates_evaluated)),
+                            "detectorConfidence": float(round(p_conf, 3)),
+                            "bbox": [int(fx1), int(fy1), int(bw), int(bh)],
+                            "aspectRatio": float(round(aspect_ratio, 2)),
+                            "size": f"{int(bw)}x{int(bh)}",
+                            "passedValidation": bool(passed_val),
+                            "rejectionReason": str(reject_reason) if reject_reason else None,
+                            "vehicleClass": str(v["class"]),
+                            "vehicleConfidence": float(v["confidence"]),
+                            "vehicleBox": [int(x) for x in v["box"]]
+                        }
+                        raw_candidates_evaluated.append(cand_obj)
+                        if passed_val:
+                            valid_candidates_to_ocr.append(cand_obj)
         else:
-            # Manual snapshot scan override: search full frame with strict threshold
-            p_results = p_model.predict(img, conf=ANPR_CONFIG["closeup_plate_conf_threshold"], verbose=False)
+            # Full-frame search (manual scan or fallback)
+            conf_thresh = ANPR_CONFIG["closeup_plate_conf_threshold"] if not req.manualScan else 0.25
+            p_results = p_model.predict(img, conf=0.15, verbose=False)
             for pr in p_results:
                 for pb in pr.boxes:
                     p_conf = float(pb.conf[0])
                     x1, y1, x2, y2 = pb.xyxy[0].cpu().numpy().astype(int)
                     bw = x2 - x1
                     bh = y2 - y1
-                    if bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
-                        continue
-                    ar = float(bw) / float(bh)
-                    if ar < ANPR_CONFIG["min_plate_aspect_ratio"] or ar > ANPR_CONFIG["max_plate_aspect_ratio"]:
-                        continue
-                    candidate_plates.append({
-                        "detectorConfidence": p_conf,
-                        "bbox": [x1, y1, bw, bh],
-                        "vehicleType": "Car / Passenger Vehicle",
-                        "vehicleConfidence": 0.80
-                    })
+                    aspect_ratio = float(bw) / float(max(1, bh))
 
-        if not candidate_plates:
+                    reject_reason = None
+                    passed_val = True
+
+                    if p_conf < conf_thresh:
+                        passed_val = False
+                        reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {conf_thresh:.2f}"
+                    elif bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
+                        passed_val = False
+                        reject_reason = f"REJECTED_TOO_SMALL: size {bw}x{bh}px < min {ANPR_CONFIG['min_plate_width']}x{ANPR_CONFIG['min_plate_height']}px"
+                    elif aspect_ratio < ANPR_CONFIG["min_plate_aspect_ratio"] or aspect_ratio > ANPR_CONFIG["max_plate_aspect_ratio"]:
+                        passed_val = False
+                        reject_reason = f"REJECTED_ASPECT_RATIO: AR {aspect_ratio:.2f} not in [{ANPR_CONFIG['min_plate_aspect_ratio']}, {ANPR_CONFIG['max_plate_aspect_ratio']}]"
+
+                    cand_obj = {
+                        "candidateIndex": int(len(raw_candidates_evaluated)),
+                        "detectorConfidence": float(round(p_conf, 3)),
+                        "bbox": [int(x1), int(y1), int(bw), int(bh)],
+                        "aspectRatio": float(round(aspect_ratio, 2)),
+                        "size": f"{int(bw)}x{int(bh)}",
+                        "passedValidation": bool(passed_val),
+                        "rejectionReason": str(reject_reason) if reject_reason else None,
+                        "vehicleClass": "Vehicle (Full-Frame)",
+                        "vehicleConfidence": 0.80,
+                        "vehicleBox": [0, 0, int(w_img), int(h_img)]
+                    }
+                    raw_candidates_evaluated.append(cand_obj)
+                    if passed_val:
+                        valid_candidates_to_ocr.append(cand_obj)
+
+        if len(raw_candidates_evaluated) > 0:
+            DEBUG_STATS["plate_candidates_found_count"] += 1
+
+        # If no candidates or all candidates failed geometric validation
+        if not valid_candidates_to_ocr:
+            primary_reason = (
+                raw_candidates_evaluated[0]["rejectionReason"]
+                if raw_candidates_evaluated
+                else "NO_PLATE_CANDIDATES: Plate detector found 0 candidate boxes inside vehicle ROI."
+            )
+            record_rejection_stat(primary_reason)
+
+            frame_telemetry = {
+                "frameId": frame_id,
+                "timestamp": now_ts,
+                "cameraId": req.cameraId,
+                "cameraName": req.cameraName,
+                "frameSavedPath": frame_saved_path,
+                "frameUrl": frame_relative_url,
+                "resolution": f"{w_img}x{h_img}",
+                "sharpnessScore": float(round(laplacian_var, 1)),
+                "isBlurry": bool(is_blurry),
+                "meanBrightness": float(round(mean_brightness, 1)),
+
+                "1_vehicleDetected": bool(vehicle_detected),
+                "2_vehicleClassAndConf": [{"class": str(v["class"]), "confidence": float(v["confidence"])} for v in detected_vehicles],
+                "3_vehicleBoundingBoxes": [[int(x) for x in v["box"]] for v in detected_vehicles],
+                "4_plateDetectionAttempted": True,
+                "4_plateAttemptReason": str(attempt_reason),
+                "5_plateCandidateCount": int(len(raw_candidates_evaluated)),
+                "6_plateConfidences": [float(c["detectorConfidence"]) for c in raw_candidates_evaluated],
+                "7_plateBoundingBoxesAndAR": [{"bbox": [int(x) for x in c["bbox"]], "size": str(c["size"]), "aspectRatio": float(c["aspectRatio"])} for c in raw_candidates_evaluated],
+                "8_candidatesValidationPassed": [bool(c["passedValidation"]) for c in raw_candidates_evaluated],
+                "9_candidateRejectionReasons": [str(c["rejectionReason"]) for c in raw_candidates_evaluated if c["rejectionReason"]],
+                "10_plateCropsSaved": [],
+                "11_ocrRawResults": [],
+                "12_ocrConfidences": [],
+                "13_normalizedOcrResults": [],
+                "14_indianFormatValidationResults": [],
+                "15_multiFrameConfirmationStatus": "SKIPPED_NO_VALID_GEOMETRY",
+                "16_finalDecision": "REJECTED",
+
+                "summary": {
+                    "status": "REJECTED_GEOMETRY" if raw_candidates_evaluated else "REJECTED_NO_PLATES",
+                    "reason": primary_reason,
+                    "failureStage": "Stage 2: Plate Localization / Geometric Validation",
+                },
+                "candidates": raw_candidates_evaluated
+            }
+
+            LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+            RECENT_DEBUG_LOGS.append(frame_telemetry)
+            if len(RECENT_DEBUG_LOGS) > 100:
+                RECENT_DEBUG_LOGS.pop(0)
+
             return {
                 "success": True,
                 "detected": False,
                 "status": "NO_PLATE_CANDIDATES",
-                "reason": "Vehicles detected but no valid license plate candidates passed geometric filters.",
+                "reason": primary_reason,
                 "vehicles": detected_vehicles,
-                "detections": []
+                "detections": [],
+                "debug": frame_telemetry
             }
 
-        # Sort candidate plates by detector confidence descending
-        candidate_plates.sort(key=lambda c: c["detectorConfidence"], reverse=True)
+        # Sort valid candidates by detector confidence descending
+        valid_candidates_to_ocr.sort(key=lambda c: c["detectorConfidence"], reverse=True)
         confirmed_detection = None
         all_evaluations = []
 
         # ──────────────────────────────────────────────────────────
-        # STAGES 4, 5 & 6: OCR, Indian Syntax & Temporal Confirmation
+        # POINT 10 to 16: Plate Crop Archival, OCR, Syntax & Multi-Frame Confirmation
         # ──────────────────────────────────────────────────────────
-        for cand in candidate_plates[:2]:
+        DEBUG_STATS["ocr_attempted_count"] += 1
+
+        for c_idx, cand in enumerate(valid_candidates_to_ocr[:2]):
             x1, y1, bw, bh = cand["bbox"]
             pad_x = int(bw * 0.05)
             pad_y = int(bh * 0.05)
@@ -604,55 +976,141 @@ async def detect_plate(req: Base64DetectRequest):
             cy2 = min(h_img, y1 + bh + pad_y)
 
             crop = img[cy1:cy2, cx1:cx2]
-            clean_text, ocr_conf, ocr_engine = extract_plate_ocr(crop)
 
-            # STAGE 4: Indian Registration Syntax Scoring
-            is_valid, syn_score, state_code, state_name, match_type = validate_indian_plate_syntax(clean_text)
+            # POINT 10: Save plate crop before OCR
+            crop_filename = f"crop_{frame_id}_cand{c_idx}.jpg"
+            crop_saved_path = os.path.join(DEBUG_CROPS_DIR, crop_filename)
+            crop_relative_url = f"/debug_output/crops/{crop_filename}"
+            if ANPR_CONFIG.get("save_debug_crops", True) and crop.size > 0:
+                cv2.imwrite(crop_saved_path, crop)
+
+            # POINT 11, 12, 13: OCR Recognition
+            clean_text, raw_ocr_text, ocr_conf, ocr_engine = extract_plate_ocr(crop)
+
+            # POINT 14: Indian registration format validation result
+            is_valid_syntax, syn_score, state_code, state_name, match_type = validate_indian_plate_syntax(clean_text)
+
+            if is_valid_syntax:
+                DEBUG_STATS["syntax_valid_count"] += 1
 
             overall_conf = float(round((cand["detectorConfidence"] * 0.4 + ocr_conf * 0.4 + syn_score * 0.2), 2))
 
+            # POINT 15: Multi-frame confirmation status
+            if is_valid_syntax:
+                is_confirmed, final_plate, cons_conf, sightings = temporal_tracker.process_candidate(
+                    req.cameraId,
+                    clean_text,
+                    overall_conf,
+                    bypass_temporal=req.manualScan
+                )
+                conf_status = "CONFIRMED" if is_confirmed else "CANDIDATE_ACCUMULATING"
+                if is_confirmed:
+                    DEBUG_STATS["confirmed_count"] += 1
+            else:
+                is_confirmed = False
+                final_plate = clean_text
+                cons_conf = overall_conf
+                sightings = 0
+                conf_status = "REJECTED_SYNTAX"
+
+            # POINT 16: Final ACCEPTED / REJECTED result
+            if is_confirmed:
+                final_decision = "ACCEPTED"
+                rejection_reason = None
+            elif not is_valid_syntax:
+                final_decision = "REJECTED"
+                rejection_reason = match_type
+                record_rejection_stat(match_type)
+            elif ocr_conf < ANPR_CONFIG["min_ocr_conf"]:
+                final_decision = "REJECTED"
+                rejection_reason = f"REJECTED_OCR_CONF: OCR confidence {ocr_conf:.2f} < {ANPR_CONFIG['min_ocr_conf']:.2f}"
+                record_rejection_stat("REJECTED_OCR_CONF")
+            else:
+                final_decision = "CANDIDATE_ACCUMULATING"
+                rejection_reason = f"Awaiting multi-frame confirmation ({sightings}/{ANPR_CONFIG['min_consecutive_sightings']} sightings)"
+
             eval_record = {
-                "plate": clean_text if is_valid else "",
-                "rawOcr": clean_text,
+                "candidateIndex": c_idx,
+                "plate": final_plate if is_valid_syntax else "",
+                "rawOcr": raw_ocr_text,
+                "normalizedOcr": clean_text,
+                "ocrConfidence": float(round(ocr_conf, 2)),
+                "ocrEngine": ocr_engine,
                 "stateCode": state_code,
                 "stateName": state_name,
                 "syntaxMatch": match_type,
-                "confidence": overall_conf,
+                "syntaxValid": is_valid_syntax,
                 "detectorConfidence": float(round(cand["detectorConfidence"], 2)),
-                "ocrConfidence": float(round(ocr_conf, 2)),
-                "ocrEngine": ocr_engine,
+                "confidence": float(round(cons_conf, 2)),
+                "sightings": sightings,
+                "requiredSightings": ANPR_CONFIG["min_consecutive_sightings"],
+                "confirmationStatus": conf_status,
+                "finalDecision": final_decision,
+                "rejectionReason": rejection_reason,
+                "cropSavedPath": crop_saved_path,
+                "cropUrl": crop_relative_url,
                 "bbox": [int(x1), int(y1), int(bw), int(bh)],
                 "cameraId": req.cameraId,
-                "vehicleType": cand["vehicleType"],
+                "vehicleType": str(cand.get("vehicleClass", "car")),
                 "plateType": "HSRP (High Security Registration Plate)",
+                "status": "CONFIRMED" if is_confirmed else ("REJECTED_SYNTAX" if not is_valid_syntax else "CANDIDATE_ACCUMULATING")
             }
 
-            if not is_valid:
-                eval_record["status"] = "REJECTED_SYNTAX"
-                eval_record["reason"] = f"Failed Indian registration validation ({match_type})"
-                all_evaluations.append(eval_record)
-                continue
-
-            # STAGE 5: Multi-Frame Temporal Confirmation
-            is_confirmed, final_plate, cons_conf, sightings = temporal_tracker.process_candidate(
-                req.cameraId,
-                clean_text,
-                overall_conf,
-                bypass_temporal=req.manualScan
-            )
-
-            eval_record["plate"] = final_plate
-            eval_record["confidence"] = round(cons_conf, 2)
-            eval_record["sightings"] = sightings
-            eval_record["status"] = "CONFIRMED" if is_confirmed else "CANDIDATE_ACCUMULATING"
-
             all_evaluations.append(eval_record)
-
             if is_confirmed and confirmed_detection is None:
                 confirmed_detection = eval_record
 
+        # Construct comprehensive 16-point diagnostic payload for this frame
+        primary_eval = all_evaluations[0] if all_evaluations else {}
+        frame_telemetry = {
+            "frameId": frame_id,
+            "timestamp": now_ts,
+            "cameraId": req.cameraId,
+            "cameraName": req.cameraName,
+            "frameSavedPath": frame_saved_path,
+            "frameUrl": frame_relative_url,
+            "resolution": f"{w_img}x{h_img}",
+            "sharpnessScore": float(round(laplacian_var, 1)),
+            "isBlurry": bool(is_blurry),
+            "meanBrightness": float(round(mean_brightness, 1)),
+
+            # The 16 requested diagnostic points:
+            "1_vehicleDetected": bool(vehicle_detected),
+            "2_vehicleClassAndConf": [{"class": str(v["class"]), "confidence": float(v["confidence"])} for v in detected_vehicles],
+            "3_vehicleBoundingBoxes": [[int(x) for x in v["box"]] for v in detected_vehicles],
+            "4_plateDetectionAttempted": True,
+            "4_plateAttemptReason": str(attempt_reason),
+            "5_plateCandidateCount": int(len(raw_candidates_evaluated)),
+            "6_plateConfidences": [float(c["detectorConfidence"]) for c in raw_candidates_evaluated],
+            "7_plateBoundingBoxesAndAR": [{"bbox": [int(x) for x in c["bbox"]], "size": str(c["size"]), "aspectRatio": float(c["aspectRatio"])} for c in raw_candidates_evaluated],
+            "8_candidatesValidationPassed": [bool(c["passedValidation"]) for c in raw_candidates_evaluated],
+            "9_candidateRejectionReasons": [str(c["rejectionReason"]) for c in raw_candidates_evaluated if c["rejectionReason"]],
+            "10_plateCropsSaved": [str(e["cropUrl"]) for e in all_evaluations],
+            "11_ocrRawResults": [str(e["rawOcr"]) for e in all_evaluations],
+            "12_ocrConfidences": [float(e["ocrConfidence"]) for e in all_evaluations],
+            "13_normalizedOcrResults": [str(e["normalizedOcr"]) for e in all_evaluations],
+            "14_indianFormatValidationResults": [{"valid": bool(e["syntaxValid"]), "syntax": str(e["syntaxMatch"]), "state": str(e["stateCode"])} for e in all_evaluations],
+            "15_multiFrameConfirmationStatus": str(primary_eval.get("confirmationStatus", "NONE")),
+            "16_finalDecision": "ACCEPTED" if confirmed_detection else str(primary_eval.get("finalDecision", "REJECTED")),
+
+            "summary": {
+                "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "NO_DETECTION"),
+                "reason": primary_eval.get("rejectionReason") if not confirmed_detection else f"Confirmed plate {confirmed_detection['plate']}",
+                "failureStage": "None (Passed)" if confirmed_detection else (
+                    "Stage 5: Multi-Frame Temporal Window" if primary_eval.get("confirmationStatus") == "CANDIDATE_ACCUMULATING" else "Stage 4: OCR / Syntax Validation"
+                )
+            },
+            "candidates": raw_candidates_evaluated,
+            "evaluations": all_evaluations
+        }
+
+        LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+        RECENT_DEBUG_LOGS.append(frame_telemetry)
+        if len(RECENT_DEBUG_LOGS) > 100:
+            RECENT_DEBUG_LOGS.pop(0)
+
         # ──────────────────────────────────────────────────────────
-        # STAGE 7: Forward ONLY Confirmed Events to Node.js Backend
+        # POINT 16: Forward ONLY Confirmed Events to Node.js Backend
         # ──────────────────────────────────────────────────────────
         if confirmed_detection and req.forwardToDashboard:
             try:
@@ -674,13 +1132,16 @@ async def detect_plate(req: Base64DetectRequest):
         return {
             "success": True,
             "detected": confirmed_detection is not None,
-            "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else "CANDIDATE_TRACKING",
+            "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "CANDIDATE_TRACKING"),
             "detection": confirmed_detection,
             "vehicles": detected_vehicles,
             "detections": all_evaluations,
+            "debug": frame_telemetry,
         }
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"success": False, "error": str(e)}
 
 @app.post("/detect-file")
