@@ -22,6 +22,7 @@ import time
 import asyncio
 import base64
 import difflib
+from collections import defaultdict
 import numpy as np
 from PIL import Image
 import cv2
@@ -104,10 +105,11 @@ ANPR_CONFIG = {
     "max_plate_chars": 11,
     "strict_indian_state_required": True,
 
-    # Stage 5: Multi-Frame Temporal Confirmation
+    # Stage 5: Multi-Frame Temporal Confirmation & Confidence-Weighted Voting (Phase 7)
     "temporal_window_sec": 10.0,             # Sliding window duration (10s handles CPU inference and traversal)
     "min_consecutive_sightings": 2,          # Minimum frames to confirm (isolated 1-frame spikes rejected)
-    "temporal_similarity_threshold": 0.80,  # String similarity ratio
+    "temporal_similarity_threshold": 0.75,  # String similarity ratio for candidate clustering
+    "temporal_voting_mode": "confidence_weighted", # "confidence_weighted", "simple_majority", "legacy_highest_conf"
 
     # Diagnostics & Storage
     "save_debug_frames": True,               # Save exact incoming WebRTC frame to disk
@@ -865,77 +867,229 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
     return best_text, best_raw, min(0.99, best_conf), best_engine
 
 # ──────────────────────────────────────────────────────────────────
-# Stage 5: Multi-Frame Temporal Confirmation Tracker
+# Stage 5: Multi-Frame Temporal Confirmation Tracker (Phase 7 Voting)
 # ──────────────────────────────────────────────────────────────────
 class TemporalConfirmationTracker:
     """
-    Accumulates plate observations across consecutive frames per camera.
-    A candidate plate is ONLY confirmed when observed across >= min_sightings
-    within a temporal sliding window. Random one-frame noise is discarded.
+    Phase 7: Accumulates plate observations across consecutive frames per camera.
+    A candidate plate is confirmed when observed across >= min_sightings within
+    a temporal sliding window. Uses Confidence-Weighted Positional Character Voting
+    and Cluster Consensus to resolve single-frame character ambiguities and suppress
+    anomalous high-confidence noise spikes.
     """
-    def __init__(self, min_sightings=2, window_sec=3.0, similarity_threshold=0.80):
+    def __init__(self, min_sightings=2, window_sec=10.0, similarity_threshold=0.75, voting_mode="confidence_weighted"):
         self.min_sightings = min_sightings
         self.window_sec = window_sec
         self.similarity_threshold = similarity_threshold
+        self.voting_mode = voting_mode
         self.candidates = {}  # cameraId -> list of active candidate tracking dicts
 
-    def process_candidate(self, camera_id, plate_str, conf, bypass_temporal=False):
+    def process_candidate(self, camera_id, plate_str, conf, ocr_conf=None, det_conf=None, is_syntax_valid=True, bypass_temporal=False):
         """
-        Process plate observation.
-        Returns: (is_confirmed, consolidated_plate, consolidated_conf, total_sightings)
+        Process plate observation with Phase 7 confidence-weighted temporal voting.
+        Returns: (is_confirmed, consolidated_plate, consolidated_conf, total_sightings, voting_telemetry)
         """
-        if bypass_temporal:
-            return True, plate_str, conf, 1
-
         now = time.time()
+        mode = ANPR_CONFIG.get("temporal_voting_mode", self.voting_mode)
+        min_s = int(ANPR_CONFIG.get("min_consecutive_sightings", self.min_sightings))
+        win_s = float(ANPR_CONFIG.get("temporal_window_sec", self.window_sec))
+        sim_thresh = float(ANPR_CONFIG.get("temporal_similarity_threshold", self.similarity_threshold))
+
+        if bypass_temporal:
+            return True, plate_str, conf, 1, {
+                "voting_applied": False,
+                "voting_mode": "bypass",
+                "consensus_ratio": 1.0,
+                "total_sightings": 1,
+                "variants": [{"plate": plate_str, "count": 1, "weight": round(conf, 3), "avg_conf": round(conf, 3)}],
+                "resolved_positions": [],
+                "outlier_suppressed": False
+            }
+
         if camera_id not in self.candidates:
             self.candidates[camera_id] = []
 
-        # 1. Prune expired candidate sightings older than window
+        # 1. Prune expired candidate sightings older than sliding window
         self.candidates[camera_id] = [
             c for c in self.candidates[camera_id]
-            if (now - c['last_seen']) <= self.window_sec
+            if (now - c['last_seen']) <= win_s
         ]
 
-        # 2. Look for matching candidate using Levenshtein distance
+        # 2. Look for matching candidate using Levenshtein distance & cluster observation history
         matched = None
+        best_sim = 0.0
         for c in self.candidates[camera_id]:
             sim = difflib.SequenceMatcher(None, c['plate'], plate_str).ratio()
-            if sim >= self.similarity_threshold or c['plate'] == plate_str:
-                matched = c
-                break
+            obs_sims = [difflib.SequenceMatcher(None, o['plate'], plate_str).ratio() for o in c.get('observations', [])]
+            max_sim = max([sim] + obs_sims) if obs_sims else sim
+            if max_sim >= sim_thresh or c['plate'] == plate_str:
+                if max_sim > best_sim:
+                    best_sim = max_sim
+                    matched = c
+
+        obs = {
+            "plate": plate_str,
+            "conf": float(conf),
+            "ocr_conf": float(ocr_conf if ocr_conf is not None else conf),
+            "det_conf": float(det_conf if det_conf is not None else conf),
+            "syntax_valid": bool(is_syntax_valid),
+            "timestamp": now
+        }
 
         if matched:
-            matched['sightings'] += 1
+            matched.setdefault('observations', []).append(obs)
+            matched['sightings'] = len(matched['observations'])
             matched['last_seen'] = now
-            matched['confidences'].append(conf)
+            matched.setdefault('confidences', []).append(conf)
 
-            # Consolidate string: prefer longer or higher confidence version
-            if len(plate_str) > len(matched['plate']) or conf > max(matched['confidences'][:-1]):
-                matched['plate'] = plate_str
+            # Perform Phase 7 Confidence-Weighted Consensus & Positional Voting
+            consensus_plate, consensus_conf, telemetry = self._compute_consensus(matched, mode)
+            matched['plate'] = consensus_plate
 
-            avg_conf = float(np.mean(matched['confidences']))
-            is_confirmed = (matched['sightings'] >= self.min_sightings) and not matched.get('already_confirmed', False)
-            if is_confirmed:
+            is_confirmed = (matched['sightings'] >= min_s)
+            if is_confirmed and not matched.get('already_confirmed', False):
                 matched['already_confirmed'] = True
-                return True, matched['plate'], avg_conf, matched['sightings']
-            return False, matched['plate'], avg_conf, matched['sightings']
+
+            return is_confirmed, consensus_plate, consensus_conf, matched['sightings'], telemetry
         else:
-            # First sighting in window — hold in candidate buffer
-            self.candidates[camera_id].append({
-                'plate': plate_str,
-                'first_seen': now,
-                'last_seen': now,
-                'sightings': 1,
-                'confidences': [conf],
-                'already_confirmed': False
+            # First sighting in window — initialize new candidate cluster
+            new_cluster = {
+                "plate": plate_str,
+                "first_seen": now,
+                "last_seen": now,
+                "sightings": 1,
+                "confidences": [conf],
+                "observations": [obs],
+                "already_confirmed": False
+            }
+            self.candidates[camera_id].append(new_cluster)
+            telemetry = {
+                "voting_applied": False,
+                "voting_mode": mode,
+                "consensus_ratio": 1.0,
+                "total_sightings": 1,
+                "variants": [{"plate": plate_str, "count": 1, "weight": round(conf, 3), "avg_conf": round(conf, 3)}],
+                "resolved_positions": [],
+                "outlier_suppressed": False
+            }
+            return False, plate_str, conf, 1, telemetry
+
+    def _compute_consensus(self, cluster, voting_mode):
+        observations = cluster.get('observations', [])
+        if not observations:
+            return cluster.get('plate', ''), 0.0, {}
+
+        variant_weights = defaultdict(float)
+        variant_counts = defaultdict(int)
+        variant_confs = defaultdict(list)
+        total_weight = 0.0
+
+        for o in observations:
+            if voting_mode == "simple_majority":
+                w = 1.0
+            elif voting_mode == "legacy_highest_conf":
+                w = float(o.get('conf', 0.5))
+            else:
+                # Phase 7 confidence-weighted mode:
+                # Combines detector confidence, OCR confidence and syntax validity
+                w = max(0.1, float(o.get('conf', 0.5)))
+                if o.get('syntax_valid', True):
+                    w *= 1.2
+            p = o['plate']
+            variant_weights[p] += w
+            variant_counts[p] += 1
+            variant_confs[p].append(float(o.get('conf', 0.5)))
+            total_weight += w
+
+        variants_list = []
+        for p, cnt in variant_counts.items():
+            variants_list.append({
+                "plate": p,
+                "count": cnt,
+                "weight": round(variant_weights[p], 3),
+                "avg_conf": round(float(np.mean(variant_confs[p])), 3)
             })
-            return False, plate_str, conf, 1
+        variants_list.sort(key=lambda v: v["weight"], reverse=True)
+        best_variant_string = variants_list[0]["plate"]
+        best_variant_weight = variants_list[0]["weight"]
+
+        # Positional character voting across dominant length
+        length_weights = defaultdict(float)
+        for o in observations:
+            length_weights[len(o['plate'])] += float(o.get('conf', 0.5))
+        dom_len = max(length_weights, key=length_weights.get)
+        aligned_obs = [o for o in observations if len(o['plate']) == dom_len]
+
+        resolved_positions = []
+        consensus_chars = []
+
+        if len(aligned_obs) >= 2 and dom_len >= 5:
+            for j in range(dom_len):
+                char_weights = defaultdict(float)
+                for o in aligned_obs:
+                    w = max(0.1, float(o.get('conf', 0.5)))
+                    if o.get('syntax_valid', True):
+                        w *= 1.2
+                    char_weights[o['plate'][j]] += w
+                sorted_chars = sorted(char_weights.items(), key=lambda x: x[1], reverse=True)
+                best_c = sorted_chars[0][0]
+                if len(sorted_chars) > 1:
+                    resolved_positions.append({
+                        "pos": j,
+                        "chosen": best_c,
+                        "chosen_weight": round(sorted_chars[0][1], 3),
+                        "runner_up": sorted_chars[1][0],
+                        "runner_up_weight": round(sorted_chars[1][1], 3)
+                    })
+                consensus_chars.append(best_c)
+            consensus_candidate = "".join(consensus_chars)
+        else:
+            consensus_candidate = best_variant_string
+
+        # Validate candidate syntax using validate_indian_plate_syntax
+        is_cand_valid, _, _, _, _ = validate_indian_plate_syntax(consensus_candidate)
+        is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_variant_string)
+
+        if is_cand_valid or not is_best_valid:
+            final_consensus_plate = consensus_candidate
+            voting_applied = len(resolved_positions) > 0
+        else:
+            final_consensus_plate = best_variant_string
+            voting_applied = False
+
+        # Outlier spike detection (when a single high-confidence noise reading is overridden)
+        max_single_conf = max(o.get('conf', 0) for o in observations)
+        outlier_suppressed = any(
+            o.get('conf', 0) == max_single_conf and o['plate'] != final_consensus_plate
+            for o in observations
+        )
+
+        matching_confs = [o['conf'] for o in observations if o['plate'] == final_consensus_plate]
+        if matching_confs:
+            consensus_conf = float(np.mean(matching_confs))
+        elif aligned_obs:
+            consensus_conf = float(np.mean([o['conf'] for o in aligned_obs]))
+        else:
+            consensus_conf = float(np.mean([o['conf'] for o in observations]))
+
+        consensus_ratio = round(best_variant_weight / max(0.001, total_weight), 3)
+
+        telemetry = {
+            "voting_applied": voting_applied,
+            "voting_mode": voting_mode,
+            "consensus_ratio": consensus_ratio,
+            "total_sightings": len(observations),
+            "variants": variants_list,
+            "resolved_positions": resolved_positions,
+            "outlier_suppressed": outlier_suppressed
+        }
+        return final_consensus_plate, round(consensus_conf, 3), telemetry
 
 temporal_tracker = TemporalConfirmationTracker(
     min_sightings=ANPR_CONFIG["min_consecutive_sightings"],
     window_sec=ANPR_CONFIG["temporal_window_sec"],
-    similarity_threshold=ANPR_CONFIG["temporal_similarity_threshold"]
+    similarity_threshold=ANPR_CONFIG["temporal_similarity_threshold"],
+    voting_mode=ANPR_CONFIG["temporal_voting_mode"]
 )
 
 # ──────────────────────────────────────────────────────────────────
@@ -1002,6 +1156,8 @@ def update_config(new_config: dict):
         _worker_semaphore = asyncio.Semaphore(ANPR_CONFIG.get("max_python_workers", 2))
     temporal_tracker.min_sightings = ANPR_CONFIG["min_consecutive_sightings"]
     temporal_tracker.window_sec = ANPR_CONFIG["temporal_window_sec"]
+    temporal_tracker.similarity_threshold = ANPR_CONFIG["temporal_similarity_threshold"]
+    temporal_tracker.voting_mode = ANPR_CONFIG["temporal_voting_mode"]
     return {
         "status": "updated",
         "config": ANPR_CONFIG,
@@ -1547,10 +1703,13 @@ def sync_detect_plate_core(req: Base64DetectRequest):
             # POINT 15: Multi-frame confirmation status
             if is_valid_syntax:
                 t0_track = time.perf_counter()
-                is_confirmed, final_plate, cons_conf, sightings = temporal_tracker.process_candidate(
+                is_confirmed, final_plate, cons_conf, sightings, voting_telem = temporal_tracker.process_candidate(
                     req.cameraId,
                     clean_text,
                     overall_conf,
+                    ocr_conf=ocr_conf,
+                    det_conf=cand["detectorConfidence"],
+                    is_syntax_valid=is_valid_syntax,
                     bypass_temporal=req.manualScan
                 )
                 t_tracker_ms += (time.perf_counter() - t0_track) * 1000.0
@@ -1562,6 +1721,15 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                 final_plate = clean_text
                 cons_conf = overall_conf
                 sightings = 0
+                voting_telem = {
+                    "voting_applied": False,
+                    "voting_mode": ANPR_CONFIG.get("temporal_voting_mode", "confidence_weighted"),
+                    "consensus_ratio": 1.0,
+                    "total_sightings": 0,
+                    "variants": [],
+                    "resolved_positions": [],
+                    "outlier_suppressed": False
+                }
                 conf_status = "REJECTED_SYNTAX"
 
             # POINT 16: Final ACCEPTED / REJECTED result
@@ -1614,7 +1782,8 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                 "ocrTier": candidate_ocr_tier,
                 "screenDegraded": bool(orig_timing.get("screen_degraded", False)),
                 "screenEnhanced": bool(orig_timing.get("screen_enhanced", False) or (need_rectified_ocr and rect_timing.get("screen_enhanced", False))),
-                "screenQuality": orig_timing.get("screen_quality", {})
+                "screenQuality": orig_timing.get("screen_quality", {}),
+                "temporalVoting": voting_telem
             }
 
             all_evaluations.append(eval_record)
@@ -1686,6 +1855,7 @@ def sync_detect_plate_core(req: Base64DetectRequest):
             "clientKeyframeSharpness": req.keyframeSharpness,
             "keyframeCandidatesEvaluated": req.keyframeCandidates,
             "keyframeStatus": "BLURRY" if is_blurry else "ACCEPTED",
+            "temporalVoting": primary_eval.get("temporalVoting", {}),
 
             "summary": {
                 "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "NO_DETECTION"),

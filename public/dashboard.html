@@ -504,6 +504,14 @@
                 <option value="4">4 Workers (Maximum CPU Concurrency)</option>
               </select>
             </div>
+            <div style="grid-column: span 2;">
+              <label style="color:#d946ef;display:block;font-weight:bold;">🗳️ TEMPORAL VOTING MODE (PHASE 7)</label>
+              <select id="cfgTemporalMode" style="width:100%;background:#161f30;border:1px solid #d946ef;color:#d946ef;padding:3px 4px;font-size:10px;border-radius:2px;font-weight:bold;">
+                <option value="confidence_weighted" selected>Confidence-Weighted Positional Voting (Optimal)</option>
+                <option value="simple_majority">Simple Majority Character Voting</option>
+                <option value="legacy_highest_conf">Legacy Highest-Confidence Reading</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="checkbox" id="cfgAllowFallback" />
@@ -518,7 +526,7 @@
       <!-- Right Column: 16-Point Telemetry Checklist -->
       <div style="background:#0b0f19;border:1px solid rgba(0,180,255,0.2);border-radius:4px;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
         <div style="font-family:var(--text-mono);font-size:11px;color:#00e5ff;font-weight:bold;border-bottom:1px solid #1a2333;padding-bottom:6px;display:flex;justify-content:space-between;">
-          <span>📋 16-POINT FRAME PIPELINE TELEMETRY</span>
+          <span>📋 20-POINT FRAME PIPELINE TELEMETRY</span>
           <span id="diagStatusBadge" style="padding:1px 6px;border-radius:3px;font-size:9px;background:#ff3b30;color:#fff;">STANDBY</span>
         </div>
 
@@ -1149,6 +1157,9 @@ async function loadDiagnosticsConfig() {
       if (cfg.max_concurrent_workers && document.getElementById('cfgConcurrency')) {
         document.getElementById('cfgConcurrency').value = cfg.max_concurrent_workers;
       }
+      if (cfg.temporal_voting_mode && document.getElementById('cfgTemporalMode')) {
+        document.getElementById('cfgTemporalMode').value = cfg.temporal_voting_mode;
+      }
     }
   } catch (e) {
     console.warn('Could not load config:', e);
@@ -1167,7 +1178,8 @@ async function saveDiagnosticsConfig() {
       allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked,
       inference_backend: document.getElementById('cfgBackend') ? document.getElementById('cfgBackend').value : 'onnx',
       screen_robustness_mode: document.getElementById('cfgScreenMode') ? document.getElementById('cfgScreenMode').value : 'auto',
-      max_concurrent_workers: document.getElementById('cfgConcurrency') ? parseInt(document.getElementById('cfgConcurrency').value) : 2
+      max_concurrent_workers: document.getElementById('cfgConcurrency') ? parseInt(document.getElementById('cfgConcurrency').value) : 2,
+      temporal_voting_mode: document.getElementById('cfgTemporalMode') ? document.getElementById('cfgTemporalMode').value : 'confidence_weighted'
     };
     const res = await fetch('/api/anpr/config', {
       method: 'POST',
@@ -1278,6 +1290,20 @@ async function fetchDiagnosticsNow() {
       }
     } catch (e) {}
 
+    const tv = data.temporalVoting || (data.evaluations && data.evaluations[0] && data.evaluations[0].temporalVoting) || {};
+    const tvApplied = tv.voting_applied;
+    const tvMode = tv.voting_mode || 'confidence_weighted';
+    const tvRatio = tv.consensus_ratio != null ? `${Math.round(tv.consensus_ratio * 100)}%` : '--';
+    const tvOutlier = tv.outlier_suppressed;
+    const tvVariants = (tv.variants || []).map(v => `${v.plate} (x${v.count}, w=${v.weight})`).join(', ');
+    const tvResolved = (tv.resolved_positions || []).map(r => `Pos ${r.pos}: '${r.chosen}' (w=${r.chosen_weight}) over '${r.runner_up}' (w=${r.runner_up_weight})`).join('; ');
+
+    let tvStr = `Mode: ${tvMode} · Sightings: ${tv.total_sightings || 1} · Consensus Ratio: ${tvRatio}`;
+    if (tvVariants) tvStr += ` · Variants: [${tvVariants}]`;
+    if (tvResolved) tvStr += ` · Disambiguated: [${tvResolved}]`;
+    if (tvOutlier) tvStr += ` · 🛡️ OUTLIER SPIKE SUPPRESSED`;
+    const tvStatus = tvOutlier ? 'pass' : (tvApplied ? 'pass' : (data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'info'));
+
     const items = [
       { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
       { id: 2, label: 'Vehicle Class & Confidence', val: vNames || 'None', status: vNames ? 'info' : 'fail' },
@@ -1297,7 +1323,8 @@ async function fetchDiagnosticsNow() {
       { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' },
       { id: 17, label: 'CPU Inference Latency & Staged OCR Tier (Phases 3 & 4)', val: timingStr, status: 'pass' },
       { id: 18, label: 'Screen Display Robustness & Anti-Moiré (Phase 5)', val: screenStr, status: screenEnh ? 'pass' : (screenDeg ? 'warn' : 'info') },
-      { id: 19, label: 'Multi-Camera Concurrency & Stale Frame Dropping (Phase 6)', val: queueStr, status: queueStatus }
+      { id: 19, label: 'Multi-Camera Concurrency & Stale Frame Dropping (Phase 6)', val: queueStr, status: queueStatus },
+      { id: 20, label: 'Temporal Confidence-Weighted Voting (Phase 7)', val: tvStr, status: tvStatus }
     ];
 
     pList.innerHTML = items.map(it => {

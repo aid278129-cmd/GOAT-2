@@ -45,6 +45,7 @@ CONFIG_URL = "http://127.0.0.1:5001/config"
 NODE_DETECT_URL = "https://127.0.0.1:3000/api/anpr/detect"
 NODE_QUEUE_URL = "https://127.0.0.1:3000/api/anpr/queue/stats"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(__file__))
 
 SAMPLE_IMAGES = [
     os.path.join(BASE_DIR, "Indian_Number_Plates", "Sample_Images", "Datacluster_number_plates (1).jpg"),
@@ -134,7 +135,8 @@ def evaluate_test_suite():
         "TEST 5": [],
         "TEST 6": [],
         "TEST 7": [],
-        "TEST 8": []
+        "TEST 8": [],
+        "TEST 9": []
     }
 
     # ─────────────────────────────────────────────────────────────
@@ -706,6 +708,113 @@ def evaluate_test_suite():
         print(f"TEST 8 Concurrency Benchmark Error: {e}")
 
     # ─────────────────────────────────────────────────────────────
+    # TEST 9: Phase 7 Temporal ANPR Improvement & Confidence Voting Benchmark
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 9: Phase 7 Temporal ANPR Improvement & Confidence-Weighted Voting")
+    print("-" * 78)
+
+    try:
+        from anpr_server import temporal_tracker
+
+        # 9.1 Ambiguity Resolution Sequence (solution.txt Example: TN45A81234 -> TN45AB1234)
+        print("[TEST 9.1] Multi-Frame Character Ambiguity Voting Sequence:")
+        ambiguity_frames = [
+            ("TN45A81234", 0.72),
+            ("TN45AB1234", 0.91),
+            ("TN45AB1234", 0.94),
+            ("TN45AB1234", 0.96)
+        ]
+        tracker_t9 = temporal_tracker.__class__(min_sightings=2, window_sec=10.0, similarity_threshold=0.75, voting_mode="confidence_weighted")
+        res_p, res_c, res_s, res_telem = None, None, None, None
+        for f_idx, (plate_in, conf_in) in enumerate(ambiguity_frames):
+            is_c, res_p, res_c, res_s, res_telem = tracker_t9.process_candidate(
+                camera_id=901,
+                plate_str=plate_in,
+                conf=conf_in,
+                ocr_conf=conf_in,
+                det_conf=0.90,
+                is_syntax_valid=True
+            )
+            print(f"  • Frame {f_idx+1}: Input '{plate_in}' ({conf_in:.2f}) -> Consensus: '{res_p}' (Conf: {res_c:.2f}, Sightings: {res_s}, Confirmed: {is_c})")
+
+        resolved_pos = res_telem.get("resolved_positions", [])
+        voting_ok = (res_p == "TN45AB1234") and (len(resolved_pos) > 0)
+        print(f"  ★ Consensus Plate: '{res_p}' | Disambiguations: {resolved_pos} | Voting Applied: {res_telem.get('voting_applied')}")
+
+        test_results["TEST 9"].append({
+            "image": "Ambiguity_TN45AB1234",
+            "detected": voting_ok,
+            "plate": res_p,
+            "confidence": res_c,
+            "failureStage": "None (Passed)" if voting_ok else "VotingConvergenceFailed",
+            "failureReason": f"Consensus '{res_p}' (Pos 5 resolved to 'B')" if voting_ok else "Failed to converge on TN45AB1234"
+        })
+
+        # 9.2 Outlier Spike Suppression (3 consistent readings at ~0.82 vs 1 rogue noise reading at 0.98)
+        print("\n[TEST 9.2] Rogue Outlier High-Confidence Noise Suppression:")
+        outlier_frames = [
+            ("DL01AB1234", 0.82),
+            ("DL01AB1234", 0.84),
+            ("DL01AB1234", 0.81),
+            ("DL01A81234", 0.98)
+        ]
+        tracker_t9_out = temporal_tracker.__class__(min_sightings=2, window_sec=10.0, similarity_threshold=0.75, voting_mode="confidence_weighted")
+        for f_idx, (plate_in, conf_in) in enumerate(outlier_frames):
+            is_c, res_p2, res_c2, res_s2, res_telem2 = tracker_t9_out.process_candidate(
+                camera_id=902,
+                plate_str=plate_in,
+                conf=conf_in,
+                ocr_conf=conf_in,
+                det_conf=0.88,
+                is_syntax_valid=True
+            )
+            print(f"  • Frame {f_idx+1}: Input '{plate_in}' ({conf_in:.2f}) -> Consensus: '{res_p2}' (Conf: {res_c2:.2f}, Sightings: {res_s2})")
+
+        outlier_ok = (res_p2 == "DL01AB1234") and res_telem2.get("outlier_suppressed", False)
+        print(f"  ★ Consensus Plate: '{res_p2}' | Outlier Suppressed: {res_telem2.get('outlier_suppressed')} | Consensus Ratio: {res_telem2.get('consensus_ratio')}")
+
+        test_results["TEST 9"].append({
+            "image": "Outlier_Suppression_DL01AB1234",
+            "detected": outlier_ok,
+            "plate": res_p2,
+            "confidence": res_c2,
+            "failureStage": "None (Passed)" if outlier_ok else "OutlierNotSuppressed",
+            "failureReason": f"Consensus '{res_p2}' (Suppressed rogue 0.98 spike)" if outlier_ok else "Rogue spike was not suppressed"
+        })
+
+        # 9.3 End-to-End Live Stream Frame Confirmation via Node Gateway
+        print("\n[TEST 9.3] End-to-End Multi-Frame Stream Confirmation via Gateway:")
+        sample_img = cv2.imread(SAMPLE_IMAGES[0])
+        # Frame 1: Stream mode (manualScan=False)
+        r_stream1 = run_frame_inference(sample_img, camera_id=903, manual_scan=False, quality=90)
+        time.sleep(0.15)
+        # Frame 2: Stream mode (confirms candidate)
+        r_stream2 = run_frame_inference(sample_img, camera_id=903, manual_scan=False, quality=90)
+
+        det2 = r_stream2.get("detection")
+        is_conf = (r_stream2.get("debug", {}).get("15_multiFrameConfirmationStatus") == "CONFIRMED") or (det2 is not None)
+        plate_live = det2["plate"] if det2 else "None"
+        conf_live = det2["confidence"] if det2 else 0.0
+        tv_telem = r_stream2.get("debug", {}).get("temporalVoting", {})
+
+        print(f"  • Frame 1 Status: {r_stream1.get('debug', {}).get('15_multiFrameConfirmationStatus')} ({r_stream1.get('summary', {}).get('status')})")
+        print(f"  • Frame 2 Status: {r_stream2.get('debug', {}).get('15_multiFrameConfirmationStatus')} ({r_stream2.get('summary', {}).get('status')}) -> Plate: '{plate_live}' (Conf: {conf_live:.2f})")
+        print(f"  • Temporal Voting Telemetry: Mode={tv_telem.get('voting_mode')} | Sightings={tv_telem.get('total_sightings')} | Consensus={tv_telem.get('consensus_ratio')}")
+
+        test_results["TEST 9"].append({
+            "image": "Stream_Confirmation_CAM903",
+            "detected": is_conf,
+            "plate": plate_live,
+            "confidence": conf_live,
+            "failureStage": "None (Passed)" if is_conf else "StreamConfirmationFailed",
+            "failureReason": f"Confirmed [{plate_live}]" if is_conf else str(r_stream2.get("debug", {}).get("summary", {}).get("reason"))
+        })
+
+    except Exception as e:
+        print(f"TEST 9 Benchmark Error: {e}")
+
+    # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis
     # ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -714,7 +823,7 @@ def evaluate_test_suite():
     print(f"{'Test':<8} | {'Samples':<7} | {'Det Rate':<9} | {'Avg Conf':<8} | {'Primary Failure Stage':<28} | {'Primary Rejection Reason'}")
     print("-" * 78)
 
-    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7", "TEST 8"]:
+    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7", "TEST 8", "TEST 9"]:
         recs = test_results.get(t_name, [])
         if not recs:
             print(f"{t_name:<8} | {'0':<7} | {'N/A':<9} | {'N/A':<8} | {'No Frames Recorded':<28} | N/A")
