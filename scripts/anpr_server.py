@@ -122,6 +122,12 @@ ANPR_CONFIG = {
     # Phase 3: CPU Performance Optimization & Configurable Inference Backend
     "inference_backend": "onnx",              # "onnx" or "pytorch"
     "enable_stage_profiling": True,          # Record fine-grained ms timings for all stages
+
+    # Phase 4: Staged OCR Execution & Early-Exit Optimization
+    "ocr_staged_execution": True,            # 3-tier early-stopping OCR pipeline
+    "ocr_target_height_single_row": 80,      # Target height in px for single-row plates
+    "ocr_target_height_two_row": 130,        # Target height in px for two-row plates
+    "ocr_early_exit_conf": 0.75,             # Exit immediately if Tier 1 yields valid MoRTH plate with >= conf
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -484,159 +490,227 @@ def rectify_plate_perspective(crop_bgr):
     return crop_bgr, 0.0, "SKIPPED_NO_SIGNIFICANT_SKEW"
 
 # ──────────────────────────────────────────────────────────────────
-# Tesseract OCR & Image Enhancement
+# Tesseract OCR & Image Enhancement (Phase 4 Staged Pipeline)
 # ──────────────────────────────────────────────────────────────────
-def preprocess_for_tesseract(crop_bgr):
-    """Generate targeted binary & contrast-enhanced images specifically for Tesseract OCR."""
+def normalize_plate_crop(crop_bgr, target_height=None):
+    """
+    Intelligently normalize plate crop resolution for optimal OCR accuracy & speed.
+    Tesseract and CRNN OCR models operate best with character heights ~30-45px.
+    - Single-row plates (AR >= 2.0): Target height ~75-85px
+    - Two-row plates (AR < 2.0): Target height ~120-140px
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr
+    h, w = crop_bgr.shape[:2]
+    ar = w / float(max(1, h))
+    if target_height is None:
+        target_height = int(ANPR_CONFIG.get("ocr_target_height_single_row", 80)) if ar >= 2.0 else int(ANPR_CONFIG.get("ocr_target_height_two_row", 130))
+    if abs(h - target_height) <= 15:
+        return crop_bgr
+    scale = float(target_height) / float(h)
+    target_width = max(30, int(w * scale))
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(crop_bgr, (target_width, target_height), interpolation=interp)
+
+def preprocess_for_tesseract(crop_bgr, full_variants=False):
+    """
+    Generate targeted binary & contrast-enhanced images specifically for Tesseract OCR.
+    When full_variants=False (Tier 1 fast pass):
+      Returns [('otsu', otsu)] (or inverted if plate background is dark).
+    When full_variants=True (Tier 2 adaptive pass):
+      Returns targeted candidates [('otsu_inv', otsu_inv), ('adaptive', adaptive)].
+    """
     if crop_bgr is None or crop_bgr.size == 0:
         return []
-    h, w = crop_bgr.shape[:2]
-    scale = max(2.0, 100.0 / float(h))
-    target_w = int(w * scale)
-    target_h = int(h * scale)
-    scaled = cv2.resize(crop_bgr, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
-
-    gray = cv2.cvtColor(scaled, cv2.COLOR_BGR2GRAY)
-    bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(bilateral)
-
-    # Standard Otsu (white background, dark characters)
+    
+    norm_crop = normalize_plate_crop(crop_bgr)
+    gray = cv2.cvtColor(norm_crop, cv2.COLOR_BGR2GRAY) if len(norm_crop.shape) == 3 else norm_crop
+    smoothed = cv2.bilateralFilter(gray, 7, 50, 50)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(smoothed)
     _, otsu = cv2.threshold(clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    # Inverted Otsu (dark/yellow background, white characters)
-    otsu_inv = cv2.bitwise_not(otsu)
-    # Adaptive threshold
-    adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
 
+    border = np.concatenate([otsu[0, :], otsu[-1, :], otsu[:, 0], otsu[:, -1]])
+    is_dark_bg = np.mean(border) < 127
+
+    if not full_variants:
+        if is_dark_bg:
+            otsu_inv = cv2.bitwise_not(otsu)
+            return [('otsu_inv', otsu_inv), ('otsu', otsu)]
+        return [('otsu', otsu)]
+
+    otsu_inv = cv2.bitwise_not(otsu)
+    adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     return [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
 
 def extract_plate_ocr(crop_bgr, return_timing=False):
     """
-    Recognize Indian vehicle registration plate text using Tesseract OCR (with EasyOCR fallback).
+    Recognize Indian vehicle registration plate text using a 3-Tier Staged OCR Pipeline:
+      - Tier 1: Fast Single-Pass Primary Tesseract (PSM 7 / Two-Row Sliced) with Early Exit.
+      - Tier 2: Targeted Secondary Tesseract (Adaptive + Inverted Otsu, PSM 7 & 8) with Early Exit.
+      - Tier 3: Selective Normalized EasyOCR Fallback (runs strictly when Tesseract fails).
     Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine, [timing_dict])
     """
-    timing = {"tesseract_ms": 0.0, "easyocr_ms": 0.0, "total_ocr_ms": 0.0}
+    timing = {
+        "tesseract_ms": 0.0,
+        "easyocr_ms": 0.0,
+        "total_ocr_ms": 0.0,
+        "ocr_tier": "NONE",
+        "early_exit": False
+    }
     if crop_bgr is None or crop_bgr.size == 0:
         if return_timing:
             return "", "", 0.0, "None", timing
         return "", "", 0.0, "None"
 
     t0_ocr = time.perf_counter()
-    variants = preprocess_for_tesseract(crop_bgr)
     whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    norm_crop = normalize_plate_crop(crop_bgr)
+    h_n, w_n = norm_crop.shape[:2]
+    crop_ar = w_n / float(max(1, h_n))
 
     best_text = ""
     best_raw = ""
     best_conf = 0.0
-    best_engine = "Tesseract OCR v5.4.0"
-
-    # 1. Primary Engine: Official Tesseract OCR
+    best_engine = "None"
     t0_tess = time.perf_counter()
-    for vname, vimg in variants:
-        for psm in [7, 8, 6]:
-            cfg = f"--psm {psm} {whitelist}"
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 1: Fast Single-Pass Primary Tesseract (Early Exit)
+    # ─────────────────────────────────────────────────────────────
+    if crop_ar >= 2.0:
+        fast_vars = preprocess_for_tesseract(norm_crop, full_variants=False)
+        for vname, vimg in fast_vars:
             try:
-                data = pytesseract.image_to_data(vimg, config=cfg, output_type=pytesseract.Output.DICT)
+                data = pytesseract.image_to_data(vimg, config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
                 tokens = [data['text'][i] for i in range(len(data['text'])) if data['text'][i].strip()]
-                if not tokens:
-                    continue
-                raw_combined = "".join(tokens)
-                confs = [float(data['conf'][i]) for i in range(len(data['conf'])) if str(data['conf'][i]) != '-1']
-                avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.5
-
-                cleaned = clean_plate_text(raw_combined)
-                score = avg_conf
-
-                is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(cleaned)
-                if is_valid:
-                    score += (syn_score * 0.35)
-
-                if score > best_conf and len(cleaned) >= 4:
-                    best_conf = score
-                    best_text = cleaned
-                    best_raw = raw_combined
-                    best_engine = f"Tesseract OCR (PSM {psm}, {vname})"
-                    if is_valid and score >= 0.80:
-                        t_tess_end = time.perf_counter()
-                        timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
-                        timing["total_ocr_ms"] = (t_tess_end - t0_ocr) * 1000.0
+                if tokens:
+                    raw_str = "".join(tokens)
+                    confs = [float(data['conf'][i]) for i in range(len(data['conf'])) if str(data['conf'][i]) != '-1']
+                    avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.5
+                    clean_str = clean_plate_text(raw_str)
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(clean_str)
+                    score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                    if score > best_conf:
+                        best_conf = score
+                        best_text = clean_str
+                        best_raw = raw_str
+                        best_engine = f"Tesseract (Tier 1 Fast, {vname})"
+                    if is_valid and score >= ANPR_CONFIG.get("ocr_early_exit_conf", 0.75):
+                        t_end = time.perf_counter()
+                        timing["tesseract_ms"] = (t_end - t0_tess) * 1000.0
+                        timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                        timing["ocr_tier"] = "TIER_1_TESS_FAST"
+                        timing["early_exit"] = True
                         if return_timing:
                             return best_text, best_raw, min(0.99, best_conf), best_engine, timing
                         return best_text, best_raw, min(0.99, best_conf), best_engine
             except Exception:
-                continue
-
-    # 1b. Multi-Row Stacked Line OCR for Two-Row Indian Plates (AR < 2.0)
-    h_c, w_c = crop_bgr.shape[:2]
-    crop_ar = w_c / float(max(1, h_c))
-    if crop_ar < 2.0:
+                pass
+    else:
+        # Two-row sliced fast pass
         try:
-            top_half = crop_bgr[:int(h_c * 0.55), :]
-            bot_half = crop_bgr[int(h_c * 0.45):, :]
-            top_vars = preprocess_for_tesseract(top_half)
-            bot_vars = preprocess_for_tesseract(bot_half)
+            top_half = norm_crop[:int(h_n * 0.55), :]
+            bot_half = norm_crop[int(h_n * 0.45):, :]
+            top_vars = preprocess_for_tesseract(top_half, full_variants=False)
+            bot_vars = preprocess_for_tesseract(bot_half, full_variants=False)
             if top_vars and bot_vars:
-                t_data = pytesseract.image_to_data(top_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
-                b_data = pytesseract.image_to_data(bot_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
-                t_tokens = [t_data['text'][i] for i in range(len(t_data['text'])) if t_data['text'][i].strip()]
-                b_tokens = [b_data['text'][i] for i in range(len(b_data['text'])) if b_data['text'][i].strip()]
-                if t_tokens and b_tokens:
-                    t_str = "".join(t_tokens)
-                    b_str = "".join(b_tokens)
-                    stacked_raw = f"{t_str}{b_str}"
-                    stacked_clean = clean_plate_text(stacked_raw)
-                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(stacked_clean)
+                t_d = pytesseract.image_to_data(top_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                b_d = pytesseract.image_to_data(bot_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                t_tok = [t_d['text'][i] for i in range(len(t_d['text'])) if t_d['text'][i].strip()]
+                b_tok = [b_d['text'][i] for i in range(len(b_d['text'])) if b_d['text'][i].strip()]
+                if t_tok and b_tok:
+                    raw_stk = "".join(t_tok) + "".join(b_tok)
+                    clean_stk = clean_plate_text(raw_stk)
+                    repaired = repair_inverted_two_row(clean_stk)
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(repaired)
                     if is_valid:
-                        t_tess_end = time.perf_counter()
-                        timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
-                        timing["total_ocr_ms"] = (t_tess_end - t0_ocr) * 1000.0
+                        t_end = time.perf_counter()
+                        timing["tesseract_ms"] = (t_end - t0_tess) * 1000.0
+                        timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                        timing["ocr_tier"] = "TIER_1_TESS_FAST_TWO_ROW"
+                        timing["early_exit"] = True
                         if return_timing:
-                            return stacked_clean, stacked_raw, 0.88, "Tesseract OCR (Two-Row Sliced)", timing
-                        return stacked_clean, stacked_raw, 0.88, "Tesseract OCR (Two-Row Sliced)"
+                            return repaired, raw_stk, 0.90, "Tesseract (Tier 1 Sliced)", timing
+                        return repaired, raw_stk, 0.90, "Tesseract (Tier 1 Sliced)"
         except Exception:
             pass
 
-    timing["tesseract_ms"] = (time.perf_counter() - t0_tess) * 1000.0
+    # ─────────────────────────────────────────────────────────────
+    # TIER 2: Secondary Targeted Tesseract Pass (Adaptive + Inverted Otsu)
+    # ─────────────────────────────────────────────────────────────
+    sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True)
+    for vname, vimg in sec_candidates:
+        for psm in [7, 8]:
+            try:
+                data = pytesseract.image_to_data(vimg, config=f"--psm {psm} {whitelist}", output_type=pytesseract.Output.DICT)
+                tokens = [data['text'][i] for i in range(len(data['text'])) if data['text'][i].strip()]
+                if not tokens:
+                    continue
+                raw_str = "".join(tokens)
+                confs = [float(data['conf'][i]) for i in range(len(data['conf'])) if str(data['conf'][i]) != '-1']
+                avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.5
+                clean_str = clean_plate_text(raw_str)
+                repaired = repair_inverted_two_row(clean_str) if crop_ar < 2.0 else clean_str
+                is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(repaired)
+                score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                if score > best_conf and len(repaired) >= 4:
+                    best_conf = score
+                    best_text = repaired
+                    best_raw = raw_str
+                    best_engine = f"Tesseract (Tier 2, PSM {psm}, {vname})"
+                if is_valid and score >= 0.70:
+                    t_end = time.perf_counter()
+                    timing["tesseract_ms"] = (t_end - t0_tess) * 1000.0
+                    timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                    timing["ocr_tier"] = "TIER_2_TESS_ADAPTIVE"
+                    timing["early_exit"] = True
+                    if return_timing:
+                        return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+                    return best_text, best_raw, min(0.99, best_conf), best_engine
+            except Exception:
+                pass
 
-    # 2. Fallback to EasyOCR if Tesseract confidence is low or length < 5
-    if len(best_text) < 5 or best_conf < ANPR_CONFIG["min_ocr_conf"]:
+    t_tess_end = time.perf_counter()
+    timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 3: Selective Normalized EasyOCR Fallback
+    # ─────────────────────────────────────────────────────────────
+    is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
+    if not is_best_valid or best_conf < ANPR_CONFIG.get("min_ocr_conf", 0.45) or len(best_text) < 5:
         t0_easy = time.perf_counter()
         try:
             reader = get_easyocr_fallback()
-            easy_candidates = [v[1] for v in variants[:2]]
-            for img_variant in easy_candidates:
-                results = reader.readtext(
-                    img_variant,
-                    detail=1,
-                    allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789',
-                    paragraph=False
-                )
-                if results:
-                    h_v, w_v = img_variant.shape[:2]
-                    var_ar = w_v / float(max(1, h_v))
-                    if var_ar >= 2.0:
-                        # Single-row horizontal plate: sort left-to-right by X
-                        sorted_res = sorted(results, key=lambda r: min(pt[0] for pt in r[0]))
-                    else:
-                        # Two-row square plate: sort by row then by X
-                        row_h = max(20, h_v // 2)
-                        sorted_res = sorted(results, key=lambda r: (min(pt[1] for pt in r[0]) // row_h, min(pt[0] for pt in r[0])))
-                    raw_combined = "".join([r[1] for r in sorted_res])
-                    confs = [float(r[2]) for r in sorted_res if len(r) > 2]
-                    avg_conf = float(np.mean(confs)) if confs else 0.5
-                    cleaned = clean_plate_text(raw_combined)
-                    score = avg_conf
-                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(cleaned)
-                    if is_valid:
-                        score += (syn_score * 0.35)
-                    if score > best_conf and len(cleaned) >= 4:
-                        best_conf = score
-                        best_text = cleaned
-                        best_raw = raw_combined
-                        best_engine = "EasyOCR (Fallback)"
-                        break
+            norm_easy = normalize_plate_crop(crop_bgr, target_height=100)
+            results = reader.readtext(norm_easy, detail=1, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', paragraph=False)
+            if results:
+                h_v, w_v = norm_easy.shape[:2]
+                var_ar = w_v / float(max(1, h_v))
+                if var_ar >= 2.0:
+                    sorted_res = sorted(results, key=lambda r: min(pt[0] for pt in r[0]))
+                else:
+                    row_h = max(20, h_v // 2)
+                    sorted_res = sorted(results, key=lambda r: (min(pt[1] for pt in r[0]) // row_h, min(pt[0] for pt in r[0])))
+                raw_combined = "".join([r[1] for r in sorted_res])
+                confs = [float(r[2]) for r in sorted_res if len(r) > 2]
+                avg_conf = float(np.mean(confs)) if confs else 0.5
+                cleaned = clean_plate_text(raw_combined)
+                if var_ar < 2.0:
+                    cleaned = repair_inverted_two_row(cleaned)
+                is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(cleaned)
+                score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                if score > best_conf and len(cleaned) >= 4:
+                    best_conf = score
+                    best_text = cleaned
+                    best_raw = raw_combined
+                    best_engine = "EasyOCR (Tier 3 Fallback)"
+                    timing["ocr_tier"] = "TIER_3_EASYOCR_FALLBACK"
         except Exception:
             pass
         timing["easyocr_ms"] = (time.perf_counter() - t0_easy) * 1000.0
+
+    if timing["ocr_tier"] == "NONE":
+        timing["ocr_tier"] = "TIER_2_TESS_EXHAUSTED"
 
     timing["total_ocr_ms"] = (time.perf_counter() - t0_ocr) * 1000.0
     if return_timing:
@@ -1251,10 +1325,11 @@ async def detect_plate(req: Base64DetectRequest):
                 if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
                     cv2.imwrite(crop_rect_path, rectified_crop)
 
-            # POINT 11, 12, 13: OCR Recognition (Dual-Candidate Evaluation)
+            # POINT 11, 12, 13: OCR Recognition (Dual-Candidate Evaluation with Phase 4 Staged Pipeline)
             orig_clean, orig_raw, orig_conf, orig_engine, orig_timing = extract_plate_ocr(crop, return_timing=True)
             t_tesseract_ms += orig_timing.get("tesseract_ms", 0.0)
             t_easyocr_ms += orig_timing.get("easyocr_ms", 0.0)
+            candidate_ocr_tier = orig_timing.get("ocr_tier", "TIER_1_TESS_FAST")
 
             t0_val = time.perf_counter()
             orig_valid, orig_syn_score, orig_state, orig_sname, orig_match = validate_indian_plate_syntax(orig_clean)
@@ -1273,7 +1348,13 @@ async def detect_plate(req: Base64DetectRequest):
             rect_raw = ""
             rect_clean = ""
 
-            if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
+            orig_composite = (1.0 if orig_valid else 0.0) * 0.40 + orig_conf * 0.40 + (orig_syn_score * 0.20)
+
+            # Optimization: If original candidate already achieved confirmed MoRTH syntax with >= 0.85 conf,
+            # running OCR a second time on rectified crop is redundant.
+            need_rectified_ocr = persp_applied and rectified_crop is not None and rectified_crop.size > 0 and (not orig_valid or orig_composite < 0.85)
+
+            if need_rectified_ocr:
                 rect_clean, rect_raw, rect_conf, rect_engine, rect_timing = extract_plate_ocr(rectified_crop, return_timing=True)
                 t_tesseract_ms += rect_timing.get("tesseract_ms", 0.0)
                 t_easyocr_ms += rect_timing.get("easyocr_ms", 0.0)
@@ -1282,7 +1363,6 @@ async def detect_plate(req: Base64DetectRequest):
                 rect_valid, rect_syn_score, rect_state, rect_sname, rect_match = validate_indian_plate_syntax(rect_clean)
                 t_val_ms += (time.perf_counter() - t0_val) * 1000.0
 
-                orig_composite = (1.0 if orig_valid else 0.0) * 0.40 + orig_conf * 0.40 + (orig_syn_score * 0.20)
                 rect_composite = (1.0 if rect_valid else 0.0) * 0.40 + rect_conf * 0.40 + (rect_syn_score * 0.20)
 
                 # Select rectified only if it produces valid syntax or higher composite evidence
@@ -1292,6 +1372,7 @@ async def detect_plate(req: Base64DetectRequest):
                     raw_ocr_text = rect_raw
                     ocr_conf = rect_conf
                     ocr_engine = f"{rect_engine} [Perspective {skew_deg:+.1f}°]"
+                    candidate_ocr_tier = rect_timing.get("ocr_tier", candidate_ocr_tier)
                     is_valid_syntax = rect_valid
                     syn_score = rect_syn_score
                     state_code = rect_state
@@ -1372,7 +1453,8 @@ async def detect_plate(req: Base64DetectRequest):
                 "cameraId": req.cameraId,
                 "vehicleType": str(cand.get("vehicleClass", "car")),
                 "plateType": "HSRP (High Security Registration Plate)",
-                "status": "CONFIRMED" if is_confirmed else ("REJECTED_SYNTAX" if not is_valid_syntax else "CANDIDATE_ACCUMULATING")
+                "status": "CONFIRMED" if is_confirmed else ("REJECTED_SYNTAX" if not is_valid_syntax else "CANDIDATE_ACCUMULATING"),
+                "ocrTier": candidate_ocr_tier
             }
 
             all_evaluations.append(eval_record)
@@ -1381,6 +1463,8 @@ async def detect_plate(req: Base64DetectRequest):
 
         # Final timing computation
         t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+        primary_eval = all_evaluations[0] if all_evaluations else {}
+        active_ocr_tier = primary_eval.get("ocrTier", "TIER_1_TESS_FAST")
         timing_payload = {
             "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
             "plateDetectionMs": float(round(t_plate_ms, 1)),
@@ -1391,11 +1475,12 @@ async def detect_plate(req: Base64DetectRequest):
             "validationMs": float(round(t_val_ms, 2)),
             "temporalTrackerMs": float(round(t_tracker_ms, 2)),
             "totalProcessingMs": float(round(t_total_ms, 1)),
-            "inferenceBackend": active_vehicle_backend
+            "inferenceBackend": active_vehicle_backend,
+            "ocrTier": active_ocr_tier,
+            "stagedOcrEnabled": bool(ANPR_CONFIG.get("ocr_staged_execution", True))
         }
 
         # Construct comprehensive 16-point diagnostic payload for this frame
-        primary_eval = all_evaluations[0] if all_evaluations else {}
         frame_telemetry = {
             "frameId": frame_id,
             "timestamp": now_ts,
@@ -1443,7 +1528,9 @@ async def detect_plate(req: Base64DetectRequest):
                 "failureStage": "None (Passed)" if confirmed_detection else (
                     "Stage 5: Multi-Frame Temporal Window" if primary_eval.get("confirmationStatus") == "CANDIDATE_ACCUMULATING" else "Stage 4: OCR / Syntax Validation"
                 ),
-                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
+                "ocrTier": active_ocr_tier,
+                "latencyMs": float(round(t_total_ms, 1)),
+                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms [{active_ocr_tier}] | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
             },
             "candidates": raw_candidates_evaluated,
             "evaluations": all_evaluations

@@ -1222,7 +1222,8 @@ async function fetchDiagnosticsNow() {
     const tOcr = tm.ocrTotalMs != null ? `${tm.ocrTotalMs}ms` : '--';
     const tTot = tm.totalProcessingMs != null ? `${tm.totalProcessingMs}ms` : '--';
     const tBackend = (tm.inferenceBackend || 'ONNX').toUpperCase();
-    const timingStr = `Total: ${tTot} [${tBackend}] (Veh: ${tVeh} | Plt: ${tPlt} | OCR: ${tOcr})`;
+    const tTier = tm.ocrTier || (data.summary && data.summary.ocrTier) || 'TIER_1_TESS_FAST';
+    const timingStr = `Total: ${tTot} [${tBackend}] · OCR: ${tOcr} [${tTier}] (Veh: ${tVeh} | Plt: ${tPlt})`;
 
     const items = [
       { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
@@ -1241,7 +1242,7 @@ async function fetchDiagnosticsNow() {
       { id: 14, label: 'Indian Registration Syntax Match', val: synFmt || 'Not Evaluated', status: synFmt.includes('VALID') ? 'pass' : 'fail' },
       { id: 15, label: 'Multi-Frame Confirmation Status', val: data["15_multiFrameConfirmationStatus"] || 'NONE', status: data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'warn' },
       { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' },
-      { id: 17, label: 'CPU Inference Latency & Backend (Phase 3)', val: timingStr, status: 'pass' }
+      { id: 17, label: 'CPU Inference Latency & Staged OCR Tier (Phase 3 & 4)', val: timingStr, status: 'pass' }
     ];
 
     pList.innerHTML = items.map(it => {

@@ -1173,7 +1173,8 @@ class ANPREngine {
       const timing = serverDebug && serverDebug.timing;
       const tTotal = timing && timing.totalProcessingMs != null ? `${timing.totalProcessingMs.toFixed(0)}ms` : '--';
       const backend = timing && timing.inferenceBackend ? timing.inferenceBackend.toUpperCase() : 'ONNX';
-      ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | LATENCY: ${tTotal} [${backend}]`, hudX + 6, hudY + 48);
+      const ocrTier = timing && timing.ocrTier ? (timing.ocrTier.includes('TIER_1') ? 'T1' : (timing.ocrTier.includes('TIER_2') ? 'T2' : 'T3')) : 'T1';
+      ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | LATENCY: ${tTotal} [${backend}:${ocrTier}]`, hudX + 6, hudY + 48);
 
       // Rejection or Confirmation state
       let diagMsg = '';
