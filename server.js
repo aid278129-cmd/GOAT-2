@@ -40,8 +40,8 @@ const HOST_IP  = getLocalIP();
 const httpsServer = https.createServer({ key: pems.private, cert: pems.cert }, app);
 const io = new Server(httpsServer, {
   cors: { origin: '*' },
-  pingTimeout: 10000,
-  pingInterval: 5000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
 app.use(express.json({ limit: '25mb' }));
@@ -790,6 +790,14 @@ io.on('connection', (socket) => {
     broadcastCameraStatus();
     // Send initial watchlist to new dashboard
     socket.emit('watchlist:updated', [...watchlist.entries()].map(([p, d]) => ({ plate: p, ...d })));
+
+    // Request fresh stream offer from all currently connected phone cameras
+    for (const [id, cam] of Object.entries(cameras)) {
+      if (cam && cam.socketId) {
+        console.log(`🔄  Requesting fresh WebRTC stream from Camera ${id} for new dashboard`);
+        io.to(cam.socketId).emit('camera:restart', { cameraId: parseInt(id, 10) });
+      }
+    }
   });
 
   // ── Phone camera registers ──

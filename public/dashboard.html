@@ -7,7 +7,10 @@
   <meta name="description" content="City-Wide ANPR Trajectory Tracking and Urban Traffic Analytics Command Center" />
   <link rel="stylesheet" href="style-dashboard.css" />
   <link rel="stylesheet" href="style-pages.css" />
-  <!-- AI Libraries (CDN) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- AI & Visualization Libraries (CDN) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -21,11 +24,11 @@
     <span class="nav-title">ANPR Intelligence</span>
   </div>
   <div class="nav-links">
-    <a href="/dashboard.html"  class="nav-link active"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
-    <a href="/tracking.html"   class="nav-link"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
-    <a href="/analytics.html"  class="nav-link"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
-    <a href="/network.html"    class="nav-link"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
-    <a href="/watchlist.html"  class="nav-link"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+    <a href="#cmd"       class="nav-link active" id="nav-cmd"       onclick="switchTab('cmd'); return false;"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="#track"     class="nav-link"        id="nav-track"     onclick="switchTab('track'); return false;"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="#analytics" class="nav-link"        id="nav-analytics" onclick="switchTab('analytics'); return false;"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="#network"   class="nav-link"        id="nav-network"   onclick="switchTab('network'); return false;"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="#watchlist" class="nav-link"        id="nav-watchlist" onclick="switchTab('watchlist'); return false;"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
   </div>
   <div class="nav-meta">
     <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
@@ -40,6 +43,8 @@
   <button class="wl-banner-close" onclick="document.getElementById('wlBanner').classList.remove('visible')">✕</button>
 </div>
 
+<!-- ── Tab 1: Command Center (Live Surveillance & ANPR Matrix) ── -->
+<div id="tab-cmd" class="tab-panel">
 <div class="layout">
   <!-- ── Header ── -->
   <header class="header">
@@ -273,6 +278,292 @@
     <div class="status-item" style="margin-left:auto;"><span id="sbIp" style="color:#2a3040">--</span></div>
   </footer>
 </div>
+</div> <!-- ── End of Tab 1: Command Center ── -->
+
+<!-- ── Tab 2: Vehicle Tracking ── -->
+<div id="tab-track" class="tab-panel" style="display:none;min-height:calc(100vh - 52px);overflow-y:auto;background:var(--bg-deep);padding-bottom:40px;">
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <div class="page-title">🚗 Vehicle Trajectory Tracking</div>
+        <div class="page-subtitle">SEARCH BY REGISTRATION NUMBER · CROSS-CAMERA JOURNEY ANALYSIS</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn" onclick="loadRecentPlatesTab()">↻ Recent Plates</button>
+        <button class="btn danger" onclick="switchTab('watchlist')">+ Add to Watchlist</button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-container">
+      <input type="text" class="search-input" id="searchInput"
+        placeholder="e.g. TN45AB1234" maxlength="12"
+        oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase()"
+        onkeydown="if(event.key==='Enter')searchPlateTab()" />
+      <button class="search-btn" onclick="searchPlateTab()">🔍 Track Vehicle</button>
+    </div>
+
+    <!-- Recent plates quick-pick -->
+    <div id="recentPlatesBubbles" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;min-height:30px"></div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state" style="padding:60px 20px;text-align:center;">
+      <div class="empty-icon" style="font-size:36px;margin-bottom:12px;">🚗</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px;">Enter a license plate or pick a recent plate above</div>
+      <div style="color:var(--text-dim);font-size:12px;">The system will trace chronological sightings across all camera nodes on the GIS map.</div>
+    </div>
+
+    <!-- No Result State -->
+    <div id="noResultState" class="empty-state" style="display:none;padding:60px 20px;text-align:center;">
+      <div class="empty-icon" style="font-size:36px;margin-bottom:12px;">❌</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px;color:var(--red);">No Sightings Recorded</div>
+      <div style="color:var(--text-dim);font-size:12px;">No camera in the network has detected this plate yet.</div>
+    </div>
+
+    <!-- Results -->
+    <div id="resultSection" style="display:none">
+      <!-- Journey Summary Stats -->
+      <div class="stats-grid" id="journeyStats" style="margin-bottom:16px"></div>
+
+      <!-- Main content: map + timeline side by side -->
+      <div style="display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start">
+        <!-- Leaflet Map -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">📍 Trajectory Map</span>
+            <span id="mapStatus" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+          </div>
+          <div id="trackMap" style="height:480px;border-radius:0 0 10px 10px"></div>
+        </div>
+
+        <!-- Timeline -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">⏱ Journey Timeline</span>
+            <span id="plateDisplay" class="plate-tag" style="font-size:11px"></span>
+          </div>
+          <div class="card-body" style="padding:0">
+            <div id="timelineContainer" style="padding:12px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detection Table -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-header">
+          <span class="card-title">📋 All Sightings</span>
+          <div style="display:flex;gap:8px">
+            <span id="detTableCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+            <button class="btn" id="addWlBtn" onclick="addCurrentToWatchlistTab()">+ Watchlist</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table" id="detTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Camera</th>
+                <th>Location</th>
+                <th>Time</th>
+                <th>Confidence</th>
+                <th>Vehicle Type</th>
+              </tr>
+            </thead>
+            <tbody id="detTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tab 3: Traffic Analytics ── -->
+<div id="tab-analytics" class="tab-panel" style="display:none;min-height:calc(100vh - 52px);overflow-y:auto;background:var(--bg-deep);padding-bottom:40px;">
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <div class="page-title">📊 Traffic Analytics</div>
+        <div class="page-subtitle">REAL-TIME DETECTION METRICS · GROUND TRUTH SURVEILLANCE INTELLIGENCE</div>
+      </div>
+      <button class="btn primary" onclick="loadAnalyticsTab()">↻ Refresh</button>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="stats-grid" id="summaryStats">
+      <div class="stat-card"><div class="stat-label">Loading…</div><div class="stat-value">—</div></div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="chart-grid">
+      <div class="chart-card" style="grid-column:1/-1">
+        <div class="chart-card-title">📈 Detections Over Time (last 24 hours)</div>
+        <div class="chart-wrap" style="height:200px"><canvas id="timelineChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-card-title">📷 Detections Per Camera</div>
+        <div class="chart-wrap"><canvas id="perCamChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">🛣 Top Routes (Camera-to-Camera)</div>
+        <div class="chart-wrap"><canvas id="routeChart"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-card-title">🚗 Vehicle Type Distribution</div>
+        <div class="chart-wrap"><canvas id="typeChart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- GIS Heatmap -->
+    <div class="card" style="margin-top:0">
+      <div class="card-header">
+        <span class="card-title">🗺 Camera Network Activity Map</span>
+        <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">Node size = detection volume</span>
+      </div>
+      <div id="analyticsMap" style="height:340px;border-radius:0 0 10px 10px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tab 4: Camera Network ── -->
+<div id="tab-network" class="tab-panel" style="display:none;min-height:calc(100vh - 52px);overflow-y:auto;background:var(--bg-deep);padding-bottom:40px;">
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <div class="page-title">📡 Camera Network Status</div>
+        <div class="page-subtitle">LIVE HEALTH MONITOR · NODE STATUS · DETECTION THROUGHPUT</div>
+      </div>
+      <button class="btn primary" onclick="loadNetworkTab()">↻ Refresh</button>
+    </div>
+
+    <!-- Summary -->
+    <div class="stats-grid" id="networkStats">
+      <div class="stat-card"><div class="stat-label">Loading…</div><div class="stat-value">—</div></div>
+    </div>
+
+    <!-- Map + Table -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="card">
+        <div class="card-header"><span class="card-title">🗺 Network Map</span></div>
+        <div id="networkMap" style="height:420px;border-radius:0 0 10px 10px"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">📋 Node Status Table</span>
+          <span id="networkUpdateTime" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>Location</th><th>Zone</th><th>Status</th><th>Detections</th><th>Coords</th></tr>
+            </thead>
+            <tbody id="networkTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Recent per-camera detections -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:16px" id="camCards"></div>
+  </div>
+</div>
+
+<!-- ── Tab 5: Watchlist ── -->
+<div id="tab-watchlist" class="tab-panel" style="display:none;min-height:calc(100vh - 52px);overflow-y:auto;background:var(--bg-deep);padding-bottom:40px;">
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <div class="page-title">⚠️ Watchlist Management</div>
+        <div class="page-subtitle">MONITORED VEHICLES · REAL-TIME ALERTS · AUTHORIZED ACCESS ONLY</div>
+      </div>
+    </div>
+
+    <!-- Watchlist Stats -->
+    <div class="stats-grid" id="wlStats" style="margin-bottom:20px">
+      <div class="stat-card"><div class="stat-label">Watchlisted</div><div class="stat-value" id="statWl">—</div></div>
+      <div class="stat-card red"><div class="stat-label">Total Alerts</div><div class="stat-value red" id="statAlerts">—</div></div>
+      <div class="stat-card amber"><div class="stat-label">Last Alert</div><div class="stat-value" style="font-size:18px" id="statLastAlert">—</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <!-- Add to Watchlist Form -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">➕ Add Vehicle to Watchlist</span></div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:14px;padding:16px;">
+          <div class="form-group">
+            <label class="form-label" style="display:block;margin-bottom:4px;font-size:11px;color:var(--text-dim);font-family:var(--mono);">Registration Number</label>
+            <input type="text" class="form-input" id="wlPlateInput"
+              placeholder="e.g. TN45AB1234" maxlength="12"
+              oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase()"
+              style="width:100%;padding:10px;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;color:var(--green);font-family:var(--mono);font-size:14px;" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" style="display:block;margin-bottom:4px;font-size:11px;color:var(--text-dim);font-family:var(--mono);">Reason / Note</label>
+            <input type="text" class="form-input" id="wlReasonInput"
+              placeholder="e.g. Suspected stolen vehicle"
+              style="width:100%;padding:10px;background:var(--bg-panel);border:1px solid var(--border);border-radius:4px;color:#dde2ec;font-size:14px;" />
+          </div>
+          <button class="btn danger" onclick="addToWatchlistTab()" style="width:100%;justify-content:center;padding:12px;cursor:pointer;">
+            🚨 Add to Watchlist
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Alerts Feed -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">🚨 Live Alert Feed</span>
+          <span id="alertFeedCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--red)">0 alerts</span>
+        </div>
+        <div style="max-height:280px;overflow-y:auto" id="liveAlertFeed">
+          <div class="empty-state" style="padding:30px;text-align:center;">
+            <div class="empty-icon" style="font-size:24px;margin-bottom:8px;">🔔</div>
+            <div style="color:var(--text-dim);">No alerts yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Watchlist Table -->
+    <div class="card" style="margin-top:20px">
+      <div class="card-header">
+        <span class="card-title">📋 Active Watchlist</span>
+        <span id="wlTableCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">0 entries</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="wlTable">
+          <thead>
+            <tr><th>Plate</th><th>Reason</th><th>Added</th><th>Total Alerts</th><th>Action</th></tr>
+          </thead>
+          <tbody id="wlTableBody">
+            <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Watchlist is empty</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Alert History Table -->
+    <div class="card" style="margin-top:20px">
+      <div class="card-header">
+        <span class="card-title">📜 Alert History</span>
+        <span id="alertHistoryCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">0 records</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr><th>Plate</th><th>Camera</th><th>Location</th><th>Timestamp</th><th>Confidence</th><th>Reason</th></tr>
+          </thead>
+          <tbody id="alertHistoryBody">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:30px">No alerts recorded</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
 
 <!-- Fullscreen Modal -->
 <div class="fullscreen-modal" id="fsModal">
@@ -746,7 +1037,8 @@ socket.on('camera:disconnected', ({ cameraId }) => {
 });
 
 socket.on('camera:restart', ({ cameraId }) => {
-  socket.emit('camera:restart', { cameraId });
+  console.log(`Camera ${cameraId} restarting/reconnecting...`);
+  setCameraState(cameraId, 'connecting');
 });
 
 // ── ANPR Detection Broadcast ─────────────────────────────────
@@ -755,6 +1047,7 @@ socket.on('anpr:detection', (det) => {
   document.getElementById('totalDetCount').textContent = totalDet;
   document.getElementById('sbAnprCount').textContent   = `${totalDet} detections today`;
   addDetectionToSidebar(det);
+  if (typeof onNewDetectionForTabs === 'function') onNewDetectionForTabs(det);
 });
 
 socket.on('anpr:alert', (alert) => {
@@ -765,6 +1058,7 @@ socket.on('anpr:alert', (alert) => {
   document.getElementById('navAlertBadge').classList.remove('hidden');
   document.getElementById('navAlertCount').textContent = alertCount;
   document.getElementById('alertSidebarCount').textContent = alertCount;
+  if (typeof onNewAlertForTabs === 'function') onNewAlertForTabs(alert);
 });
 
 // ── Sidebar Feed Functions ───────────────────────────────────
@@ -1342,6 +1636,740 @@ async function fetchDiagnosticsNow() {
   }
 }
 
+// ═════════════════════════════════════════════════════════════
+// ── SPA Tab Navigation & Multi-View Management ───────────────
+// ═════════════════════════════════════════════════════════════
+let activeTabId = 'cmd';
+
+function switchTab(tabId) {
+  const tabs = ['cmd', 'track', 'analytics', 'network', 'watchlist'];
+  if (!tabs.includes(tabId)) tabId = 'cmd';
+  activeTabId = tabId;
+
+  tabs.forEach(id => {
+    const navLink = document.getElementById(`nav-${id}`);
+    const panel = document.getElementById(`tab-${id}`);
+    if (id === tabId) {
+      if (navLink) navLink.classList.add('active');
+      if (panel) {
+        panel.style.display = 'block';
+        panel.classList.remove('hidden-tab');
+      }
+    } else {
+      if (navLink) navLink.classList.remove('active');
+      if (panel) {
+        panel.style.display = 'none';
+        panel.classList.add('hidden-tab');
+      }
+    }
+  });
+
+  // Synchronize URL hash without reloading page
+  if (window.location.hash !== `#${tabId}`) {
+    if (history.replaceState) {
+      history.replaceState(null, null, `#${tabId}`);
+    } else {
+      window.location.hash = `#${tabId}`;
+    }
+  }
+
+  // Lifecycle activations and map invalidation
+  setTimeout(() => {
+    if (tabId === 'network') {
+      loadNetworkTab();
+      if (window.netMap) window.netMap.invalidateSize();
+    } else if (tabId === 'track') {
+      initTrackMap();
+      loadRecentPlatesTab();
+      if (window.trackMap) window.trackMap.invalidateSize();
+    } else if (tabId === 'analytics') {
+      loadAnalyticsTab();
+      if (window.analyticsMap) window.analyticsMap.invalidateSize();
+    } else if (tabId === 'watchlist') {
+      loadWatchlistTab();
+      loadAlertHistoryTab();
+    } else if (tabId === 'cmd') {
+      if (typeof map !== 'undefined' && map) map.invalidateSize();
+    }
+  }, 60);
+}
+
+// Hash routing listeners
+window.addEventListener('hashchange', () => {
+  const t = (window.location.hash || '').replace('#', '');
+  if (['cmd', 'track', 'analytics', 'network', 'watchlist'].includes(t)) {
+    switchTab(t);
+  }
+});
+
+// ── Tab 4: Camera Network Logic ──────────────────────────────
+let netMap = null;
+let netMarkers = {};
+
+function initNetworkMap() {
+  if (netMap) return;
+  const container = document.getElementById('networkMap');
+  if (!container) return;
+  netMap = L.map('networkMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(netMap);
+  const pane = document.querySelector('#networkMap .leaflet-tile-pane');
+  if (pane) pane.style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+}
+
+function updateNetworkMap(cameraNodes) {
+  if (!netMap) return;
+  cameraNodes.forEach(cam => {
+    const color = cam.online ? '#00ff41' : '#ff3b30';
+    const icon = L.divIcon({
+      html: `<div style="position:relative">
+        <div style="width:20px;height:20px;border-radius:50%;background:${color};border:3px solid #050508;box-shadow:0 0 14px ${color};"></div>
+        <div style="position:absolute;left:24px;top:-2px;background:rgba(0,0,0,0.8);border:1px solid ${color}33;border-radius:3px;padding:2px 7px;font-family:'Share Tech Mono',monospace;font-size:10px;color:${color};white-space:nowrap">${cam.name}</div>
+      </div>`,
+      className: '',
+      iconAnchor: [10, 10],
+    });
+
+    if (netMarkers[cam.id]) netMap.removeLayer(netMarkers[cam.id]);
+    netMarkers[cam.id] = L.marker([cam.lat, cam.lng], { icon })
+      .addTo(netMap)
+      .bindPopup(`
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+          <div style="color:${color};font-size:13px;font-weight:bold;margin-bottom:4px">CAM-0${cam.id}: ${cam.name}</div>
+          <div style="color:#dde2ec">${cam.location} · ${cam.zone} Zone</div>
+          <div style="color:#4a5570;margin-top:6px">Status: <span style="color:${color}">${cam.online ? 'ONLINE' : 'OFFLINE'}</span></div>
+          <div style="color:#4a5570">Detections: ${cam.detectionCount || 0}</div>
+          <div style="color:#4a5570">${cam.lat.toFixed(4)}°N, ${cam.lng.toFixed(4)}°E</div>
+        </div>
+      `);
+  });
+
+  const coords = cameraNodes.map(c => [c.lat, c.lng]);
+  if (coords.length > 1) {
+    if (netMap._networkLine) netMap.removeLayer(netMap._networkLine);
+    netMap._networkLine = L.polyline(coords, {
+      color: '#1a1d2e', weight: 1.5, dashArray: '5 5',
+    }).addTo(netMap);
+  }
+}
+
+async function loadNetworkTab() {
+  try {
+    const cams = await fetch('/api/cameras/config').then(r => r.json());
+    const dets = await fetch('/api/detections?limit=50').then(r => r.json());
+
+    const online = cams.filter(c => c.online).length;
+    const offline = cams.length - online;
+    const total = cams.reduce((a, c) => a + (c.detectionCount || 0), 0);
+
+    const statsEl = document.getElementById('networkStats');
+    if (statsEl) {
+      statsEl.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Total Cameras</div>
+          <div class="stat-value">${cams.length}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Online</div>
+          <div class="stat-value green">${online}</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">Offline</div>
+          <div class="stat-value ${offline > 0 ? 'red' : ''}">${offline}</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">Total Detections</div>
+          <div class="stat-value blue">${total.toLocaleString()}</div>
+        </div>
+      `;
+    }
+
+    const tbody = document.getElementById('networkTableBody');
+    if (tbody) {
+      tbody.innerHTML = '';
+      cams.forEach(cam => {
+        const statusBadge = cam.online
+          ? '<span class="badge green"><span class="cam-status-dot online" style="margin-right:4px"></span>ONLINE</span>'
+          : '<span class="badge red">OFFLINE</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-family:'Share Tech Mono',monospace">0${cam.id}</td>
+          <td style="font-weight:600">${cam.name}</td>
+          <td style="color:var(--text-dim)">${cam.location}</td>
+          <td><span class="badge dim">${cam.zone}</span></td>
+          <td>${statusBadge}</td>
+          <td style="font-family:'Share Tech Mono',monospace;color:var(--green)">${cam.detectionCount || 0}</td>
+          <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${cam.lat.toFixed(4)}°N ${cam.lng.toFixed(4)}°E</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    const camCards = document.getElementById('camCards');
+    if (camCards) {
+      camCards.innerHTML = cams.map(cam => {
+        const recentForCam = (Array.isArray(dets) ? dets : []).filter(d => d.cameraId === cam.id).slice(0, 5);
+        const lastDetect = recentForCam[0];
+        const statusColor = cam.online ? 'var(--green)' : 'var(--red)';
+        return `
+          <div class="card">
+            <div class="card-header" style="padding:10px 14px">
+              <span style="font-family:'Share Tech Mono',monospace;font-size:11px;color:${statusColor}">CAM-0${cam.id}</span>
+              <span class="cam-status-dot ${cam.online ? 'online' : 'offline'}"></span>
+            </div>
+            <div style="padding:12px 14px">
+              <div style="font-weight:700;font-size:15px;margin-bottom:4px">${cam.name}</div>
+              <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">${cam.location}</div>
+              <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin-bottom:6px">
+                ${cam.detectionCount || 0} total detections
+              </div>
+              ${lastDetect ? `
+                <div style="background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.15);border-radius:4px;padding:6px 8px">
+                  <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green)">${lastDetect.plate}</div>
+                  <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim)">${new Date(lastDetect.timestamp).toTimeString().slice(0,8)}</div>
+                </div>
+              ` : `<div style="font-size:10px;color:var(--text-muted);font-family:'Share Tech Mono',monospace">No recent detections</div>`}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    initNetworkMap();
+    updateNetworkMap(cams);
+    const updateTimeEl = document.getElementById('networkUpdateTime');
+    if (updateTimeEl) updateTimeEl.textContent = `Updated: ${new Date().toTimeString().slice(0,8)}`;
+  } catch (e) {
+    console.warn('Network tab update failed:', e);
+  }
+}
+
+// ── Tab 2: Vehicle Trajectory Tracking Logic ─────────────────
+let trackMap = null;
+let trackMarkers = [];
+let trackPolyline = null;
+let currentTrackedPlate = '';
+
+function initTrackMap() {
+  if (trackMap) return;
+  const container = document.getElementById('trackMap');
+  if (!container) return;
+  trackMap = L.map('trackMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(trackMap);
+  const pane = document.querySelector('#trackMap .leaflet-tile-pane');
+  if (pane) pane.style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+
+  CAMERA_NODES.forEach((cam) => {
+    const icon = L.divIcon({
+      html: `<div style="width:14px;height:14px;border-radius:50%;background:#1a1d2e;border:2px solid #4a5570;"></div>`,
+      className: '',
+      iconAnchor: [7, 7],
+    });
+    L.marker([cam.lat, cam.lng], { icon })
+      .addTo(trackMap)
+      .bindPopup(`<b style="color:#dde2ec">${cam.name}</b><br><small style="color:#4a5570">${cam.location}</small>`);
+  });
+}
+
+async function loadRecentPlatesTab() {
+  try {
+    const dets = await fetch('/api/detections?limit=25').then(r => r.json());
+    const seen = new Set();
+    const plates = [];
+    (Array.isArray(dets) ? dets : []).forEach(d => {
+      if (d.plate && !seen.has(d.plate)) {
+        seen.add(d.plate);
+        plates.push(d.plate);
+      }
+    });
+
+    const bubblesEl = document.getElementById('recentPlatesBubbles');
+    if (!bubblesEl) return;
+    if (plates.length === 0) {
+      bubblesEl.innerHTML = '<span style="color:var(--text-dim);font-size:11px;font-family:var(--mono);">No plates recorded yet</span>';
+      return;
+    }
+    bubblesEl.innerHTML = plates.slice(0, 8).map(p => `
+      <span class="plate-bubble" onclick="searchPlateTab('${p}')" style="cursor:pointer;padding:4px 10px;background:rgba(0,180,255,0.08);border:1px solid rgba(0,180,255,0.25);border-radius:20px;font-family:var(--mono);font-size:11px;color:#00b4ff;">
+        ${p}
+      </span>
+    `).join('');
+  } catch (e) {
+    console.warn('Recent plates fetch error:', e);
+  }
+}
+
+async function searchPlateTab(plateOverride) {
+  const inputEl = document.getElementById('searchInput');
+  const plate = (plateOverride || (inputEl ? inputEl.value : '')).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!plate) return;
+  if (inputEl) inputEl.value = plate;
+  currentTrackedPlate = plate;
+
+  const resultSec = document.getElementById('resultSection');
+  const emptySec = document.getElementById('emptyState');
+  const noResultSec = document.getElementById('noResultState');
+
+  if (resultSec) resultSec.style.display = 'none';
+  if (emptySec) emptySec.style.display = 'none';
+  if (noResultSec) noResultSec.style.display = 'none';
+
+  try {
+    const data = await fetch(`/api/detections/trajectory/${plate}`).then(r => r.json());
+    if (!data || !data.found || !data.trail || data.trail.length === 0) {
+      if (noResultSec) noResultSec.style.display = 'block';
+      return;
+    }
+    renderTrajectoryTab(data);
+  } catch (err) {
+    console.error('Trajectory search failed:', err);
+    if (noResultSec) noResultSec.style.display = 'block';
+  }
+}
+
+function renderTrajectoryTab(data) {
+  const resultSec = document.getElementById('resultSection');
+  if (resultSec) resultSec.style.display = 'block';
+
+  const plateDisplay = document.getElementById('plateDisplay');
+  if (plateDisplay) plateDisplay.textContent = data.plate;
+
+  const addWlBtn = document.getElementById('addWlBtn');
+  if (addWlBtn) addWlBtn.textContent = `+ Watchlist: ${data.plate}`;
+
+  const statsEl = document.getElementById('journeyStats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Registration</div>
+        <div class="stat-value" style="font-size:18px;color:var(--green)">${data.plate}</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Total Sightings</div>
+        <div class="stat-value blue">${data.totalSightings}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">First Seen</div>
+        <div class="stat-value" style="font-size:16px">${new Date(data.firstSeen).toTimeString().slice(0,8)}</div>
+        <div class="stat-meta">${new Date(data.firstSeen).toLocaleDateString('en-IN')}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last Seen</div>
+        <div class="stat-value" style="font-size:16px">${new Date(data.lastSeen).toTimeString().slice(0,8)}</div>
+        <div class="stat-meta">${new Date(data.lastSeen).toLocaleDateString('en-IN')}</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="stat-label">Travel Time</div>
+        <div class="stat-value amber">${data.totalMinutes}</div>
+        <div class="stat-meta">minutes</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Cameras Hit</div>
+        <div class="stat-value">${(data.cameras || []).length}</div>
+        <div class="stat-meta">${(data.cameras || []).join(' → ')}</div>
+      </div>
+    `;
+  }
+
+  // Timeline
+  const timelineEl = document.getElementById('timelineContainer');
+  if (timelineEl) {
+    let html = '<div class="timeline" style="display:flex;flex-direction:column;gap:12px;">';
+    data.trail.forEach((det, i) => {
+      const time = new Date(det.timestamp).toTimeString().slice(0,8);
+      const conf = Math.round((det.confidence || 0) * 100);
+      html += `
+        <div class="timeline-item" style="display:flex;gap:12px;position:relative;">
+          <div class="timeline-dot" style="width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);margin-top:3px;"></div>
+          <div class="timeline-content">
+            <div style="font-weight:700;color:#dde2ec;font-size:13px;">${det.cameraName}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);">${det.location} · ${time} · ${conf}% conf · ${det.vehicleType}</div>
+          </div>
+        </div>
+      `;
+      if (data.segments && data.segments[i]) {
+        html += `<div style="margin-left:24px;color:var(--amber);font-family:var(--mono);font-size:10px;">↓ ${data.segments[i].travelMins} min travel</div>`;
+      }
+    });
+    html += '</div>';
+    timelineEl.innerHTML = html;
+  }
+
+  // Map
+  initTrackMap();
+  if (trackMap) {
+    trackMarkers.forEach(m => trackMap.removeLayer(m));
+    trackMarkers = [];
+    if (trackPolyline) { trackMap.removeLayer(trackPolyline); trackPolyline = null; }
+
+    const points = [];
+    const colors = ['#00ff41', '#00b4ff', '#ffb400', '#ff3b30', '#9b5de5'];
+
+    data.trail.forEach((det, i) => {
+      if (!det.lat || !det.lng) return;
+      points.push([det.lat, det.lng]);
+      const color = colors[i % colors.length];
+      const icon = L.divIcon({
+        html: `<div style="width:24px;height:24px;border-radius:50%;background:${color};border:3px solid #050508;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:11px;color:#000;box-shadow:0 0 12px ${color};">${i+1}</div>`,
+        className: '',
+        iconAnchor: [12, 12],
+      });
+      const marker = L.marker([det.lat, det.lng], { icon })
+        .addTo(trackMap)
+        .bindPopup(`<b>${det.cameraName}</b><br>${new Date(det.timestamp).toTimeString().slice(0,8)}`);
+      trackMarkers.push(marker);
+    });
+
+    if (points.length > 1) {
+      trackPolyline = L.polyline(points, {
+        color: '#00ff41', weight: 3, opacity: 0.8, dashArray: '6 6',
+      }).addTo(trackMap);
+      trackMap.fitBounds(trackPolyline.getBounds(), { padding: [40, 40] });
+    } else if (points.length === 1) {
+      trackMap.setView(points[0], 14);
+    }
+  }
+
+  // Sightings Table
+  const tbody = document.getElementById('detTableBody');
+  if (tbody) {
+    tbody.innerHTML = data.trail.map((d, idx) => `
+      <tr>
+        <td style="font-family:var(--mono);">${idx + 1}</td>
+        <td style="font-weight:600;">${d.cameraName}</td>
+        <td style="color:var(--text-dim);">${d.location || '—'}</td>
+        <td style="font-family:var(--mono);font-size:11px;">${new Date(d.timestamp).toLocaleTimeString()}</td>
+        <td style="color:var(--green);font-family:var(--mono);">${Math.round((d.confidence || 0) * 100)}%</td>
+        <td><span class="badge dim">${d.vehicleType || 'car'}</span></td>
+      </tr>
+    `).join('');
+  }
+
+  const countEl = document.getElementById('detTableCount');
+  if (countEl) countEl.textContent = `${data.trail.length} sightings`;
+}
+
+async function addCurrentToWatchlistTab() {
+  if (!currentTrackedPlate) return;
+  try {
+    await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plate: currentTrackedPlate, reason: 'Flagged from Vehicle Tracking' }),
+    });
+    alert(`Plate ${currentTrackedPlate} added to Watchlist.`);
+  } catch (e) {
+    alert('Failed to add to watchlist');
+  }
+}
+
+// ── Tab 3: Traffic Analytics Logic ───────────────────────────
+let analyticsMap = null;
+let analyticsBubbles = [];
+let analyticsCharts = {};
+
+function initAnalyticsMap() {
+  if (analyticsMap) return;
+  const container = document.getElementById('analyticsMap');
+  if (!container) return;
+  analyticsMap = L.map('analyticsMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(analyticsMap);
+  const pane = document.querySelector('#analyticsMap .leaflet-tile-pane');
+  if (pane) pane.style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+}
+
+function renderAnalyticsBubbleMap(perCamera) {
+  if (!analyticsMap) return;
+  analyticsBubbles.forEach(l => analyticsMap.removeLayer(l));
+  analyticsBubbles = [];
+
+  const maxCount = Math.max(...(perCamera || []).map(c => c.count), 1);
+  (perCamera || []).forEach(cam => {
+    const node = CAMERA_NODES.find(n => n.name === cam.name);
+    if (!node) return;
+    const radius = 10 + (cam.count / maxCount) * 35;
+    const circle = L.circleMarker([node.lat, node.lng], {
+      radius,
+      color: '#00ff41',
+      fillColor: '#00ff41',
+      fillOpacity: 0.25,
+      weight: 2,
+    }).addTo(analyticsMap).bindPopup(`<b>${cam.name}</b><br>${cam.count} detections`);
+
+    const label = L.marker([node.lat, node.lng], {
+      icon: L.divIcon({
+        html: `<div style="background:rgba(0,0,0,0.8);border:1px solid #00ff4144;border-radius:3px;padding:2px 6px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#00ff41;white-space:nowrap;margin-left:${Math.round(radius)+4}px">${cam.name} (${cam.count})</div>`,
+        className: '',
+      }),
+    }).addTo(analyticsMap);
+    analyticsBubbles.push(circle, label);
+  });
+}
+
+function makeAnalyticsChart(id, type, labels, datasets, options = {}) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  if (analyticsCharts[id]) analyticsCharts[id].destroy();
+  analyticsCharts[id] = new Chart(canvas, {
+    type,
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: type === 'doughnut' } },
+      animation: { duration: 350 },
+      ...options
+    },
+  });
+}
+
+async function loadAnalyticsTab() {
+  try {
+    const data = await fetch('/api/detections/analytics').then(r => r.json());
+    if (!data) return;
+
+    const summaryEl = document.getElementById('summaryStats');
+    if (summaryEl) {
+      summaryEl.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Total Detections</div>
+          <div class="stat-value green">${(data.totalDetections || 0).toLocaleString()}</div>
+          <div class="stat-meta">All time</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">Last 60 Minutes</div>
+          <div class="stat-value blue">${data.last60min || 0}</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-label">Vehicles / Min</div>
+          <div class="stat-value amber">${data.vehiclesPerMin || 0}</div>
+          <div class="stat-meta">Current rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Busiest Junction</div>
+          <div class="stat-value" style="font-size:18px">${data.busiestCamera || '—'}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Unique Plates</div>
+          <div class="stat-value">${data.uniquePlates || 0}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Peak Hour</div>
+          <div class="stat-value" style="font-size:18px">${data.peakHour || '—'}</div>
+          <div class="stat-meta">${data.peakHourCount || 0} detections</div>
+        </div>
+      `;
+    }
+
+    // Timeline chart
+    if (data.hourlyTimeline && data.hourlyTimeline.length) {
+      makeAnalyticsChart('timelineChart', 'line',
+        data.hourlyTimeline.map(h => h.hour),
+        [{
+          data: data.hourlyTimeline.map(h => h.count),
+          borderColor: '#00ff41',
+          backgroundColor: 'rgba(0,255,65,0.08)',
+          fill: true,
+          tension: 0.3,
+        }]
+      );
+    }
+
+    // Per Camera Chart
+    if (data.perCamera && data.perCamera.length) {
+      makeAnalyticsChart('perCamChart', 'bar',
+        data.perCamera.map(c => c.name),
+        [{
+          data: data.perCamera.map(c => c.count),
+          backgroundColor: '#00b4ff',
+          borderRadius: 4,
+        }]
+      );
+    }
+
+    // Top Routes Chart
+    if (data.topRoutes && data.topRoutes.length) {
+      makeAnalyticsChart('routeChart', 'bar',
+        data.topRoutes.map(r => r.route),
+        [{
+          data: data.topRoutes.map(r => r.count),
+          backgroundColor: '#ffb400',
+          borderRadius: 4,
+        }],
+        { indexAxis: 'y' }
+      );
+    }
+
+    // Vehicle Type Distribution Chart
+    const dets = await fetch('/api/detections?limit=300').then(r => r.json()).catch(() => []);
+    const typeCounts = {};
+    (Array.isArray(dets) ? dets : []).forEach(d => {
+      const t = d.vehicleType || 'car';
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+    });
+    const types = Object.keys(typeCounts);
+    if (types.length > 0) {
+      makeAnalyticsChart('typeChart', 'doughnut', types, [{
+        data: types.map(t => typeCounts[t]),
+        backgroundColor: ['#00ff41', '#00b4ff', '#ffb400', '#ff3b30', '#9b5de5'],
+        borderWidth: 0,
+      }]);
+    }
+
+    initAnalyticsMap();
+    renderAnalyticsBubbleMap(data.perCamera || []);
+  } catch (err) {
+    console.warn('Analytics tab load error:', err);
+  }
+}
+
+// ── Tab 5: Watchlist Logic ───────────────────────────────────
+async function loadWatchlistTab() {
+  try {
+    const wl = await fetch('/api/watchlist').then(r => r.json());
+    const statWl = document.getElementById('statWl');
+    if (statWl) statWl.textContent = wl.length;
+
+    const countEl = document.getElementById('wlTableCount');
+    if (countEl) countEl.textContent = `${wl.length} entries`;
+
+    const tbody = document.getElementById('wlTableBody');
+    if (tbody) {
+      if (!wl.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Watchlist is empty</td></tr>';
+        return;
+      }
+      tbody.innerHTML = wl.map(entry => {
+        const added = new Date(entry.addedAt).toLocaleString('en-IN', { hour12: false });
+        return `
+          <tr>
+            <td><span class="plate-tag" style="padding:3px 8px;background:#1a1d2e;border:1px solid #ff3b30;color:#ff3b30;border-radius:3px;font-family:var(--mono);">${entry.plate}</span></td>
+            <td style="color:var(--text-dim)">${entry.reason || '—'}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${added}</td>
+            <td style="font-family:'Share Tech Mono',monospace"><span style="color:var(--red)">${entry.alertCount || 0}</span></td>
+            <td>
+              <button class="btn danger" onclick="removeFromWatchlistTab('${entry.plate}')" style="padding:4px 10px;font-size:10px;cursor:pointer;">
+                Remove
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  } catch (e) {
+    console.warn('Watchlist tab fetch failed:', e);
+  }
+}
+
+async function loadAlertHistoryTab() {
+  try {
+    const alerts = await fetch('/api/alerts?limit=50').then(r => r.json());
+    const statAlerts = document.getElementById('statAlerts');
+    if (statAlerts) statAlerts.textContent = alerts.length;
+
+    if (alerts.length > 0) {
+      const last = alerts[0];
+      const lastEl = document.getElementById('statLastAlert');
+      if (lastEl) lastEl.textContent = new Date(last.alertTime || last.timestamp).toTimeString().slice(0, 8);
+    }
+
+    const tbody = document.getElementById('alertHistoryBody');
+    if (tbody) {
+      if (!alerts.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:24px">No alerts recorded</td></tr>';
+        return;
+      }
+      tbody.innerHTML = alerts.map(a => {
+        const time = new Date(a.alertTime || a.timestamp).toLocaleString('en-IN', { hour12: false });
+        const conf = Math.round((a.confidence || 0) * 100);
+        return `
+          <tr>
+            <td><span class="plate-tag" style="padding:3px 8px;background:#1a1d2e;border:1px solid #ff3b30;color:#ff3b30;border-radius:3px;font-family:var(--mono);">${a.plate}</span></td>
+            <td><span class="badge blue">${a.cameraName}</span></td>
+            <td style="color:var(--text-dim)">${a.location || '—'}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:10px">${time}</td>
+            <td>${conf}%</td>
+            <td style="color:var(--text-dim)">${a.reason || '—'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    const feedCount = document.getElementById('alertFeedCount');
+    if (feedCount) feedCount.textContent = `${alerts.length} alerts`;
+  } catch (e) {
+    console.warn('Alert history fetch failed:', e);
+  }
+}
+
+async function addToWatchlistTab() {
+  const plateEl = document.getElementById('wlPlateInput');
+  const reasonEl = document.getElementById('wlReasonInput');
+  const plate = (plateEl ? plateEl.value : '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const reason = (reasonEl ? reasonEl.value : '').trim();
+
+  if (!plate) { alert('Please enter a valid registration number'); return; }
+  try {
+    await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plate, reason: reason || 'Watchlisted' }),
+    });
+    if (plateEl) plateEl.value = '';
+    if (reasonEl) reasonEl.value = '';
+    loadWatchlistTab();
+  } catch (e) {
+    alert('Failed to add vehicle to watchlist');
+  }
+}
+
+async function removeFromWatchlistTab(plate) {
+  if (!confirm(`Remove ${plate} from watchlist?`)) return;
+  try {
+    await fetch(`/api/watchlist/${plate}`, { method: 'DELETE' });
+    loadWatchlistTab();
+  } catch (e) {
+    alert('Failed to remove from watchlist');
+  }
+}
+
+function onNewDetectionForTabs(det) {
+  if (activeTabId === 'track') {
+    loadRecentPlatesTab();
+  }
+}
+
+function onNewAlertForTabs(alert) {
+  loadWatchlistTab();
+  loadAlertHistoryTab();
+
+  const feed = document.getElementById('liveAlertFeed');
+  if (feed) {
+    const empty = feed.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0, 8);
+    const el = document.createElement('div');
+    el.className = 'alert-card';
+    el.style.margin = '8px';
+    el.style.padding = '10px';
+    el.style.background = 'rgba(255,59,48,0.08)';
+    el.style.border = '1px solid rgba(255,59,48,0.3)';
+    el.style.borderRadius = '4px';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span>🚨</span>
+        <span style="font-weight:700;font-family:var(--mono);color:var(--red);">${alert.plate}</span>
+        <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--text-dim);">${time}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);">
+        <div>Camera: <b style="color:#dde2ec;">${alert.cameraName}</b> (${alert.location || '—'})</div>
+        <div>Reason: <b style="color:#ffb400;">${alert.reason || '—'}</b></div>
+      </div>
+    `;
+    feed.insertBefore(el, feed.firstChild);
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────
 (async () => {
   await fetchNetworkInfo();
@@ -1349,6 +2377,14 @@ async function fetchDiagnosticsNow() {
   initLocalWebcam();
   // Load ANPR models in background
   initANPR();
+
+  // Initial tab route check
+  const initHash = (window.location.hash || '').replace('#', '');
+  if (['cmd', 'track', 'analytics', 'network', 'watchlist'].includes(initHash)) {
+    switchTab(initHash);
+  } else {
+    switchTab('cmd');
+  }
 })();
 </script>
 </body>
