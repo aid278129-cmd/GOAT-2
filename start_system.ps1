@@ -45,6 +45,24 @@ try {
     Read-Host "Press Enter to exit"
     exit 1
 }
+
+# Check Python dependencies
+try {
+    python -c "import fastapi, ultralytics, cv2, pytesseract" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  [INFO] Required Python packages missing. Installing from requirements.txt..." -ForegroundColor Yellow
+        python -m pip install -r (Join-Path $ScriptDir "requirements.txt")
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [ERROR] Failed to install Python dependencies." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+    Write-Host "  [OK] Python dependencies ready." -ForegroundColor Green
+} catch {
+    Write-Host "  [INFO] Installing Python dependencies from requirements.txt..." -ForegroundColor Yellow
+    python -m pip install -r (Join-Path $ScriptDir "requirements.txt")
+}
 Write-Host ""
 
 # --- Step 2: Check Node.js ---

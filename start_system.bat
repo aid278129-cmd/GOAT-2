@@ -31,6 +31,19 @@ if %ERRORLEVEL% NEQ 0 (
 )
 python --version
 echo [OK] Python found.
+
+:: Check Python dependencies from requirements.txt
+python -c "import fastapi, ultralytics, cv2, pytesseract" >nul 2>&1
+if %ERRORLEVEL% NEQ 0 (
+    echo [INFO] Python packages missing. Installing from requirements.txt...
+    python -m pip install -r requirements.txt
+    if %ERRORLEVEL% NEQ 0 (
+        echo [ERROR] Failed to install Python dependencies from requirements.txt.
+        pause
+        exit /b 1
+    )
+)
+echo [OK] Python dependencies ready.
 echo.
 
 :: -- 2. Verify Node.js is available

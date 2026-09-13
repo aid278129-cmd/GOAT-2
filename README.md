@@ -68,7 +68,7 @@
 npm install
 
 # Python dependencies
-pip install ultralytics pytesseract pillow opencv-python fastapi uvicorn requests easyocr
+pip install -r requirements.txt
 ```
 
 ### 3. Launch Services
