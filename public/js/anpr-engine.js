@@ -85,6 +85,7 @@ class ANPREngine {
     this.temporalTrackers  = {};        // cameraId -> candidate tracker array
     this._inFlight         = {};        // cameraId -> boolean
     this._lastPlateOverlay = {};        // cameraId -> { plate, bbox, confidence, expires }
+    this._lastServerQueue  = null;      // Phase 6: Global & camera queue telemetry
 
     // Phase 2: Per-Camera Intelligent Keyframe Candidate Buffers
     this.keyframeBuffers   = {};        // cameraId -> { candidates: [], lastProcessedGray, lastProcessedTime, lastSelectedSharpness, currentSharpness, isStatic, rejectionReason }
@@ -435,6 +436,17 @@ class ANPREngine {
         if (resp.ok) {
           const data = await resp.json();
           const inv = 1.0 / scale;
+
+          if (data.queueTelemetry) {
+            this._lastServerQueue = data.queueTelemetry;
+          }
+
+          if (data.status === 'DROPPED_STALE_FRAME') {
+            if (this.config.logToConsole) {
+              console.log(`[Phase 6] CAM 0${cameraId}: Frame dropped (${data.reason || 'Superseded by newer keyframe'})`);
+            }
+            return;
+          }
 
           if (data.debug) {
             this._lastServerDebug[cameraId] = data.debug;
@@ -1129,7 +1141,7 @@ class ANPREngine {
     // 4. Temporary Developer HUD: Visual telemetry overlay (Requirement)
     if (this.developerMode) {
       const hudW = Math.min(270, canvasEl.width - 16);
-      const hudH = 74;
+      const hudH = 86;
       const hudX = canvasEl.width - hudW - 8;
       const hudY = 8;
 
@@ -1172,9 +1184,19 @@ class ANPREngine {
       const skewSign = skewVal > 0 ? '+' : '';
       const timing = serverDebug && serverDebug.timing;
       const tTotal = timing && timing.totalProcessingMs != null ? `${timing.totalProcessingMs.toFixed(0)}ms` : '--';
+      const backend = timing && timing.inferenceBackend ? timing.inferenceBackend.toUpperCase() : 'ONNX';
       const ocrTier = timing && timing.ocrTier ? (timing.ocrTier.includes('TIER_1') ? 'T1' : (timing.ocrTier.includes('TIER_2') ? 'T2' : 'T3')) : 'T1';
       const scrTag = timing && timing.screenEnhanced ? ':SCR' : '';
       ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | LATENCY: ${tTotal} [${backend}:${ocrTier}${scrTag}]`, hudX + 6, hudY + 48);
+
+      // Phase 6 Multi-Camera Concurrency & Queue Health
+      const qInfo = this._lastServerQueue;
+      const actWorkers = qInfo && qInfo.activeWorkers != null ? qInfo.activeWorkers : 0;
+      const maxConc = qInfo && qInfo.maxConcurrency != null ? qInfo.maxConcurrency : 2;
+      const qWait = qInfo && qInfo.queueWaitMs != null ? `${qInfo.queueWaitMs}ms` : '0ms';
+      const camDrops = (qInfo && qInfo.camStats && qInfo.camStats.dropped) || 0;
+      const dropTag = camDrops > 0 ? ` · DROPS:${camDrops}` : '';
+      ctx.fillText(`QUEUE: ${actWorkers}/${maxConc} ACT | WAIT: ${qWait}${dropTag}`, hudX + 6, hudY + 60);
 
       // Rejection or Confirmation state
       let diagMsg = '';
@@ -1192,7 +1214,7 @@ class ANPREngine {
         diagMsg = 'MONITORING LIVE FEED...';
         ctx.fillStyle = '#a0aec0';
       }
-      ctx.fillText(diagMsg, hudX + 6, hudY + 62);
+      ctx.fillText(diagMsg, hudX + 6, hudY + 74);
     }
   }
 

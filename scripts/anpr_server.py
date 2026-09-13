@@ -19,6 +19,7 @@ import os
 import io
 import re
 import time
+import asyncio
 import base64
 import difflib
 import numpy as np
@@ -134,7 +135,24 @@ ANPR_CONFIG = {
     "screen_unsharp_strength": 1.2,          # Adaptive unsharp masking strength (0.0 to disable)
     "screen_anti_moire": True,               # Edge-preserving bilateral filter against subpixel grids
     "screen_glare_compensation": True,       # LAB-space CLAHE local contrast & reflection normalization
+
+    # Phase 6: Multi-Camera Concurrency & Defense-in-Depth Worker Limits
+    "max_python_workers": 2,                 # Maximum simultaneous CPU vision inference tasks
 }
+
+# ──────────────────────────────────────────────────────────────────
+# Concurrency State & Worker Semaphore (Phase 6)
+# ──────────────────────────────────────────────────────────────────
+active_inferences = 0
+peak_inferences = 0
+_worker_semaphore = None
+
+def get_worker_semaphore():
+    global _worker_semaphore
+    if _worker_semaphore is None:
+        _worker_semaphore = asyncio.Semaphore(ANPR_CONFIG.get("max_python_workers", 2))
+    return _worker_semaphore
+
 
 # ──────────────────────────────────────────────────────────────────
 # Diagnostic Memory Store
@@ -947,6 +965,9 @@ def health():
         "inference_backend": ANPR_CONFIG.get("inference_backend", "onnx"),
         "active_vehicle_backend": active_vehicle_backend,
         "active_plate_backend": active_plate_backend,
+        "active_inferences": active_inferences,
+        "peak_inferences": peak_inferences,
+        "max_python_workers": ANPR_CONFIG.get("max_python_workers", 2),
         "onnx_models_available": {
             "vehicle": os.path.exists(VEHICLE_ONNX_PATH),
             "plate": os.path.exists(PLATE_ONNX_PATH)
@@ -962,7 +983,7 @@ def get_config():
 @app.post("/config")
 def update_config(new_config: dict):
     """Update runtime-configurable values without restarting server."""
-    global vehicle_model, plate_model
+    global vehicle_model, plate_model, _worker_semaphore
     backend_changed = False
     for k, v in new_config.items():
         if k in ANPR_CONFIG:
@@ -977,11 +998,16 @@ def update_config(new_config: dict):
         plate_model = None
         get_vehicle_model()
         get_plate_model()
+    if "max_python_workers" in new_config:
+        _worker_semaphore = asyncio.Semaphore(ANPR_CONFIG.get("max_python_workers", 2))
     temporal_tracker.min_sightings = ANPR_CONFIG["min_consecutive_sightings"]
     temporal_tracker.window_sec = ANPR_CONFIG["temporal_window_sec"]
     return {
         "status": "updated",
         "config": ANPR_CONFIG,
+        "active_inferences": active_inferences,
+        "peak_inferences": peak_inferences,
+        "max_python_workers": ANPR_CONFIG.get("max_python_workers", 2),
         "active_backend": {
             "vehicle": active_vehicle_backend,
             "plate": active_plate_backend
@@ -1025,10 +1051,9 @@ def list_debug_frames(limit: int = 20):
     }
 
 # ──────────────────────────────────────────────────────────────────
-# Core Detection Endpoint: Comprehensive 16-Point Diagnostics
+# Core Detection Implementation: Comprehensive 16-Point Diagnostics
 # ──────────────────────────────────────────────────────────────────
-@app.post("/detect")
-async def detect_plate(req: Base64DetectRequest):
+def sync_detect_plate_core(req: Base64DetectRequest):
     try:
         t_frame_start = time.perf_counter()
         t_vehicle_ms = 0.0
@@ -1615,7 +1640,9 @@ async def detect_plate(req: Base64DetectRequest):
             "stagedOcrEnabled": bool(ANPR_CONFIG.get("ocr_staged_execution", True)),
             "screenDegraded": bool(primary_eval.get("screenDegraded", False)),
             "screenEnhanced": bool(primary_eval.get("screenEnhanced", False)),
-            "screenQuality": primary_eval.get("screenQuality", {})
+            "screenQuality": primary_eval.get("screenQuality", {}),
+            "activeInferences": active_inferences,
+            "maxPythonWorkers": ANPR_CONFIG.get("max_python_workers", 2)
         }
 
         # Construct comprehensive 16-point diagnostic payload for this frame
@@ -1715,6 +1742,21 @@ async def detect_plate(req: Base64DetectRequest):
         import traceback
         traceback.print_exc()
         return {"success": False, "error": str(e)}
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 6: Async Endpoint with Worker Semaphore & Event-Loop Offload
+# ──────────────────────────────────────────────────────────────────
+@app.post("/detect")
+async def detect_plate(req: Base64DetectRequest):
+    global active_inferences, peak_inferences
+    sem = get_worker_semaphore()
+    async with sem:
+        active_inferences += 1
+        peak_inferences = max(peak_inferences, active_inferences)
+        try:
+            return await asyncio.to_thread(sync_detect_plate_core, req)
+        finally:
+            active_inferences = max(0, active_inferences - 1)
 
 @app.post("/detect-file")
 async def detect_plate_file(

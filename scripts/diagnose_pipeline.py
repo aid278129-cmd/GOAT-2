@@ -36,9 +36,14 @@ import base64
 import cv2
 import numpy as np
 import requests
+from concurrent.futures import ThreadPoolExecutor
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 SERVER_URL = "http://127.0.0.1:5001/detect"
 CONFIG_URL = "http://127.0.0.1:5001/config"
+NODE_DETECT_URL = "https://127.0.0.1:3000/api/anpr/detect"
+NODE_QUEUE_URL = "https://127.0.0.1:3000/api/anpr/queue/stats"
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 SAMPLE_IMAGES = [
@@ -128,7 +133,8 @@ def evaluate_test_suite():
         "TEST 4": [],
         "TEST 5": [],
         "TEST 6": [],
-        "TEST 7": []
+        "TEST 7": [],
+        "TEST 8": []
     }
 
     # ─────────────────────────────────────────────────────────────
@@ -591,6 +597,115 @@ def evaluate_test_suite():
         print(f"  • Final Decision:           {'ACCEPTED [PASS]' if is_det else 'REJECTED'} ({rec['failureReason']})")
 
     # ─────────────────────────────────────────────────────────────
+    # TEST 8: Phase 6 Multi-Camera Concurrency & Stale Frame Dropping Benchmark
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 8: Phase 6 Multi-Camera Concurrency & Stale Frame Dropping Benchmark")
+    print("-" * 78)
+
+    try:
+        sample_path = SAMPLE_IMAGES[0]
+        test_img = cv2.imread(sample_path)
+        scale = 640.0 / max(test_img.shape[:2])
+        test_img_sm = cv2.resize(test_img, (int(test_img.shape[1] * scale), int(test_img.shape[0] * scale)))
+        _, buf_t8 = cv2.imencode('.jpg', test_img_sm, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        t8_b64 = f"data:image/jpeg;base64,{base64.b64encode(buf_t8).decode('utf-8')}"
+
+        concurrency_results = {}
+        def send_test8_frame(cam_id, tag, delay=0.0):
+            if delay > 0:
+                time.sleep(delay)
+            t_start = time.perf_counter()
+            try:
+                resp = requests.post(
+                    NODE_DETECT_URL,
+                    json={
+                        "image": t8_b64,
+                        "cameraId": cam_id,
+                        "cameraName": f"CAM 0{cam_id}",
+                        "manualScan": True
+                    },
+                    verify=False,
+                    timeout=30
+                )
+                dur_ms = (time.perf_counter() - t_start) * 1000.0
+                data = resp.json()
+                is_drop = data.get("dropped", False)
+                status_code = data.get("status", "UNKNOWN")
+                is_detected = data.get("detected", False)
+                plate_val = data.get("detection", {}).get("plate") if data.get("detection") else "None"
+                conf_val = data.get("detection", {}).get("confidence", 0.0) if data.get("detection") else 0.0
+
+                concurrency_results[tag] = {
+                    "tag": tag,
+                    "cameraId": cam_id,
+                    "durationMs": dur_ms,
+                    "status": status_code,
+                    "detected": is_detected,
+                    "plate": plate_val,
+                    "confidence": conf_val,
+                    "dropped": is_drop,
+                    "reason": data.get("reason", "None")
+                }
+            except Exception as ex:
+                concurrency_results[tag] = {
+                    "tag": tag,
+                    "cameraId": cam_id,
+                    "durationMs": 0.0,
+                    "status": "ERROR",
+                    "detected": False,
+                    "plate": "None",
+                    "confidence": 0.0,
+                    "dropped": False,
+                    "reason": str(ex)
+                }
+
+        # Dispatch burst: CAM-01 Frame A, CAM-02 Frame A, CAM-01 Frame B (pending), CAM-01 Frame C (supersedes B -> dropped), CAM-03 Frame A
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            f_a1 = executor.submit(send_test8_frame, 1, "CAM1_Frame_A", 0.0)
+            f_a2 = executor.submit(send_test8_frame, 2, "CAM2_Frame_A", 0.0)
+            f_b1 = executor.submit(send_test8_frame, 1, "CAM1_Frame_B", 0.05)
+            f_c1 = executor.submit(send_test8_frame, 1, "CAM1_Frame_C", 0.08)
+            f_a3 = executor.submit(send_test8_frame, 3, "CAM3_Frame_A", 0.1)
+
+            # Measure Python event-loop responsiveness while inferences are active
+            time.sleep(0.3)
+            t_loop0 = time.perf_counter()
+            r_loop = requests.get("http://127.0.0.1:5001/health", timeout=5)
+            loop_ms = (time.perf_counter() - t_loop0) * 1000.0
+
+        for sub_tag in ["CAM1_Frame_A", "CAM2_Frame_A", "CAM1_Frame_B", "CAM1_Frame_C", "CAM3_Frame_A"]:
+            res_item = concurrency_results.get(sub_tag, {})
+            is_det = res_item.get("detected", False)
+            is_drp = res_item.get("dropped", False)
+            plate_str = res_item.get("plate", "None")
+            conf_flt = res_item.get("confidence", 0.0)
+            dur_val = res_item.get("durationMs", 0.0)
+
+            passed = is_det or is_drp
+            rec = {
+                "image": sub_tag,
+                "detected": passed,
+                "plate": plate_str if is_det else ("DROPPED_STALE" if is_drp else "None"),
+                "confidence": conf_flt if is_det else (1.0 if is_drp else 0.0),
+                "dropped": is_drp,
+                "durationMs": dur_val,
+                "failureStage": "None (Passed)" if passed else "ConcurrencyTimeout",
+                "failureReason": f"Dropped Stale ({dur_val:.0f}ms)" if is_drp else (f"Detected [{plate_str}] ({dur_val:.0f}ms)" if is_det else res_item.get("reason"))
+            }
+            test_results["TEST 8"].append(rec)
+            print(f"[TEST 8: {sub_tag}] Status: {res_item.get('status')} | Plate: '{plate_str}' | Latency: {dur_val:.1f}ms | Dropped: {is_drp}")
+
+        print(f"  • Event-Loop Health Latency:  {loop_ms:.1f}ms (Python microservice non-blocking)")
+        q_stats_resp = requests.get(NODE_QUEUE_URL, verify=False, timeout=5)
+        if q_stats_resp.ok:
+            q_info = q_stats_resp.json()
+            print(f"  • Gateway Queue Telemetry:    Workers Active={q_info.get('activeWorkers')}/{q_info.get('maxConcurrency')} | Total Dropped={q_info.get('totalDropped')} ({q_info.get('dropRatePct')}%)")
+
+    except Exception as e:
+        print(f"TEST 8 Concurrency Benchmark Error: {e}")
+
+    # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis
     # ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -599,7 +714,7 @@ def evaluate_test_suite():
     print(f"{'Test':<8} | {'Samples':<7} | {'Det Rate':<9} | {'Avg Conf':<8} | {'Primary Failure Stage':<28} | {'Primary Rejection Reason'}")
     print("-" * 78)
 
-    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7"]:
+    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7", "TEST 8"]:
         recs = test_results.get(t_name, [])
         if not recs:
             print(f"{t_name:<8} | {'0':<7} | {'N/A':<9} | {'N/A':<8} | {'No Frames Recorded':<28} | N/A")

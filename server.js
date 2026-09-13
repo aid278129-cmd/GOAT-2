@@ -222,20 +222,262 @@ app.post('/api/detections', (req, res) => {
   });
 });
 
-/** Forward frame to Python ANPR Inference service */
-app.post('/api/anpr/detect', async (req, res) => {
-  try {
-    const pyResp = await fetch('http://127.0.0.1:5001/detect', {
+// ─────────────────────────────────────────────
+//  Phase 6: Multi-Camera Concurrency & Bounded Queue Manager
+// ─────────────────────────────────────────────
+class MultiCameraQueueManager {
+  constructor(options = {}) {
+    this.maxConcurrency = options.maxConcurrency || 2; // Bounded CPU workers (default: 2)
+    this.activeWorkers = 0;
+    this.perCamera = new Map(); // cameraId -> { cameraId, pending, inFlight, stats }
+    this.globalStats = {
+      totalReceived: 0,
+      totalProcessed: 0,
+      totalDropped: 0,
+      staleDrops: 0,
+      totalLatencyMs: 0,
+      avgInferenceMs: 0,
+    };
+  }
+
+  _getOrCreateCam(cameraId) {
+    const camId = parseInt(cameraId, 10) || 1;
+    if (!this.perCamera.has(camId)) {
+      this.perCamera.set(camId, {
+        cameraId: camId,
+        pending: null, // { reqBody, resolve, reject, enqueuedAt }
+        inFlight: false,
+        stats: {
+          received: 0,
+          processed: 0,
+          dropped: 0,
+          staleDrops: 0,
+          lastInferenceMs: 0,
+          avgInferenceMs: 0,
+          totalLatencyMs: 0,
+        }
+      });
+    }
+    return this.perCamera.get(camId);
+  }
+
+  enqueueAndProcess(reqBody) {
+    const cameraId = parseInt(reqBody.cameraId, 10) || 1;
+    const cam = this._getOrCreateCam(cameraId);
+
+    this.globalStats.totalReceived++;
+    cam.stats.received++;
+
+    return new Promise((resolve, reject) => {
+      // Bounded Queue Size = 1 per camera.
+      // If a frame is already waiting in queue for this camera, drop the older one (Stale Frame Dropping).
+      // In real-time city surveillance, the newest keyframe is always more valuable than an old backlogged frame.
+      if (cam.pending) {
+        const oldPending = cam.pending;
+        cam.stats.dropped++;
+        cam.stats.staleDrops++;
+        this.globalStats.totalDropped++;
+        this.globalStats.staleDrops++;
+
+        const waitTimeMs = Date.now() - oldPending.enqueuedAt;
+        oldPending.resolve({
+          success: true,
+          detected: false,
+          status: 'DROPPED_STALE_FRAME',
+          dropped: true,
+          reason: `Superseded by newer keyframe (waited ${waitTimeMs}ms in queue)`,
+          queueTelemetry: {
+            dropped: true,
+            status: 'DROPPED_STALE_FRAME',
+            queueWaitMs: waitTimeMs,
+            activeWorkers: this.activeWorkers,
+            maxConcurrency: this.maxConcurrency,
+            camStats: { ...cam.stats }
+          },
+          debug: {
+            summary: {
+              status: 'DROPPED_STALE_FRAME',
+              reason: 'Superseded by newer keyframe in camera queue',
+              failureStage: 'Stage 0: Queue & Concurrency Management'
+            }
+          }
+        });
+      }
+
+      // Store current frame in the camera's pending slot
+      cam.pending = {
+        reqBody,
+        resolve,
+        reject,
+        enqueuedAt: Date.now()
+      };
+
+      // Pump queue to assign available worker
+      this._pumpQueue();
+    });
+  }
+
+  _pumpQueue() {
+    if (this.activeWorkers >= this.maxConcurrency) return;
+
+    // Find camera with oldest waiting pending frame that is NOT currently in-flight
+    let bestCam = null;
+    let earliestTime = Infinity;
+
+    for (const [camId, cam] of this.perCamera.entries()) {
+      if (cam.pending && !cam.inFlight) {
+        if (cam.pending.enqueuedAt < earliestTime) {
+          earliestTime = cam.pending.enqueuedAt;
+          bestCam = cam;
+        }
+      }
+    }
+
+    if (!bestCam || !bestCam.pending) return;
+
+    // Allocate worker
+    this.activeWorkers++;
+    bestCam.inFlight = true;
+    const task = bestCam.pending;
+    bestCam.pending = null; // Cleared from pending slot
+
+    const startTime = Date.now();
+    const waitTime = startTime - task.enqueuedAt;
+
+    fetch('http://127.0.0.1:5001/detect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body),
-    });
-    const data = await pyResp.json();
-    res.json(data);
+      body: JSON.stringify(task.reqBody),
+    })
+      .then(async (pyResp) => {
+        const durationMs = Date.now() - startTime;
+        const data = await pyResp.json();
+
+        // Update statistics
+        this.globalStats.totalProcessed++;
+        this.globalStats.totalLatencyMs += durationMs;
+        this.globalStats.avgInferenceMs = Math.round(
+          this.globalStats.totalLatencyMs / Math.max(1, this.globalStats.totalProcessed)
+        );
+
+        bestCam.stats.processed++;
+        bestCam.stats.lastInferenceMs = durationMs;
+        bestCam.stats.totalLatencyMs += durationMs;
+        bestCam.stats.avgInferenceMs = Math.round(
+          bestCam.stats.totalLatencyMs / Math.max(1, bestCam.stats.processed)
+        );
+
+        if (data && typeof data === 'object') {
+          data.queueTelemetry = {
+            dropped: false,
+            queueWaitMs: waitTime,
+            processingMs: durationMs,
+            activeWorkers: this.activeWorkers,
+            maxConcurrency: this.maxConcurrency,
+            camStats: { ...bestCam.stats }
+          };
+        }
+
+        task.resolve(data);
+      })
+      .catch((err) => {
+        task.reject(err);
+      })
+      .finally(() => {
+        this.activeWorkers = Math.max(0, this.activeWorkers - 1);
+        bestCam.inFlight = false;
+        this._pumpQueue();
+      });
+
+    // Check if additional worker slots are open
+    if (this.activeWorkers < this.maxConcurrency) {
+      this._pumpQueue();
+    }
+  }
+
+  getStats() {
+    const camStats = {};
+    let pendingCount = 0;
+    for (const [camId, cam] of this.perCamera.entries()) {
+      if (cam.pending) pendingCount++;
+      const dropPct =
+        cam.stats.received > 0
+          ? (cam.stats.dropped / cam.stats.received) * 100
+          : 0;
+      camStats[camId] = {
+        ...cam.stats,
+        inFlight: cam.inFlight,
+        hasPending: !!cam.pending,
+        dropRatePct: parseFloat(dropPct.toFixed(1))
+      };
+    }
+
+    const totalDrops = this.globalStats.totalDropped;
+    const totalRecv = this.globalStats.totalReceived;
+    const globalDropPct = totalRecv > 0 ? (totalDrops / totalRecv) * 100 : 0;
+
+    return {
+      activeWorkers: this.activeWorkers,
+      maxConcurrency: this.maxConcurrency,
+      queueDepth: pendingCount,
+      totalReceived: this.globalStats.totalReceived,
+      totalProcessed: this.globalStats.totalProcessed,
+      totalDropped: this.globalStats.totalDropped,
+      staleDrops: this.globalStats.staleDrops,
+      dropRatePct: parseFloat(globalDropPct.toFixed(1)),
+      avgInferenceMs: this.globalStats.avgInferenceMs,
+      perCamera: camStats
+    };
+  }
+
+  setMaxConcurrency(newVal) {
+    const val = parseInt(newVal, 10);
+    if (val >= 1 && val <= 8) {
+      this.maxConcurrency = val;
+      console.log(`⚡ MultiCameraQueueManager: maxConcurrency updated to ${val}`);
+      this._pumpQueue();
+      return true;
+    }
+    return false;
+  }
+}
+
+const anprQueueManager = new MultiCameraQueueManager({ maxConcurrency: 2 });
+
+// Broadcast queue stats via Socket.io every 2.5 seconds
+setInterval(() => {
+  if (typeof io !== 'undefined') {
+    io.emit('anpr:queue-stats', anprQueueManager.getStats());
+  }
+}, 2500);
+
+/** Forward frame through Phase 6 Multi-Camera Concurrency Queue */
+app.post('/api/anpr/detect', async (req, res) => {
+  try {
+    const result = await anprQueueManager.enqueueAndProcess(req.body);
+    res.json(result);
   } catch (err) {
     res.status(503).json({ success: false, error: 'ANPR Inference service unavailable', detail: err.message });
   }
 });
+
+/** Phase 6: Queue & Concurrency telemetry endpoints */
+app.get('/api/anpr/queue/stats', (req, res) => {
+  res.json(anprQueueManager.getStats());
+});
+
+app.post('/api/anpr/queue/config', (req, res) => {
+  if (req.body && req.body.max_concurrency !== undefined) {
+    const ok = anprQueueManager.setMaxConcurrency(req.body.max_concurrency);
+    return res.json({ success: ok, max_concurrency: anprQueueManager.maxConcurrency, stats: anprQueueManager.getStats() });
+  }
+  if (req.body && req.body.max_concurrent_workers !== undefined) {
+    const ok = anprQueueManager.setMaxConcurrency(req.body.max_concurrent_workers);
+    return res.json({ success: ok, max_concurrency: anprQueueManager.maxConcurrency, stats: anprQueueManager.getStats() });
+  }
+  res.status(400).json({ error: 'Missing max_concurrency or max_concurrent_workers in request body' });
+});
+
 
 /** Proxy debug and configuration endpoints to Python ANPR Inference service */
 app.get('/api/anpr/debug/last', async (req, res) => {
@@ -274,6 +516,8 @@ app.get('/api/anpr/config', async (req, res) => {
   try {
     const pyResp = await fetch('http://127.0.0.1:5001/config');
     const data = await pyResp.json();
+    data.max_concurrent_workers = anprQueueManager.maxConcurrency;
+    data.queue_stats = anprQueueManager.getStats();
     res.json(data);
   } catch (err) {
     res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });
@@ -282,12 +526,19 @@ app.get('/api/anpr/config', async (req, res) => {
 
 app.post('/api/anpr/config', async (req, res) => {
   try {
+    if (req.body && req.body.max_concurrent_workers !== undefined) {
+      anprQueueManager.setMaxConcurrency(req.body.max_concurrent_workers);
+    } else if (req.body && req.body.max_concurrency !== undefined) {
+      anprQueueManager.setMaxConcurrency(req.body.max_concurrency);
+    }
     const pyResp = await fetch('http://127.0.0.1:5001/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
     });
     const data = await pyResp.json();
+    data.max_concurrent_workers = anprQueueManager.maxConcurrency;
+    data.queue_stats = anprQueueManager.getStats();
     res.json(data);
   } catch (err) {
     res.status(503).json({ error: 'ANPR Inference service unavailable', detail: err.message });

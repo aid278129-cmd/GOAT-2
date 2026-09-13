@@ -495,6 +495,15 @@
                 <option value="disabled">Disabled (Strict Physical Camera Mode)</option>
               </select>
             </div>
+            <div style="grid-column: span 2;">
+              <label style="color:#00e5ff;display:block;font-weight:bold;">🚦 CONCURRENCY WORKERS (PHASE 6)</label>
+              <select id="cfgConcurrency" style="width:100%;background:#161f30;border:1px solid #00e5ff;color:#00e5ff;padding:3px 4px;font-size:10px;border-radius:2px;font-weight:bold;">
+                <option value="1">1 Worker (Strict Single Inference)</option>
+                <option value="2" selected>2 Workers (Recommended for Multi-Core CPU)</option>
+                <option value="3">3 Workers (High Core Count CPU)</option>
+                <option value="4">4 Workers (Maximum CPU Concurrency)</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="checkbox" id="cfgAllowFallback" />
@@ -1137,6 +1146,9 @@ async function loadDiagnosticsConfig() {
       if (cfg.screen_robustness_mode && document.getElementById('cfgScreenMode')) {
         document.getElementById('cfgScreenMode').value = cfg.screen_robustness_mode;
       }
+      if (cfg.max_concurrent_workers && document.getElementById('cfgConcurrency')) {
+        document.getElementById('cfgConcurrency').value = cfg.max_concurrent_workers;
+      }
     }
   } catch (e) {
     console.warn('Could not load config:', e);
@@ -1154,7 +1166,8 @@ async function saveDiagnosticsConfig() {
       max_plate_aspect_ratio: parseFloat(document.getElementById('cfgMaxAR').value),
       allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked,
       inference_backend: document.getElementById('cfgBackend') ? document.getElementById('cfgBackend').value : 'onnx',
-      screen_robustness_mode: document.getElementById('cfgScreenMode') ? document.getElementById('cfgScreenMode').value : 'auto'
+      screen_robustness_mode: document.getElementById('cfgScreenMode') ? document.getElementById('cfgScreenMode').value : 'auto',
+      max_concurrent_workers: document.getElementById('cfgConcurrency') ? parseInt(document.getElementById('cfgConcurrency').value) : 2
     };
     const res = await fetch('/api/anpr/config', {
       method: 'POST',
@@ -1244,6 +1257,27 @@ async function fetchDiagnosticsNow() {
       ? `APPLIED (Bilateral + Unsharp + CLAHE) · Contrast: ${sq.contrast || '--'} | Glare: ${sq.glare_ratio || '--'} | Moiré: ${sq.moire_index || '--'}`
       : (screenDeg ? `SCREEN DETECTED (Contrast: ${sq.contrast || '--'}, Glare: ${sq.glare_ratio || '--'})` : `PASSED CLEAN (Contrast: ${sq.contrast || '--'})`);
 
+    let queueStr = 'Workers: 0/2 · Queue: 0 · Stale Drops: 0';
+    let queueStatus = 'info';
+    try {
+      const qRes = await fetch('/api/anpr/queue/stats');
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        const act = qData.activeWorkers != null ? qData.activeWorkers : 0;
+        const maxW = qData.maxConcurrency || 2;
+        const qD = qData.queueDepth || 0;
+        const drops = qData.totalDropped || 0;
+        const dropPct = qData.dropRatePct || 0;
+        const avgMs = qData.avgInferenceMs || 0;
+        const cStats = (qData.perCamera && qData.perCamera[camId]) || {};
+        const cDrops = cStats.dropped || 0;
+        const cProc = cStats.processed || 0;
+
+        queueStr = `Active: ${act}/${maxW} workers · Queue: ${qD} · Stale Drops: ${drops} (${dropPct}%) · Avg: ${avgMs}ms · [CAM 0${camId}: ${cProc} proc, ${cDrops} dropped]`;
+        queueStatus = drops > 0 ? 'pass' : (act > 0 ? 'pass' : 'info');
+      }
+    } catch (e) {}
+
     const items = [
       { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
       { id: 2, label: 'Vehicle Class & Confidence', val: vNames || 'None', status: vNames ? 'info' : 'fail' },
@@ -1262,7 +1296,8 @@ async function fetchDiagnosticsNow() {
       { id: 15, label: 'Multi-Frame Confirmation Status', val: data["15_multiFrameConfirmationStatus"] || 'NONE', status: data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'warn' },
       { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' },
       { id: 17, label: 'CPU Inference Latency & Staged OCR Tier (Phases 3 & 4)', val: timingStr, status: 'pass' },
-      { id: 18, label: 'Screen Display Robustness & Anti-Moiré (Phase 5)', val: screenStr, status: screenEnh ? 'pass' : (screenDeg ? 'warn' : 'info') }
+      { id: 18, label: 'Screen Display Robustness & Anti-Moiré (Phase 5)', val: screenStr, status: screenEnh ? 'pass' : (screenDeg ? 'warn' : 'info') },
+      { id: 19, label: 'Multi-Camera Concurrency & Stale Frame Dropping (Phase 6)', val: queueStr, status: queueStatus }
     ];
 
     pList.innerHTML = items.map(it => {
