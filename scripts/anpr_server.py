@@ -109,6 +109,12 @@ ANPR_CONFIG = {
     "save_debug_frames": True,               # Save exact incoming WebRTC frame to disk
     "save_debug_crops": True,                # Save pre-OCR plate crops to disk
     "max_saved_frames": 200,                 # Frame cache limit
+
+    # Phase 2: Intelligent Keyframe Selection & Sharpness Filtering
+    "keyframe_selection": True,              # Select sharpest frame in temporal window
+    "minimum_sharpness": 60.0,               # Minimum Laplacian variance to reject blurry frames
+    "keyframe_window_ms": 1000,              # Candidate evaluation rolling window (ms)
+    "anpr_sampling_interval": 1000,          # Interval between ANPR inference dispatches (ms)
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -671,6 +677,9 @@ class Base64DetectRequest(BaseModel):
     forwardToDashboard: bool = True
     manualScan: bool = False  # Set True for manual snapshot uploads
     developerMode: bool = False
+    keyframeSharpness: Optional[float] = None
+    keyframeWindowMs: Optional[int] = None
+    keyframeCandidates: Optional[int] = None
 
 @app.get("/health")
 def health():
@@ -776,7 +785,8 @@ async def detect_plate(req: Base64DetectRequest):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
         mean_brightness = float(np.mean(gray))
-        is_blurry = laplacian_var < 75.0
+        min_sharpness = float(ANPR_CONFIG.get("minimum_sharpness", 60.0))
+        is_blurry = laplacian_var < min_sharpness
 
         v_model = get_vehicle_model()
         p_model = get_plate_model()
@@ -843,6 +853,9 @@ async def detect_plate(req: Base64DetectRequest):
                 "resolution": f"{w_img}x{h_img}",
                 "sharpnessScore": round(laplacian_var, 1),
                 "isBlurry": is_blurry,
+                "keyframeStatus": "BLURRY" if is_blurry else "ACCEPTED",
+                "clientKeyframeSharpness": req.keyframeSharpness,
+                "keyframeCandidates": req.keyframeCandidates,
                 "meanBrightness": round(mean_brightness, 1),
 
                 # 16-point diagnostic records
@@ -1270,6 +1283,10 @@ async def detect_plate(req: Base64DetectRequest):
             "perspectiveSelected": str(primary_eval.get("perspectiveSelected", "NONE")),
             "originalOcr": str(primary_eval.get("originalOcr", "")),
             "rectifiedOcr": str(primary_eval.get("rectifiedOcr", "N/A")),
+            "keyframeSharpness": float(round(laplacian_var, 1)),
+            "clientKeyframeSharpness": req.keyframeSharpness,
+            "keyframeCandidatesEvaluated": req.keyframeCandidates,
+            "keyframeStatus": "BLURRY" if is_blurry else "ACCEPTED",
 
             "summary": {
                 "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "NO_DETECTION"),

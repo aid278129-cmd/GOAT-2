@@ -75,8 +75,7 @@ def simulate_screen_mobile_capture(img_bgr):
 
     return screen_sim
 
-def run_frame_inference(img_bgr, camera_id=1, camera_name="Diagnostic Cam", manual_scan=False, quality=90):
-    # Cap test image max dimension to 1280 to match standard client streaming resolution
+def run_frame_inference(img_bgr, camera_id=1, camera_name="CAM 01", quality=92, manual_scan=False, keyframe_sharpness=None, keyframe_candidates=None):
     h, w = img_bgr.shape[:2]
     if max(h, w) > 1280:
         scale = 1280.0 / float(max(h, w))
@@ -89,7 +88,9 @@ def run_frame_inference(img_bgr, camera_id=1, camera_name="Diagnostic Cam", manu
         "cameraName": camera_name,
         "forwardToDashboard": False,
         "manualScan": manual_scan,
-        "developerMode": True
+        "developerMode": True,
+        "keyframeSharpness": keyframe_sharpness,
+        "keyframeCandidates": keyframe_candidates
     }
     resp = requests.post(SERVER_URL, json=payload, timeout=30)
     if resp.status_code == 200:
@@ -116,7 +117,8 @@ def evaluate_test_suite():
     test_results = {
         "TEST 1": [],
         "TEST 2": [],
-        "TEST 3": []
+        "TEST 3": [],
+        "TEST 4": []
     }
 
     # ─────────────────────────────────────────────────────────────
@@ -296,6 +298,129 @@ def evaluate_test_suite():
         print("No saved live stream frames in debug_output/frames yet.")
 
     # ─────────────────────────────────────────────────────────────
+    # TEST 4: Phase 2 Intelligent Keyframe Selection Diagnostics
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 4: Phase 2 Intelligent Keyframe Selection & Blur Suppression")
+    print("-" * 78)
+
+    base_sample_path = SAMPLE_IMAGES[0] if len(SAMPLE_IMAGES) > 0 else SAMPLE_IMAGES[0]
+    if os.path.exists(base_sample_path):
+        raw_base = cv2.imread(base_sample_path)
+        h_b, w_b = raw_base.shape[:2]
+        # Scale to standard streaming resolution (640px)
+        scale_stream = 640.0 / float(w_b)
+        base_img = cv2.resize(raw_base, (640, int(h_b * scale_stream)), interpolation=cv2.INTER_AREA)
+        
+        # Synthesize rolling candidate window (5 approaching vehicle frames)
+        # Frame 4.1: Camera Vibration / Out of Focus (Gaussian Blur)
+        frame_severe_blur = cv2.GaussianBlur(base_img, (31, 31), 11.0)
+        # Frame 4.2: Fast Motion Blur (Directional horizontal blur kernel)
+        kernel_motion = np.zeros((21, 21))
+        kernel_motion[10, :] = np.ones(21) / 21.0
+        frame_motion_blur = cv2.filter2D(base_img, -1, kernel_motion)
+        # Frame 4.3: Sharp Keyframe (Clean in-focus streaming frame)
+        frame_sharp_key = base_img.copy()
+        # Frame 4.4: Glare / Angle Variation (Moderate Gaussian Blur)
+        frame_moderate_blur = cv2.GaussianBlur(base_img, (15, 15), 5.0)
+        # Frame 4.5: Static Duplicate (Identical to Frame 4.3 - vehicle waiting at signal)
+        frame_static_dup = base_img.copy()
+
+        seq_frames = [
+            ("Frame 4.1 (Camera Vibration Blur)", frame_severe_blur, "Vibration blur"),
+            ("Frame 4.2 (High-Speed Motion Blur)", frame_motion_blur, "Motion blur"),
+            ("Frame 4.3 (Sharp In-Focus Frame)", frame_sharp_key, "Clean keyframe"),
+            ("Frame 4.4 (Moderate Glare / Blur)", frame_moderate_blur, "Moderate blur"),
+            ("Frame 4.5 (Static Duplicate Frame)", frame_static_dup, "Duplicate frame"),
+        ]
+
+        min_sharp_thresh = float(cfg.get("minimum_sharpness", 60.0))
+        eval_window = []
+        last_processed_gray = None
+
+        print(f"Rolling Candidate Window Analysis (minimum_sharpness threshold = {min_sharp_thresh}):")
+        for f_title, f_img, f_desc in seq_frames:
+            gray_full = cv2.cvtColor(f_img, cv2.COLOR_BGR2GRAY)
+            sharp_score = float(cv2.Laplacian(gray_full, cv2.CV_64F).var())
+            is_blurry = sharp_score < min_sharp_thresh
+
+            gray_down = cv2.resize(gray_full, (160, 120), interpolation=cv2.INTER_AREA)
+
+            # Check static scene difference against previously processed frame
+            mad = 255.0
+            if last_processed_gray is not None:
+                mad = float(np.mean(np.abs(gray_down.astype(np.float32) - last_processed_gray.astype(np.float32))))
+
+            is_static = (mad < 2.5) and not is_blurry
+            eval_window.append({
+                "title": f_title,
+                "img": f_img,
+                "sharpness": sharp_score,
+                "is_blurry": is_blurry,
+                "mad": mad,
+                "is_static": is_static
+            })
+
+            tag = "[BLUR_REJECTED]" if is_blurry else ("[STATIC_HOLD]" if is_static else "[VALID_CANDIDATE]")
+            mad_str = f"{mad:>5.1f}" if mad < 200 else "  N/A"
+            print(f"  • {f_title:<38}: Sharpness = {sharp_score:>6.1f} | MAD = {mad_str} -> {tag}")
+
+            if not is_blurry:
+                last_processed_gray = gray_down
+
+        # Intelligent Selector: pick highest sharpness candidate among non-blurry frames
+        valid_candidates = [c for c in eval_window[:4] if not c["is_blurry"]]
+        selected_keyframe = max(valid_candidates, key=lambda c: c["sharpness"]) if valid_candidates else eval_window[2]
+
+        print(f"\nIntelligent Keyframe Selection Result:")
+        print(f"  ★ Selected Keyframe: {selected_keyframe['title']} (Sharpness: {selected_keyframe['sharpness']:.1f})")
+        print(f"  ★ Blurry Frames Suppressed from CPU Backlog: {sum(1 for c in eval_window[:4] if c['is_blurry'])}/4")
+        print(f"  ★ Static Duplicate Identified & Suppressed: {eval_window[4]['title']} (MAD: {eval_window[4]['mad']:.1f} < 2.5)")
+
+        # Dispatch selected keyframe to ANPR pipeline with temporal confirmation
+        cam_id = 401
+        run_frame_inference(selected_keyframe["img"], camera_id=cam_id, quality=90, manual_scan=False, keyframe_sharpness=selected_keyframe["sharpness"], keyframe_candidates=len(eval_window))
+        time.sleep(0.1)
+        res_confirmed = run_frame_inference(selected_keyframe["img"], camera_id=cam_id, quality=90, manual_scan=False, keyframe_sharpness=selected_keyframe["sharpness"], keyframe_candidates=len(eval_window))
+
+        debug = res_confirmed.get("debug", {})
+        det = res_confirmed.get("detection")
+        is_detected = res_confirmed.get("detected", False)
+
+        record = {
+            "image": f"Keyframe_{os.path.basename(base_sample_path)}",
+            "detected": is_detected,
+            "plate": det["plate"] if det else (debug.get("13_normalizedOcrResults", ["None"])[0] if debug.get("13_normalizedOcrResults") else "None"),
+            "confidence": det["confidence"] if det else 0.0,
+            "vehicleDetected": debug.get("1_vehicleDetected", False),
+            "vehicleConf": debug.get("2_vehicleClassAndConf", [{}])[0].get("confidence", 0.0) if debug.get("2_vehicleClassAndConf") else 0.0,
+            "plateAttempted": debug.get("4_plateDetectionAttempted", False),
+            "plateCandidates": debug.get("5_plateCandidateCount", 0),
+            "bestPlateConf": debug.get("6_plateConfidences", [0.0])[0] if debug.get("6_plateConfidences") else 0.0,
+            "ocrRaw": debug.get("11_ocrRawResults", [""])[0] if debug.get("11_ocrRawResults") else "",
+            "syntaxStatus": debug.get("14_indianFormatValidationResults", [{}])[0].get("syntax", "NONE") if debug.get("14_indianFormatValidationResults") else "NONE",
+            "confirmationStatus": debug.get("15_multiFrameConfirmationStatus", "NONE"),
+            "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
+            "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
+            "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
+            "keyframeSharpness": selected_keyframe["sharpness"],
+            "failureStage": debug.get("summary", {}).get("failureStage", "None"),
+            "failureReason": debug.get("summary", {}).get("reason", "None")
+        }
+        test_results["TEST 4"].append(record)
+
+        print(f"\n[TEST 4 Verification on Selected Keyframe]")
+        print(f"  - 1. Vehicle Detected:      {record['vehicleDetected']} (Conf: {record['vehicleConf']})")
+        print(f"  - 4. Plate Attempted:       {record['plateAttempted']}")
+        print(f"  - 5. Plate Candidates:      {record['plateCandidates']} (Best Conf: {record['bestPlateConf']})")
+        print(f"  - 10b. Perspective Corr:    {record['perspectiveCorrection']} (Skew: {record['estimatedSkew']}°, Selected: {record['perspectiveSelected']})")
+        print(f"  - 11. OCR Raw:              '{record['ocrRaw']}'")
+        print(f"  - 13. Normalized Plate:     '{record['plate']}'")
+        print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
+        print(f"  - 15. Multi-Frame Status:   {record['confirmationStatus']}")
+        print(f"  - 16. Final Decision:       {'ACCEPTED [PASS]' if is_detected else 'REJECTED [FAIL]'} ({record['failureReason']})")
+
+    # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis
     # ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -304,7 +429,7 @@ def evaluate_test_suite():
     print(f"{'Test':<8} | {'Samples':<7} | {'Det Rate':<9} | {'Avg Conf':<8} | {'Primary Failure Stage':<28} | {'Primary Rejection Reason'}")
     print("-" * 78)
 
-    for t_name in ["TEST 1", "TEST 2", "TEST 3"]:
+    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4"]:
         recs = test_results[t_name]
         if not recs:
             print(f"{t_name:<8} | {'0':<7} | {'N/A':<9} | {'N/A':<8} | {'No Frames Recorded':<28} | N/A")

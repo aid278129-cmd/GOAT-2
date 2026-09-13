@@ -60,6 +60,15 @@ class ANPREngine {
       temporalWindowMs:      3500,      // Milliseconds to accumulate consistent sightings
       similarityThreshold:   0.85,      // Levenshtein string similarity threshold
 
+      // Phase 2: Intelligent Keyframe Selection (Laplacian variance & motion filter)
+      keyframe_selection:      true,    // Enable/disable intelligent keyframe selection
+      keyframe_window_ms:      1000,    // Rolling window size in ms to collect candidates (1000ms)
+      minimum_sharpness:       60.0,    // Minimum Laplacian variance threshold to reject blurry frames
+      anpr_sampling_interval:  1000,    // Interval between backend dispatches (ms)
+      keyframe_sample_rate_ms: 160,     // Sampling frequency for candidate evaluation (~6 fps)
+      min_scene_change_mad:    2.5,     // Mean Absolute Difference to detect motion between frames
+      max_static_hold_ms:      4000,    // Max time to suppress static scene before refreshing
+
       // Debugging & logging
       debug:                 true,
       logToConsole:          true,
@@ -77,6 +86,9 @@ class ANPREngine {
     this._inFlight         = {};        // cameraId -> boolean
     this._lastPlateOverlay = {};        // cameraId -> { plate, bbox, confidence, expires }
 
+    // Phase 2: Per-Camera Intelligent Keyframe Candidate Buffers
+    this.keyframeBuffers   = {};        // cameraId -> { candidates: [], lastProcessedGray, lastProcessedTime, lastSelectedSharpness, currentSharpness, isStatic, rejectionReason }
+
     // Off-screen canvases for candidate evaluation and OCR preprocessing
     this._scratchCanvas    = null;
     this._scratchCtx       = null;
@@ -84,6 +96,8 @@ class ANPREngine {
     this._ocrCtx           = null;
     this._captureCanvas    = null;
     this._captureCtx       = null;
+    this._sharpCanvas      = null;
+    this._sharpCtx         = null;
   }
 
   toggleDeveloperMode() {
@@ -163,25 +177,140 @@ class ANPREngine {
     }
   }
 
+  /* ──────────────────────────────────────────────────────────────────
+     Phase 2: Intelligent Keyframe Selection (Laplacian Variance)
+  ─────────────────────────────────────────────────────────────────── */
+  _computeLaplacianVariance(gray, width, height) {
+    let sum = 0;
+    let sumSq = 0;
+    let count = 0;
+
+    // 3x3 discrete Laplacian operator:
+    // [ 0,  1,  0]
+    // [ 1, -4,  1]
+    // [ 0,  1,  0]
+    for (let y = 1; y < height - 1; y++) {
+      const row = y * width;
+      const prevRow = (y - 1) * width;
+      const nextRow = (y + 1) * width;
+
+      for (let x = 1; x < width - 1; x++) {
+        const center = gray[row + x];
+        const top    = gray[prevRow + x];
+        const bottom = gray[nextRow + x];
+        const left   = gray[row + x - 1];
+        const right  = gray[row + x + 1];
+
+        const lap = (top + bottom + left + right) - 4 * center;
+        sum += lap;
+        sumSq += lap * lap;
+        count++;
+      }
+    }
+
+    if (count === 0) return 0;
+    const mean = sum / count;
+    const variance = (sumSq / count) - (mean * mean);
+    return Math.max(0, variance);
+  }
+
+  _computeFrameDifference(grayA, grayB) {
+    if (!grayA || !grayB || grayA.length !== grayB.length) return 255;
+    let sumDiff = 0;
+    const len = grayA.length;
+    for (let i = 0; i < len; i++) {
+      sumDiff += Math.abs(grayA[i] - grayB[i]);
+    }
+    return sumDiff / len;
+  }
+
+  _sampleKeyframeCandidate(cameraId, videoEl) {
+    if (!videoEl || videoEl.paused || videoEl.videoWidth === 0 || !videoEl.srcObject) return;
+
+    if (!this._sharpCanvas) {
+      this._sharpCanvas = document.createElement('canvas');
+      this._sharpCanvas.width = 160;
+      this._sharpCanvas.height = 120;
+      this._sharpCtx = this._sharpCanvas.getContext('2d', { willReadFrequently: true });
+    }
+
+    const sw = 160, sh = 120;
+    this._sharpCtx.drawImage(videoEl, 0, 0, sw, sh);
+    const imgData = this._sharpCtx.getImageData(0, 0, sw, sh);
+    const data = imgData.data;
+
+    const gray = new Uint8Array(sw * sh);
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      gray[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+    }
+
+    const sharpness = this._computeLaplacianVariance(gray, sw, sh);
+    const kfBuf = this.keyframeBuffers[cameraId];
+    if (!kfBuf) return;
+
+    kfBuf.currentSharpness = sharpness;
+    const now = Date.now();
+    kfBuf.candidates.push({
+      timestamp: now,
+      sharpness: sharpness,
+      gray: gray
+    });
+
+    const windowMs = this.config.keyframe_window_ms || 1000;
+    while (kfBuf.candidates.length > 0 && (now - kfBuf.candidates[0].timestamp) > windowMs) {
+      kfBuf.candidates.shift();
+    }
+  }
+
   /* ── Start processing a camera ── */
   startCamera(cameraId, videoEl, canvasEl) {
     if (this.processors[cameraId]) this.stopCamera(cameraId);
     if (!this.statsPerCam[cameraId]) this.statsPerCam[cameraId] = { vehicleCount: 0, lastPlate: null };
     this.temporalTrackers[cameraId] = [];
 
-    // Frame sampling: every 600ms, process one frame per camera
-    const intervalId = setInterval(() => {
-      this._processFrame(cameraId, videoEl, canvasEl);
-    }, 600);
+    this.keyframeBuffers[cameraId] = {
+      candidates: [],
+      lastProcessedGray: null,
+      lastProcessedTime: 0,
+      lastSelectedSharpness: 0,
+      currentSharpness: 0,
+      isStatic: false,
+      rejectionReason: null,
+    };
 
-    this.processors[cameraId] = intervalId;
-    console.log(`ANPR: Started camera ${cameraId} with validation pipeline`);
+    // 1. Candidate sampling loop (runs ~6 fps: ultra-fast 0.1ms Laplacian variance)
+    const sampleTimer = setInterval(() => {
+      this._sampleKeyframeCandidate(cameraId, videoEl);
+    }, this.config.keyframe_sample_rate_ms || 160);
+
+    // 2. Intelligent keyframe dispatch loop (runs every anpr_sampling_interval, e.g. 1000ms)
+    const dispatchTimer = setInterval(() => {
+      this._processKeyframeDispatch(cameraId, videoEl, canvasEl);
+    }, this.config.anpr_sampling_interval || 1000);
+
+    // 3. UI Overlay redraw loop (runs smoothly at ~8-10 fps without blocking)
+    const renderTimer = setInterval(() => {
+      let activeCandidate = null;
+      const plateOverlay = this._lastPlateOverlay[cameraId];
+      if (plateOverlay && Date.now() < plateOverlay.expires) {
+        activeCandidate = plateOverlay;
+      }
+      this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId] || [], activeCandidate, this._lastServerCandidates[cameraId] || []);
+    }, 120);
+
+    this.processors[cameraId] = { sampleTimer, dispatchTimer, renderTimer };
+    console.log(`ANPR: Started camera ${cameraId} with Phase 2 Intelligent Keyframe Selection`);
   }
 
   stopCamera(cameraId) {
-    const intervalId = this.processors[cameraId];
-    if (intervalId) clearInterval(intervalId);
-    delete this.processors[cameraId];
+    const p = this.processors[cameraId];
+    if (p) {
+      if (p.sampleTimer) clearInterval(p.sampleTimer);
+      if (p.dispatchTimer) clearInterval(p.dispatchTimer);
+      if (p.renderTimer) clearInterval(p.renderTimer);
+      delete this.processors[cameraId];
+    }
+    delete this.keyframeBuffers[cameraId];
     delete this.temporalTrackers[cameraId];
 
     // Clear canvas
@@ -193,163 +322,206 @@ class ANPREngine {
   }
 
   /* ──────────────────────────────────────────────────────────────────
-     Step 1 & 2: Frame Processing & Vehicle Detection
+     Step 1 & 2: Intelligent Keyframe Selection & ANPR Dispatch
   ─────────────────────────────────────────────────────────────────── */
-  async _processFrame(cameraId, videoEl, canvasEl) {
+  _processFrame(cameraId, videoEl, canvasEl) {
+    return this._processKeyframeDispatch(cameraId, videoEl, canvasEl);
+  }
+
+  async _processKeyframeDispatch(cameraId, videoEl, canvasEl) {
     if (!videoEl || videoEl.paused || videoEl.videoWidth === 0 || !videoEl.srcObject) return;
 
-    // Send frame to custom trained Indian Plate Detector if not already in flight
-    if (!this._inFlight[cameraId]) {
-      this._inFlight[cameraId] = true;
-      (async () => {
-        try {
-          if (!this._captureCanvas) {
-            this._captureCanvas = document.createElement('canvas');
-            this._captureCtx = this._captureCanvas.getContext('2d', { willReadFrequently: true });
-          }
-          const capCanvas = this._captureCanvas;
-          const capCtx    = this._captureCtx;
-          const vw = videoEl.videoWidth;
-          const vh = videoEl.videoHeight;
-          const maxDim = this.config.captureMaxDimension || 960;
-          const scale = Math.min(1.0, maxDim / Math.max(vw, vh));
-          capCanvas.width  = Math.round(vw * scale);
-          capCanvas.height = Math.round(vh * scale);
-          capCtx.drawImage(videoEl, 0, 0, capCanvas.width, capCanvas.height);
+    const kfBuf = this.keyframeBuffers[cameraId];
+    if (!kfBuf) return;
 
-          const base64Img = capCanvas.toDataURL('image/jpeg', 0.88);
+    // Backlog prevention: if backend inference is still running, do NOT send another frame!
+    if (this._inFlight[cameraId]) {
+      kfBuf.rejectionReason = 'BACKEND_BUSY: Inference in progress (backlog prevented)';
+      return;
+    }
 
-          const resp = await fetch('/api/anpr/detect', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image: base64Img,
-              cameraId: cameraId,
-              cameraName: `CAM 0${cameraId}`,
-              forwardToDashboard: true,
-              developerMode: this.developerMode
-            })
+    let selectedSharpness = kfBuf.currentSharpness;
+    let candidatesCount = kfBuf.candidates.length;
+
+    if (this.config.keyframe_selection) {
+      if (!kfBuf.candidates || kfBuf.candidates.length === 0) {
+        this._sampleKeyframeCandidate(cameraId, videoEl);
+      }
+      const candidates = kfBuf.candidates;
+      if (candidates.length === 0) return;
+
+      // Select frame with highest sharpness in rolling window
+      let best = candidates[0];
+      for (let i = 1; i < candidates.length; i++) {
+        if (candidates[i].sharpness > best.sharpness) {
+          best = candidates[i];
+        }
+      }
+
+      selectedSharpness = best.sharpness;
+
+      // Check 1: Reject blur / camera shake
+      if (best.sharpness < this.config.minimum_sharpness) {
+        kfBuf.rejectionReason = `BLUR_REJECTED: Sharpness ${best.sharpness.toFixed(1)} < min ${this.config.minimum_sharpness}`;
+        if (this.developerMode) {
+          this._recordDebug(cameraId, {
+            vehicleConfidence: 0,
+            plateConfidence: 0,
+            ocrConfidence: 0,
+            status: 'KEYFRAME_BLUR',
+            reason: kfBuf.rejectionReason,
+            candidatePlate: null,
+            vehicleType: null
           });
-
-          if (resp.ok) {
-            const data = await resp.json();
-            const inv = 1.0 / scale;
-
-            if (data.debug) {
-              this._lastServerDebug[cameraId] = data.debug;
-            }
-
-            if (data.vehicles && Array.isArray(data.vehicles)) {
-              this._lastServerVehicles[cameraId] = data.vehicles.map(v => ({
-                class: v.class,
-                score: v.confidence,
-                bbox: [v.box[0] * inv, v.box[1] * inv, (v.box[2] - v.box[0]) * inv, (v.box[3] - v.box[1]) * inv]
-              }));
-            } else {
-              this._lastServerVehicles[cameraId] = [];
-            }
-
-            if (data.debug && data.debug.candidates && Array.isArray(data.debug.candidates)) {
-              this._lastServerCandidates[cameraId] = data.debug.candidates.map(c => ({
-                ...c,
-                bbox: [c.bbox[0] * inv, c.bbox[1] * inv, c.bbox[2] * inv, c.bbox[3] * inv]
-              }));
-            } else {
-              this._lastServerCandidates[cameraId] = [];
-            }
-
-            if (data.success && data.detected && data.detection) {
-              const det = data.detection;
-              const origBbox = [det.bbox[0] * inv, det.bbox[1] * inv, det.bbox[2] * inv, det.bbox[3] * inv];
-
-              this._lastPlateOverlay[cameraId] = {
-                plate: det.plate,
-                stateName: det.stateName || 'India',
-                stateCode: det.stateCode || '',
-                bbox: origBbox,
-                confidence: det.confidence,
-                detectorConfidence: det.detectorConfidence,
-                ocrConfidence: det.ocrConfidence,
-                vehicleType: det.vehicleType || 'Car',
-                plateType: det.plateType || 'HSRP',
-                expires: Date.now() + 5000
-              };
-
-              this.statsPerCam[cameraId].lastPlate = det.plate;
-              this.statsPerCam[cameraId].vehicleCount++;
-
-              // Show live plate card on this camera panel
-              this.showLivePlateHUD(cameraId, this._lastPlateOverlay[cameraId]);
-
-              // Redraw overlay on canvas immediately
-              this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], this._lastPlateOverlay[cameraId], this._lastServerCandidates[cameraId]);
-
-              this._recordDebug(cameraId, {
-                vehicleConfidence: 0.95,
-                plateConfidence: det.detectorConfidence,
-                ocrConfidence: det.ocrConfidence,
-                status: 'CONFIRMED',
-                reason: `Detected Indian plate: ${det.plate} (${det.stateName || ''})`,
-                candidatePlate: det.plate,
-                vehicleType: det.vehicleType || 'vehicle',
-                plateBbox: origBbox
-              });
-            } else if (data.success && !data.detected) {
-              const status = data.status || 'NO_PLATE';
-              let reasonMsg = data.reason || 'Scanning frame...';
-              if (status === 'CANDIDATE_TRACKING') {
-                reasonMsg = 'Plate candidate sighted — verifying temporal consistency across frames...';
-              } else if (status === 'REJECTED_NO_VEHICLE') {
-                reasonMsg = 'Zero vehicles detected in scene — noise suppressed.';
-              } else if (status === 'NO_PLATE_CANDIDATES') {
-                reasonMsg = 'Vehicles present but no valid license plate candidates passed geometric filters.';
-              }
-              const hasVeh = data.vehicles && data.vehicles.length > 0;
-              this._recordDebug(cameraId, {
-                vehicleConfidence: hasVeh ? data.vehicles[0].confidence : 0,
-                plateConfidence: (data.debug && data.debug["6_plateConfidences"] && data.debug["6_plateConfidences"][0]) || 0,
-                ocrConfidence: 0,
-                status: status === 'REJECTED_NO_VEHICLE' ? 'REJECTED' : (status === 'CANDIDATE_TRACKING' ? 'CANDIDATE' : 'MONITORING'),
-                reason: reasonMsg,
-                candidatePlate: null,
-                vehicleType: hasVeh ? data.vehicles[0].class : null
-              });
-
-              // Redraw overlay with rejected candidates and vehicle boxes immediately
-              this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], null, this._lastServerCandidates[cameraId]);
-            }
-          }
-        } catch (err) {
-          // Graceful ignore
-        } finally {
-          this._inFlight[cameraId] = false;
         }
-      })();
+        return;
+      }
+
+      // Check 2: Skip identical static scenes
+      if (kfBuf.lastProcessedGray) {
+        const mad = this._computeFrameDifference(best.gray, kfBuf.lastProcessedGray);
+        const hasActivePlate = this._lastPlateOverlay[cameraId] && Date.now() < this._lastPlateOverlay[cameraId].expires;
+        const elapsedSinceLast = Date.now() - kfBuf.lastProcessedTime;
+
+        if (mad < (this.config.min_scene_change_mad || 2.5) && hasActivePlate && elapsedSinceLast < (this.config.max_static_hold_ms || 4000)) {
+          kfBuf.isStatic = true;
+          kfBuf.rejectionReason = `STATIC_HOLD: Negligible motion (MAD ${mad.toFixed(1)}), plate held`;
+          return;
+        }
+      }
+
+      kfBuf.isStatic = false;
+      kfBuf.rejectionReason = null;
+      kfBuf.lastProcessedGray = best.gray;
+      kfBuf.lastProcessedTime = Date.now();
+      kfBuf.lastSelectedSharpness = selectedSharpness;
     }
 
-    // Continuous rendering: draw active detected plate if still valid
-    let activeCandidate = null;
-    const plateOverlay = this._lastPlateOverlay[cameraId];
-    if (plateOverlay && Date.now() < plateOverlay.expires) {
-      activeCandidate = plateOverlay;
-    }
-
-    let validatedVehicles = [];
-    if (this.modelReady && this.model) {
+    // Capture frame to send to server
+    this._inFlight[cameraId] = true;
+    (async () => {
       try {
-        const predictions = await this.model.detect(videoEl);
-        const vehicleCandidates = predictions.filter(p =>
-          ['car', 'truck', 'bus', 'motorcycle'].includes(p.class)
-        );
-        validatedVehicles = vehicleCandidates.filter(p => p.score >= this.config.vehicleScoreThreshold);
-        if (validatedVehicles.length > 0) {
-          this.statsPerCam[cameraId].vehicleCount += validatedVehicles.length;
+        if (!this._captureCanvas) {
+          this._captureCanvas = document.createElement('canvas');
+          this._captureCtx = this._captureCanvas.getContext('2d', { willReadFrequently: true });
         }
-      } catch (e) {}
-    }
+        const capCanvas = this._captureCanvas;
+        const capCtx    = this._captureCtx;
+        const vw = videoEl.videoWidth;
+        const vh = videoEl.videoHeight;
+        const maxDim = this.config.captureMaxDimension || 960;
+        const scale = Math.min(1.0, maxDim / Math.max(vw, vh));
+        capCanvas.width  = Math.round(vw * scale);
+        capCanvas.height = Math.round(vh * scale);
+        capCtx.drawImage(videoEl, 0, 0, capCanvas.width, capCanvas.height);
 
-    // Always keep the canvas overlay updated with the active detected plate!
-    this._drawOverlay(cameraId, canvasEl, videoEl, validatedVehicles, activeCandidate);
+        const base64Img = capCanvas.toDataURL('image/jpeg', 0.88);
+
+        const resp = await fetch('/api/anpr/detect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64Img,
+            cameraId: cameraId,
+            cameraName: `CAM 0${cameraId}`,
+            forwardToDashboard: true,
+            developerMode: this.developerMode,
+            keyframeSharpness: Math.round(selectedSharpness * 10) / 10,
+            keyframeWindowMs: this.config.keyframe_window_ms,
+            keyframeCandidates: candidatesCount
+          })
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const inv = 1.0 / scale;
+
+          if (data.debug) {
+            this._lastServerDebug[cameraId] = data.debug;
+          }
+
+          if (data.vehicles && Array.isArray(data.vehicles)) {
+            this._lastServerVehicles[cameraId] = data.vehicles.map(v => ({
+              class: v.class,
+              score: v.confidence,
+              bbox: [v.box[0] * inv, v.box[1] * inv, (v.box[2] - v.box[0]) * inv, (v.box[3] - v.box[1]) * inv]
+            }));
+          } else {
+            this._lastServerVehicles[cameraId] = [];
+          }
+
+          if (data.debug && data.debug.candidates && Array.isArray(data.debug.candidates)) {
+            this._lastServerCandidates[cameraId] = data.debug.candidates.map(c => ({
+              ...c,
+              bbox: [c.bbox[0] * inv, c.bbox[1] * inv, c.bbox[2] * inv, c.bbox[3] * inv]
+            }));
+          } else {
+            this._lastServerCandidates[cameraId] = [];
+          }
+
+          if (data.success && data.detected && data.detection) {
+            const det = data.detection;
+            const origBbox = [det.bbox[0] * inv, det.bbox[1] * inv, det.bbox[2] * inv, det.bbox[3] * inv];
+
+            this._lastPlateOverlay[cameraId] = {
+              plate: det.plate,
+              stateName: det.stateName || 'India',
+              stateCode: det.stateCode || '',
+              bbox: origBbox,
+              confidence: det.confidence,
+              detectorConfidence: det.detectorConfidence,
+              ocrConfidence: det.ocrConfidence,
+              vehicleType: det.vehicleType || 'Car',
+              plateType: det.plateType || 'HSRP',
+              expires: Date.now() + 5000
+            };
+
+            this.statsPerCam[cameraId].lastPlate = det.plate;
+            this.statsPerCam[cameraId].vehicleCount++;
+
+            this.showLivePlateHUD(cameraId, this._lastPlateOverlay[cameraId]);
+            this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], this._lastPlateOverlay[cameraId], this._lastServerCandidates[cameraId]);
+
+            this._recordDebug(cameraId, {
+              vehicleConfidence: 0.95,
+              plateConfidence: det.detectorConfidence,
+              ocrConfidence: det.ocrConfidence,
+              status: 'CONFIRMED',
+              reason: `Detected Indian plate: ${det.plate} (${det.stateName || ''})`,
+              candidatePlate: det.plate,
+              vehicleType: det.vehicleType || 'vehicle',
+              plateBbox: origBbox
+            });
+          } else if (data.success && !data.detected) {
+            const status = data.status || 'NO_PLATE';
+            let reasonMsg = data.reason || 'Scanning frame...';
+            if (status === 'CANDIDATE_TRACKING') {
+              reasonMsg = 'Plate candidate sighted — verifying temporal consistency across frames...';
+            } else if (status === 'REJECTED_NO_VEHICLE') {
+              reasonMsg = 'Zero vehicles detected in scene — noise suppressed.';
+            } else if (status === 'NO_PLATE_CANDIDATES') {
+              reasonMsg = 'Vehicles present but no valid license plate candidates passed geometric filters.';
+            }
+            const hasVeh = data.vehicles && data.vehicles.length > 0;
+            this._recordDebug(cameraId, {
+              vehicleConfidence: hasVeh ? data.vehicles[0].confidence : 0,
+              plateConfidence: (data.debug && data.debug["6_plateConfidences"] && data.debug["6_plateConfidences"][0]) || 0,
+              ocrConfidence: 0,
+              status: status === 'REJECTED_NO_VEHICLE' ? 'REJECTED' : (status === 'CANDIDATE_TRACKING' ? 'CANDIDATE' : 'MONITORING'),
+              reason: reasonMsg,
+              candidatePlate: null,
+              vehicleType: hasVeh ? data.vehicles[0].class : null
+            });
+
+            this._drawOverlay(cameraId, canvasEl, videoEl, this._lastServerVehicles[cameraId], null, this._lastServerCandidates[cameraId]);
+          }
+        }
+      } catch (err) {
+        // Graceful ignore
+      } finally {
+        this._inFlight[cameraId] = false;
+      }
+    })();
   }
 
   /* ──────────────────────────────────────────────────────────────────
@@ -742,21 +914,22 @@ class ANPREngine {
         hits: match.hits,
         alreadyEmitted,
       };
-      tracker.push({
-        plate,
-        firstSeen:         now,
-        lastSeen:          now,
-        hits:              1,
-        bestOcrConfidence: metadata.ocrConfidence,
-        emitted:           false,
-      });
-
-      return {
-        confirmed:      this.config.minConsecutiveFrames <= 1,
-        hits:           1,
-        alreadyEmitted: false,
-      };
     }
+
+    tracker.push({
+      plate,
+      firstSeen:         now,
+      lastSeen:          now,
+      hits:              1,
+      bestOcrConfidence: metadata.ocrConfidence,
+      emitted:           false,
+    });
+
+    return {
+      confirmed:      this.config.minConsecutiveFrames <= 1,
+      hits:           1,
+      alreadyEmitted: false,
+    };
   }
 
   _pruneTemporalCandidates(cameraId) {
@@ -955,8 +1128,8 @@ class ANPREngine {
 
     // 4. Temporary Developer HUD: Visual telemetry overlay (Requirement)
     if (this.developerMode) {
-      const hudW = Math.min(260, canvasEl.width - 16);
-      const hudH = 68;
+      const hudW = Math.min(270, canvasEl.width - 16);
+      const hudH = 74;
       const hudX = canvasEl.width - hudW - 8;
       const hudY = 8;
 
@@ -974,35 +1147,48 @@ class ANPREngine {
       ctx.font = 'bold 9px "Share Tech Mono", monospace';
       ctx.fillText(`⚡ DEV HUD · 16-PT DIAGNOSTICS (CAM 0${cameraId})`, hudX + 6, hudY + 12);
 
-      // Telemetry metrics
-      const sharp = serverDebug ? serverDebug.sharpnessScore : '--';
-      const blurTag = serverDebug && serverDebug.isBlurry ? ' [BLURRY]' : '';
+      // Phase 2 Keyframe Buffer & Sharpness metrics
+      const kfBuf = this.keyframeBuffers[cameraId];
+      const currSharp = kfBuf && kfBuf.currentSharpness != null ? kfBuf.currentSharpness.toFixed(0) : '--';
+      const candsCount = kfBuf && kfBuf.candidates ? kfBuf.candidates.length : 0;
+      const kfStatus = kfBuf ? (kfBuf.isStatic ? 'STATIC_HOLD' : (kfBuf.rejectionReason && kfBuf.rejectionReason.startsWith('BLUR') ? 'BLUR_SKIP' : 'ACTIVE')) : 'IDLE';
+
+      const sharp = serverDebug ? serverDebug.sharpnessScore : currSharp;
+      const isBlur = (serverDebug && serverDebug.isBlurry) || (kfBuf && kfBuf.currentSharpness < this.config.minimum_sharpness);
+      const blurTag = isBlur ? ' [BLUR]' : '';
       const vCount = vList.length;
-      const pCount = candidates.length;
 
       ctx.fillStyle = '#a0aec0';
       ctx.font = '8px "Share Tech Mono", monospace';
-      ctx.fillText(`SHARPNESS: ${sharp}${blurTag} | VEHICLES: ${vCount} | PLT CANDS: ${pCount}`, hudX + 6, hudY + 25);
+      ctx.fillText(`SHARP: ${sharp}${blurTag} | KF: ${kfStatus} (${candsCount} cands)`, hudX + 6, hudY + 24);
 
       const bestCand = candidates[0];
       const pScoreStr = bestCand ? `${Math.round(bestCand.detectorConfidence * 100)}% (AR:${bestCand.aspectRatio})` : 'NONE';
       const ocrStr = (serverDebug && serverDebug["13_normalizedOcrResults"] && serverDebug["13_normalizedOcrResults"][0]) || '--';
-      ctx.fillText(`BEST PLT: ${pScoreStr} | OCR: "${ocrStr}"`, hudX + 6, hudY + 38);
+      ctx.fillText(`VEH: ${vCount} | PLT: ${pScoreStr} | OCR: "${ocrStr}"`, hudX + 6, hudY + 36);
+
+      const skewVal = serverDebug && serverDebug.estimatedSkewDegrees != null ? serverDebug.estimatedSkewDegrees : 0.0;
+      const skewSource = serverDebug ? (serverDebug.perspectiveSelected || 'ORIG') : 'NONE';
+      const skewSign = skewVal > 0 ? '+' : '';
+      ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | SIGHTINGS: ${this.statsPerCam[cameraId] ? this.statsPerCam[cameraId].vehicleCount : 0}`, hudX + 6, hudY + 48);
 
       // Rejection or Confirmation state
       let diagMsg = '';
       if (activeCandidate) {
         diagMsg = `CONFIRMED: ${activeCandidate.plate} (${Math.round(activeCandidate.confidence * 100)}%)`;
         ctx.fillStyle = '#00ff41';
+      } else if (kfBuf && kfBuf.rejectionReason) {
+        diagMsg = kfBuf.rejectionReason.slice(0, 38);
+        ctx.fillStyle = kfBuf.isStatic ? '#00e5ff' : '#ffb400';
       } else if (serverDebug && serverDebug.summary) {
         const rawReason = serverDebug.summary.reason || 'Scanning...';
-        diagMsg = `STATUS: ${rawReason.slice(0, 36)}`;
+        diagMsg = `STATUS: ${rawReason.slice(0, 38)}`;
         ctx.fillStyle = serverDebug.summary.status.includes('REJECTED') ? '#ff5252' : '#ffb400';
       } else {
         diagMsg = 'MONITORING LIVE FEED...';
         ctx.fillStyle = '#a0aec0';
       }
-      ctx.fillText(diagMsg, hudX + 6, hudY + 52);
+      ctx.fillText(diagMsg, hudX + 6, hudY + 62);
     }
   }
 
