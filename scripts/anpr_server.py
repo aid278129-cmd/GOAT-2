@@ -1992,6 +1992,7 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                         "confidence": confirmed_detection["confidence"],
                         "vehicleType": confirmed_detection["vehicleType"],
                         "simulated": False,
+                        "manualScan": bool(req.manualScan),
                     },
                     timeout=1.5,
                     verify=False,

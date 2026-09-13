@@ -254,7 +254,7 @@
           <span class="sidebar-count" id="alertSidebarCount">0</span>
         </div>
         <div class="sidebar-scroll" id="alertFeed">
-          <div style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">No alerts</div>
+          <div data-placeholder="true" style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">No alerts</div>
         </div>
       </div>
       <!-- Recent Detections -->
@@ -264,7 +264,7 @@
           <span class="sidebar-count" id="detSidebarCount">0</span>
         </div>
         <div class="sidebar-scroll" id="detectionFeed">
-          <div style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">Waiting for ANPR…</div>
+          <div data-placeholder="true" style="padding:16px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#2a3040;text-align:center">Waiting for ANPR…</div>
         </div>
       </div>
     </aside>
@@ -1121,6 +1121,76 @@ function showAlertBanner(alert) {
   setTimeout(() => banner.classList.remove('visible'), 12000);
 }
 
+async function initSidebarFeed() {
+  try {
+    const dets = await fetch('/api/detections?limit=50').then(r => r.json()).catch(() => []);
+    if (Array.isArray(dets) && dets.length > 0) {
+      const feed = document.getElementById('detectionFeed');
+      if (feed) {
+        feed.innerHTML = '';
+        totalDet = Math.max(totalDet, dets.length);
+        const totalEl = document.getElementById('totalDetCount');
+        if (totalEl) totalEl.textContent = totalDet;
+        const sbCount = document.getElementById('sbAnprCount');
+        if (sbCount) sbCount.textContent = `${totalDet} detections today`;
+        document.getElementById('detSidebarCount').textContent = Math.min(dets.length, MAX_SIDEBAR_ITEMS);
+
+        const sorted = [...dets].reverse();
+        sorted.slice(0, MAX_SIDEBAR_ITEMS).forEach(det => {
+          const time  = new Date(det.timestamp).toTimeString().slice(0, 8);
+          const conf  = Math.round(det.confidence * 100);
+          const simTag = det.simulated ? '<span class="det-sim">SIM</span>' : '';
+          const el = document.createElement('div');
+          el.className = 'detection-item';
+          el.innerHTML = `
+            <div class="det-plate">${det.plate}</div>
+            <div class="det-meta">
+              <span class="det-cam">${det.cameraName || ('CAM 0' + (det.cameraId || 1))}</span>
+              <span class="det-conf">${conf}%</span>
+              <span>${det.vehicleType || 'vehicle'}</span>
+              <span>${time}</span>
+              ${simTag}
+            </div>
+          `;
+          feed.appendChild(el);
+        });
+      }
+    }
+
+    const alerts = await fetch('/api/alerts').then(r => r.json()).catch(() => []);
+    if (Array.isArray(alerts) && alerts.length > 0) {
+      const alertFeed = document.getElementById('alertFeed');
+      if (alertFeed) {
+        alertFeed.innerHTML = '';
+        alertCount = alerts.length;
+        document.getElementById('alertSidebarCount').textContent = alertCount;
+        const navBadge = document.getElementById('navAlertBadge');
+        if (navBadge) navBadge.classList.remove('hidden');
+        const navCount = document.getElementById('navAlertCount');
+        if (navCount) navCount.textContent = alertCount;
+
+        const sortedAlerts = [...alerts].reverse();
+        sortedAlerts.slice(0, 20).forEach(alert => {
+          const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0, 8);
+          const el   = document.createElement('div');
+          el.className = 'alert-item';
+          el.innerHTML = `
+            <div class="alert-plate">${alert.plate}</div>
+            <div class="det-meta">
+              <span class="det-cam">${alert.cameraName || 'CAM'}</span>
+              <span>${time}</span>
+              <span>${alert.reason || 'Watchlisted'}</span>
+            </div>
+          `;
+          alertFeed.appendChild(el);
+        });
+      }
+    }
+  } catch (e) {
+    console.warn('initSidebarFeed error:', e);
+  }
+}
+
 // ── WebRTC Peer Setup ─────────────────────────────────────────
 function createPeer(cameraId) {
   if (peers[cameraId]) { peers[cameraId].close(); delete peers[cameraId]; }
@@ -1294,7 +1364,8 @@ async function runImageDetection(dataUrl, camId = 1) {
         body: JSON.stringify({
           image: dataUrl,
           cameraId: camId,
-          forwardToDashboard: true
+          forwardToDashboard: true,
+          manualScan: true
         })
       });
 
@@ -1303,6 +1374,16 @@ async function runImageDetection(dataUrl, camId = 1) {
 
       if (res.detected && res.detection) {
         const det = res.detection;
+        addDetectionToSidebar({
+          id: det.id || ('scan-' + Date.now()),
+          plate: det.plate,
+          cameraId: camId,
+          cameraName: `CAM 0${camId}`,
+          confidence: det.confidence,
+          vehicleType: det.vehicleType || 'Car',
+          timestamp: new Date().toISOString(),
+          simulated: false
+        });
         const [x, y, w, h] = det.bbox;
 
         ctx.drawImage(img, 0, 0);
@@ -2377,6 +2458,8 @@ function onNewAlertForTabs(alert) {
   initLocalWebcam();
   // Load ANPR models in background
   initANPR();
+  // Load existing detections and alerts into sidebar
+  initSidebarFeed();
 
   // Initial tab route check
   const initHash = (window.location.hash || '').replace('#', '');

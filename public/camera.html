@@ -536,7 +536,8 @@ async function runMobileDetection(dataUrl) {
         body: JSON.stringify({
           image: dataUrl,
           cameraId: CAMERA_ID,
-          forwardToDashboard: true
+          forwardToDashboard: true,
+          manualScan: true
         })
       });
 

@@ -118,7 +118,8 @@ function storeDetection(data) {
   const now   = Date.now();
   const last  = lastDetTime.get(key) || 0;
 
-  if (now - last < DETECTION_COOLDOWN) return { status: 'cooldown' };
+  const isManual = !!data.manualScan;
+  if (!isManual && (now - last < DETECTION_COOLDOWN)) return { status: 'cooldown' };
   lastDetTime.set(key, now);
 
   const camNode = CAMERA_NODES.find(c => c.id === camId) || {};
