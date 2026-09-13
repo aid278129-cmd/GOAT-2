@@ -148,6 +148,7 @@ def evaluate_test_suite():
         det = res_confirmed.get("detection")
         is_detected = res_confirmed.get("detected", False)
 
+        timing = debug.get("timing", {})
         record = {
             "image": basename,
             "detected": is_detected,
@@ -164,6 +165,7 @@ def evaluate_test_suite():
             "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
             "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
             "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
+            "timing": timing,
             "failureStage": debug.get("summary", {}).get("failureStage", "None"),
             "failureReason": debug.get("summary", {}).get("reason", "None")
         }
@@ -178,6 +180,8 @@ def evaluate_test_suite():
         print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
         print(f"  - 15. Multi-Frame Status:   {record['confirmationStatus']}")
         print(f"  - 16. Final Decision:       {'ACCEPTED [PASS]' if is_detected else 'REJECTED [FAIL]'} ({record['failureReason']})")
+        if timing:
+            print(f"  - 17. Latency Breakdown:    Veh: {timing.get('vehicleDetectionMs', 0):.0f}ms | Plt: {timing.get('plateDetectionMs', 0):.0f}ms | OCR: {timing.get('ocrTotalMs', 0):.0f}ms (Tess:{timing.get('tesseractMs', 0):.0f}ms, Easy:{timing.get('easyOcrMs', 0):.0f}ms) | Total: {timing.get('totalProcessingMs', 0):.0f}ms [{timing.get('inferenceBackend', 'N/A').upper()}]")
 
     # ─────────────────────────────────────────────────────────────
     # TEST 2: Screen Capture Simulation via Mobile Camera
@@ -204,6 +208,7 @@ def evaluate_test_suite():
         debug = res_confirmed.get("debug", {})
         det = res_confirmed.get("detection")
         is_detected = res_confirmed.get("detected", False)
+        timing = debug.get("timing", {})
 
         record = {
             "image": basename,
@@ -221,6 +226,7 @@ def evaluate_test_suite():
             "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
             "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
             "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
+            "timing": timing,
             "failureStage": debug.get("summary", {}).get("failureStage", "None"),
             "failureReason": debug.get("summary", {}).get("reason", "None")
         }
@@ -235,6 +241,8 @@ def evaluate_test_suite():
         print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
         print(f"  - 15. Multi-Frame Status:   {record['confirmationStatus']}")
         print(f"  - 16. Final Decision:       {'ACCEPTED [PASS]' if is_detected else 'REJECTED [FAIL]'} ({record['failureReason']})")
+        if timing:
+            print(f"  - 17. Latency Breakdown:    Veh: {timing.get('vehicleDetectionMs', 0):.0f}ms | Plt: {timing.get('plateDetectionMs', 0):.0f}ms | OCR: {timing.get('ocrTotalMs', 0):.0f}ms (Tess:{timing.get('tesseractMs', 0):.0f}ms, Easy:{timing.get('easyOcrMs', 0):.0f}ms) | Total: {timing.get('totalProcessingMs', 0):.0f}ms [{timing.get('inferenceBackend', 'N/A').upper()}]")
 
     # ─────────────────────────────────────────────────────────────
     # TEST 3: Real Vehicle / Mobile WebRTC Camera Feed Inspection
@@ -263,6 +271,7 @@ def evaluate_test_suite():
             debug = res_confirmed.get("debug", {})
             det = res_confirmed.get("detection")
             is_detected = res_confirmed.get("detected", False)
+            timing = debug.get("timing", {})
 
             record = {
                 "image": basename,
@@ -280,6 +289,7 @@ def evaluate_test_suite():
                 "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
                 "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
                 "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
+                "timing": timing,
                 "failureStage": debug.get("summary", {}).get("failureStage", "None"),
                 "failureReason": debug.get("summary", {}).get("reason", "None")
             }
@@ -294,6 +304,8 @@ def evaluate_test_suite():
             print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
             print(f"  - 15. Multi-Frame Status:   {record['confirmationStatus']}")
             print(f"  - 16. Final Decision:       {'ACCEPTED [PASS]' if is_detected else 'REJECTED [FAIL]'} ({record['failureReason']})")
+            if timing:
+                print(f"  - 17. Latency Breakdown:    Veh: {timing.get('vehicleDetectionMs', 0):.0f}ms | Plt: {timing.get('plateDetectionMs', 0):.0f}ms | OCR: {timing.get('ocrTotalMs', 0):.0f}ms (Tess:{timing.get('tesseractMs', 0):.0f}ms, Easy:{timing.get('easyOcrMs', 0):.0f}ms) | Total: {timing.get('totalProcessingMs', 0):.0f}ms [{timing.get('inferenceBackend', 'N/A').upper()}]")
     else:
         print("No saved live stream frames in debug_output/frames yet.")
 
@@ -313,17 +325,12 @@ def evaluate_test_suite():
         base_img = cv2.resize(raw_base, (640, int(h_b * scale_stream)), interpolation=cv2.INTER_AREA)
         
         # Synthesize rolling candidate window (5 approaching vehicle frames)
-        # Frame 4.1: Camera Vibration / Out of Focus (Gaussian Blur)
         frame_severe_blur = cv2.GaussianBlur(base_img, (31, 31), 11.0)
-        # Frame 4.2: Fast Motion Blur (Directional horizontal blur kernel)
         kernel_motion = np.zeros((21, 21))
         kernel_motion[10, :] = np.ones(21) / 21.0
         frame_motion_blur = cv2.filter2D(base_img, -1, kernel_motion)
-        # Frame 4.3: Sharp Keyframe (Clean in-focus streaming frame)
         frame_sharp_key = base_img.copy()
-        # Frame 4.4: Glare / Angle Variation (Moderate Gaussian Blur)
         frame_moderate_blur = cv2.GaussianBlur(base_img, (15, 15), 5.0)
-        # Frame 4.5: Static Duplicate (Identical to Frame 4.3 - vehicle waiting at signal)
         frame_static_dup = base_img.copy()
 
         seq_frames = [
@@ -386,6 +393,7 @@ def evaluate_test_suite():
         debug = res_confirmed.get("debug", {})
         det = res_confirmed.get("detection")
         is_detected = res_confirmed.get("detected", False)
+        timing = debug.get("timing", {})
 
         record = {
             "image": f"Keyframe_{os.path.basename(base_sample_path)}",
@@ -404,6 +412,7 @@ def evaluate_test_suite():
             "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
             "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
             "keyframeSharpness": selected_keyframe["sharpness"],
+            "timing": timing,
             "failureStage": debug.get("summary", {}).get("failureStage", "None"),
             "failureReason": debug.get("summary", {}).get("reason", "None")
         }
@@ -419,6 +428,51 @@ def evaluate_test_suite():
         print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
         print(f"  - 15. Multi-Frame Status:   {record['confirmationStatus']}")
         print(f"  - 16. Final Decision:       {'ACCEPTED [PASS]' if is_detected else 'REJECTED [FAIL]'} ({record['failureReason']})")
+        if timing:
+            print(f"  - 17. Latency Breakdown:    Veh: {timing.get('vehicleDetectionMs', 0):.0f}ms | Plt: {timing.get('plateDetectionMs', 0):.0f}ms | OCR: {timing.get('ocrTotalMs', 0):.0f}ms (Tess:{timing.get('tesseractMs', 0):.0f}ms, Easy:{timing.get('easyOcrMs', 0):.0f}ms) | Total: {timing.get('totalProcessingMs', 0):.0f}ms [{timing.get('inferenceBackend', 'N/A').upper()}]")
+
+    # ─────────────────────────────────────────────────────────────
+    # TEST 5: Phase 3 Dual-Backend Benchmark (ONNX Runtime vs PyTorch)
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 5: Phase 3 Dual-Backend Benchmark (ONNX Runtime vs. PyTorch)")
+    print("-" * 78)
+
+    benchmark_img = cv2.imread(SAMPLE_IMAGES[0])
+    # 1. Benchmark ONNX Runtime backend
+    try:
+        requests.post(CONFIG_URL, json={"inference_backend": "onnx"}, timeout=5)
+        # Warmup
+        run_frame_inference(benchmark_img, camera_id=501, manual_scan=True)
+        t0 = time.perf_counter()
+        res_onnx = run_frame_inference(benchmark_img, camera_id=501, manual_scan=True)
+        onnx_duration = (time.perf_counter() - t0) * 1000.0
+        t_onnx = res_onnx.get("debug", {}).get("timing", {})
+
+        # 2. Benchmark PyTorch backend
+        requests.post(CONFIG_URL, json={"inference_backend": "pytorch"}, timeout=5)
+        # Warmup
+        run_frame_inference(benchmark_img, camera_id=502, manual_scan=True)
+        t0 = time.perf_counter()
+        res_pt = run_frame_inference(benchmark_img, camera_id=502, manual_scan=True)
+        pt_duration = (time.perf_counter() - t0) * 1000.0
+        t_pt = res_pt.get("debug", {}).get("timing", {})
+
+        # Restore ONNX backend
+        requests.post(CONFIG_URL, json={"inference_backend": "onnx"}, timeout=5)
+
+        onnx_plate = res_onnx.get("detection", {}).get("plate", "N/A") if res_onnx.get("detection") else res_onnx.get("debug", {}).get("13_normalizedOcrResults", ["None"])[0]
+        pt_plate = res_pt.get("detection", {}).get("plate", "N/A") if res_pt.get("detection") else res_pt.get("debug", {}).get("13_normalizedOcrResults", ["None"])[0]
+
+        print(f"\nComparative Performance (Single Frame End-to-End):")
+        print(f"  • ONNX Runtime Backend  : Total = {t_onnx.get('totalProcessingMs', onnx_duration):.1f}ms (Veh: {t_onnx.get('vehicleDetectionMs', 0):.1f}ms | Plt: {t_onnx.get('plateDetectionMs', 0):.1f}ms | OCR: {t_onnx.get('ocrTotalMs', 0):.1f}ms) -> Plate: '{onnx_plate}'")
+        print(f"  • PyTorch Backend       : Total = {t_pt.get('totalProcessingMs', pt_duration):.1f}ms (Veh: {t_pt.get('vehicleDetectionMs', 0):.1f}ms | Plt: {t_pt.get('plateDetectionMs', 0):.1f}ms | OCR: {t_pt.get('ocrTotalMs', 0):.1f}ms) -> Plate: '{pt_plate}'")
+        print(f"  ★ Detection Agreement   : {'100% IDENTICAL' if onnx_plate == pt_plate else 'MISMATCH'} ('{onnx_plate}' == '{pt_plate}')")
+        speedup = ((t_pt.get('totalProcessingMs', 1) - t_onnx.get('totalProcessingMs', 1)) / max(1, t_pt.get('totalProcessingMs', 1))) * 100
+        print(f"  ★ ONNX vs PyTorch Delta : {speedup:+.1f}% difference in total latency")
+
+    except Exception as e:
+        print(f"Dual-backend benchmark skipped: {e}")
 
     # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis

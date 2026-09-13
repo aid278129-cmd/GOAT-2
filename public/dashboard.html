@@ -480,6 +480,13 @@
               <label style="color:#718096;display:block;">MAX AR</label>
               <input type="number" id="cfgMaxAR" step="0.1" min="3.0" max="8.0" style="width:100%;background:#161f30;border:1px solid #2d3748;color:#fff;padding:2px 4px;font-size:10px;border-radius:2px;" />
             </div>
+            <div style="grid-column: span 2;">
+              <label style="color:#00ff41;display:block;font-weight:bold;">⚡ INFERENCE BACKEND (PHASE 3)</label>
+              <select id="cfgBackend" style="width:100%;background:#161f30;border:1px solid #00ff41;color:#00ff41;padding:3px 4px;font-size:10px;border-radius:2px;font-weight:bold;">
+                <option value="onnx">ONNX Runtime (CPU Fast / Optimized)</option>
+                <option value="pytorch">PyTorch (.pt standard)</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="checkbox" id="cfgAllowFallback" />
@@ -1116,6 +1123,9 @@ async function loadDiagnosticsConfig() {
       document.getElementById('cfgMinAR').value = cfg.min_plate_aspect_ratio;
       document.getElementById('cfgMaxAR').value = cfg.max_plate_aspect_ratio;
       document.getElementById('cfgAllowFallback').checked = !!cfg.allow_fullframe_fallback;
+      if (cfg.inference_backend && document.getElementById('cfgBackend')) {
+        document.getElementById('cfgBackend').value = cfg.inference_backend;
+      }
     }
   } catch (e) {
     console.warn('Could not load config:', e);
@@ -1131,7 +1141,8 @@ async function saveDiagnosticsConfig() {
       min_consecutive_sightings: parseInt(document.getElementById('cfgFrames').value),
       min_plate_aspect_ratio: parseFloat(document.getElementById('cfgMinAR').value),
       max_plate_aspect_ratio: parseFloat(document.getElementById('cfgMaxAR').value),
-      allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked
+      allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked,
+      inference_backend: document.getElementById('cfgBackend') ? document.getElementById('cfgBackend').value : 'onnx'
     };
     const res = await fetch('/api/anpr/config', {
       method: 'POST',
@@ -1139,7 +1150,7 @@ async function saveDiagnosticsConfig() {
       body: JSON.stringify(payload)
     });
     if (res.ok) {
-      alert('Thresholds updated successfully in ANPR pipeline!');
+      alert('Thresholds & Backend updated successfully in ANPR pipeline!');
       await fetchDiagnosticsNow();
     }
   } catch (e) {
@@ -1193,7 +1204,7 @@ async function fetchDiagnosticsNow() {
     badge.style.background = data["16_finalDecision"] === 'ACCEPTED' ? '#00ff41' : (data["16_finalDecision"] === 'CANDIDATE_ACCUMULATING' ? '#ffb400' : '#ff3b30');
     badge.style.color = data["16_finalDecision"] === 'ACCEPTED' ? '#05060a' : '#fff';
 
-    // 16 points
+    // 16 points + Phase 3 Latency Profile
     const pList = document.getElementById('diagPointsList');
     const vNames = (data["2_vehicleClassAndConf"] || []).map(v => `${v.class} (${Math.round(v.confidence*100)}%)`).join(', ');
     const vBoxes = (data["3_vehicleBoundingBoxes"] || []).map(b => `[${b.join(',')}]`).join(' ');
@@ -1204,6 +1215,14 @@ async function fetchDiagnosticsNow() {
     const cleanOcr = (data["13_normalizedOcrResults"] || []).join(', ');
     const ocrConf = (data["12_ocrConfidences"] || []).map(c => Math.round(c*100)+'%').join(', ');
     const synFmt = (data["14_indianFormatValidationResults"] || []).map(s => `${s.valid ? '✓ VALID' : '✗ INVALID'} [${s.syntax}] State:${s.state}`).join(', ');
+
+    const tm = data.timing || {};
+    const tVeh = tm.vehicleDetectionMs != null ? `${tm.vehicleDetectionMs}ms` : '--';
+    const tPlt = tm.plateDetectionMs != null ? `${tm.plateDetectionMs}ms` : '--';
+    const tOcr = tm.ocrTotalMs != null ? `${tm.ocrTotalMs}ms` : '--';
+    const tTot = tm.totalProcessingMs != null ? `${tm.totalProcessingMs}ms` : '--';
+    const tBackend = (tm.inferenceBackend || 'ONNX').toUpperCase();
+    const timingStr = `Total: ${tTot} [${tBackend}] (Veh: ${tVeh} | Plt: ${tPlt} | OCR: ${tOcr})`;
 
     const items = [
       { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
@@ -1221,7 +1240,8 @@ async function fetchDiagnosticsNow() {
       { id: 13, label: 'Normalized OCR Text (Post-Disambiguation)', val: cleanOcr ? `"${cleanOcr}"` : 'None', status: cleanOcr ? 'pass' : 'fail' },
       { id: 14, label: 'Indian Registration Syntax Match', val: synFmt || 'Not Evaluated', status: synFmt.includes('VALID') ? 'pass' : 'fail' },
       { id: 15, label: 'Multi-Frame Confirmation Status', val: data["15_multiFrameConfirmationStatus"] || 'NONE', status: data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'warn' },
-      { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' }
+      { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' },
+      { id: 17, label: 'CPU Inference Latency & Backend (Phase 3)', val: timingStr, status: 'pass' }
     ];
 
     pList.innerHTML = items.map(it => {

@@ -50,6 +50,9 @@ app.add_middleware(
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 PLATE_MODEL_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.pt")
 FALLBACK_PLATE_MODEL_PATH = PLATE_MODEL_PATH
+VEHICLE_MODEL_PATH = os.path.join(BASE_DIR, "yolov8n.pt")
+PLATE_ONNX_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.onnx")
+VEHICLE_ONNX_PATH = os.path.join(BASE_DIR, "models", "yolov8n.onnx")
 NODE_SERVER_URL = "https://127.0.0.1:3000/api/detections"
 
 # Debug output directories
@@ -115,6 +118,10 @@ ANPR_CONFIG = {
     "minimum_sharpness": 60.0,               # Minimum Laplacian variance to reject blurry frames
     "keyframe_window_ms": 1000,              # Candidate evaluation rolling window (ms)
     "anpr_sampling_interval": 1000,          # Interval between ANPR inference dispatches (ms)
+
+    # Phase 3: CPU Performance Optimization & Configurable Inference Backend
+    "inference_backend": "onnx",              # "onnx" or "pytorch"
+    "enable_stage_profiling": True,          # Record fine-grained ms timings for all stages
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -140,34 +147,55 @@ def record_rejection_stat(reason_code: str):
     )
 
 # ──────────────────────────────────────────────────────────────────
-# Model Holders
+# Model Holders & Dynamic Backend Loaders (Phase 3)
 # ──────────────────────────────────────────────────────────────────
 vehicle_model = None
 plate_model = None
 easyocr_reader = None
+active_vehicle_backend = "pytorch"
+active_plate_backend = "pytorch"
 
 def get_vehicle_model():
-    global vehicle_model
-    if vehicle_model is None:
-        from ultralytics import YOLO
-        vehicle_model_path = os.path.join(BASE_DIR, "yolov8n.pt")
-        print(f"Loading vehicle detector from {vehicle_model_path}...")
-        vehicle_model = YOLO(vehicle_model_path if os.path.exists(vehicle_model_path) else "yolov8n.pt")
+    global vehicle_model, active_vehicle_backend
+    requested_backend = str(ANPR_CONFIG.get("inference_backend", "onnx")).lower()
+    if vehicle_model is not None and active_vehicle_backend == requested_backend:
+        return vehicle_model
+
+    from ultralytics import YOLO
+    if requested_backend == "onnx" and os.path.exists(VEHICLE_ONNX_PATH):
+        try:
+            print(f"[Phase 3] Loading Vehicle YOLO via ONNX Runtime: {VEHICLE_ONNX_PATH}")
+            vehicle_model = YOLO(VEHICLE_ONNX_PATH, task="detect")
+            active_vehicle_backend = "onnx"
+            return vehicle_model
+        except Exception as e:
+            print(f"[Phase 3 Warning] Failed to load ONNX vehicle detector ({e}). Falling back to PyTorch.")
+
+    print(f"Loading Vehicle YOLO via PyTorch: {VEHICLE_MODEL_PATH}")
+    vehicle_model = YOLO(VEHICLE_MODEL_PATH if os.path.exists(VEHICLE_MODEL_PATH) else "yolov8n.pt")
+    active_vehicle_backend = "pytorch"
     return vehicle_model
 
 def get_plate_model():
-    global plate_model
-    if plate_model is None:
-        from ultralytics import YOLO
-        if os.path.exists(PLATE_MODEL_PATH):
-            print(f"Loading trained plate weights from {PLATE_MODEL_PATH}")
-            plate_model = YOLO(PLATE_MODEL_PATH)
-        elif os.path.exists(FALLBACK_PLATE_MODEL_PATH):
-            print(f"Loading trained plate weights from fallback {FALLBACK_PLATE_MODEL_PATH}")
-            plate_model = YOLO(FALLBACK_PLATE_MODEL_PATH)
-        else:
-            print("Warning: Trained plate weights not found, using yolov8n.pt")
-            plate_model = YOLO("yolov8n.pt")
+    global plate_model, active_plate_backend
+    requested_backend = str(ANPR_CONFIG.get("inference_backend", "onnx")).lower()
+    if plate_model is not None and active_plate_backend == requested_backend:
+        return plate_model
+
+    from ultralytics import YOLO
+    if requested_backend == "onnx" and os.path.exists(PLATE_ONNX_PATH):
+        try:
+            print(f"[Phase 3] Loading Indian Plate YOLO via ONNX Runtime: {PLATE_ONNX_PATH}")
+            plate_model = YOLO(PLATE_ONNX_PATH, task="detect")
+            active_plate_backend = "onnx"
+            return plate_model
+        except Exception as e:
+            print(f"[Phase 3 Warning] Failed to load ONNX plate detector ({e}). Falling back to PyTorch.")
+
+    chosen_pt = PLATE_MODEL_PATH if os.path.exists(PLATE_MODEL_PATH) else ("yolov8n.pt")
+    print(f"Loading Indian Plate YOLO via PyTorch: {chosen_pt}")
+    plate_model = YOLO(chosen_pt)
+    active_plate_backend = "pytorch"
     return plate_model
 
 def get_easyocr_fallback():
@@ -481,14 +509,18 @@ def preprocess_for_tesseract(crop_bgr):
 
     return [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
 
-def extract_plate_ocr(crop_bgr):
+def extract_plate_ocr(crop_bgr, return_timing=False):
     """
     Recognize Indian vehicle registration plate text using Tesseract OCR (with EasyOCR fallback).
-    Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine)
+    Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine, [timing_dict])
     """
+    timing = {"tesseract_ms": 0.0, "easyocr_ms": 0.0, "total_ocr_ms": 0.0}
     if crop_bgr is None or crop_bgr.size == 0:
+        if return_timing:
+            return "", "", 0.0, "None", timing
         return "", "", 0.0, "None"
 
+    t0_ocr = time.perf_counter()
     variants = preprocess_for_tesseract(crop_bgr)
     whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
@@ -498,6 +530,7 @@ def extract_plate_ocr(crop_bgr):
     best_engine = "Tesseract OCR v5.4.0"
 
     # 1. Primary Engine: Official Tesseract OCR
+    t0_tess = time.perf_counter()
     for vname, vimg in variants:
         for psm in [7, 8, 6]:
             cfg = f"--psm {psm} {whitelist}"
@@ -523,6 +556,11 @@ def extract_plate_ocr(crop_bgr):
                     best_raw = raw_combined
                     best_engine = f"Tesseract OCR (PSM {psm}, {vname})"
                     if is_valid and score >= 0.80:
+                        t_tess_end = time.perf_counter()
+                        timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
+                        timing["total_ocr_ms"] = (t_tess_end - t0_ocr) * 1000.0
+                        if return_timing:
+                            return best_text, best_raw, min(0.99, best_conf), best_engine, timing
                         return best_text, best_raw, min(0.99, best_conf), best_engine
             except Exception:
                 continue
@@ -548,12 +586,20 @@ def extract_plate_ocr(crop_bgr):
                     stacked_clean = clean_plate_text(stacked_raw)
                     is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(stacked_clean)
                     if is_valid:
+                        t_tess_end = time.perf_counter()
+                        timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
+                        timing["total_ocr_ms"] = (t_tess_end - t0_ocr) * 1000.0
+                        if return_timing:
+                            return stacked_clean, stacked_raw, 0.88, "Tesseract OCR (Two-Row Sliced)", timing
                         return stacked_clean, stacked_raw, 0.88, "Tesseract OCR (Two-Row Sliced)"
         except Exception:
             pass
 
+    timing["tesseract_ms"] = (time.perf_counter() - t0_tess) * 1000.0
+
     # 2. Fallback to EasyOCR if Tesseract confidence is low or length < 5
     if len(best_text) < 5 or best_conf < ANPR_CONFIG["min_ocr_conf"]:
+        t0_easy = time.perf_counter()
         try:
             reader = get_easyocr_fallback()
             easy_candidates = [v[1] for v in variants[:2]]
@@ -590,7 +636,11 @@ def extract_plate_ocr(crop_bgr):
                         break
         except Exception:
             pass
+        timing["easyocr_ms"] = (time.perf_counter() - t0_easy) * 1000.0
 
+    timing["total_ocr_ms"] = (time.perf_counter() - t0_ocr) * 1000.0
+    if return_timing:
+        return best_text, best_raw, min(0.99, best_conf), best_engine, timing
     return best_text, best_raw, min(0.99, best_conf), best_engine
 
 # ──────────────────────────────────────────────────────────────────
@@ -691,6 +741,13 @@ def health():
         "plate_detector_ready": pm is not None,
         "tesseract_ready": os.path.exists(pytesseract.pytesseract.tesseract_cmd),
         "debug_output_ready": os.path.exists(DEBUG_FRAMES_DIR) and os.path.exists(DEBUG_CROPS_DIR),
+        "inference_backend": ANPR_CONFIG.get("inference_backend", "onnx"),
+        "active_vehicle_backend": active_vehicle_backend,
+        "active_plate_backend": active_plate_backend,
+        "onnx_models_available": {
+            "vehicle": os.path.exists(VEHICLE_ONNX_PATH),
+            "plate": os.path.exists(PLATE_ONNX_PATH)
+        },
         "config": ANPR_CONFIG
     }
 
@@ -702,12 +759,28 @@ def get_config():
 @app.post("/config")
 def update_config(new_config: dict):
     """Update runtime-configurable values without restarting server."""
+    global vehicle_model, plate_model
+    backend_changed = False
     for k, v in new_config.items():
         if k in ANPR_CONFIG:
+            if k == "inference_backend" and str(v).lower() != str(ANPR_CONFIG.get("inference_backend")).lower():
+                backend_changed = True
             ANPR_CONFIG[k] = type(ANPR_CONFIG[k])(v)
+    if backend_changed:
+        vehicle_model = None
+        plate_model = None
+        get_vehicle_model()
+        get_plate_model()
     temporal_tracker.min_sightings = ANPR_CONFIG["min_consecutive_sightings"]
     temporal_tracker.window_sec = ANPR_CONFIG["temporal_window_sec"]
-    return {"status": "updated", "config": ANPR_CONFIG}
+    return {
+        "status": "updated",
+        "config": ANPR_CONFIG,
+        "active_backend": {
+            "vehicle": active_vehicle_backend,
+            "plate": active_plate_backend
+        }
+    }
 
 @app.get("/debug/last")
 def get_debug_last(cameraId: Optional[int] = None):
@@ -751,6 +824,15 @@ def list_debug_frames(limit: int = 20):
 @app.post("/detect")
 async def detect_plate(req: Base64DetectRequest):
     try:
+        t_frame_start = time.perf_counter()
+        t_vehicle_ms = 0.0
+        t_plate_ms = 0.0
+        t_persp_ms = 0.0
+        t_tesseract_ms = 0.0
+        t_easyocr_ms = 0.0
+        t_val_ms = 0.0
+        t_tracker_ms = 0.0
+
         DEBUG_STATS["total_frames_processed"] += 1
         now_ts = int(time.time() * 1000)
         frame_id = f"cam{req.cameraId}_{now_ts}"
@@ -795,6 +877,7 @@ async def detect_plate(req: Base64DetectRequest):
         # POINT 1, 2, 3: Vehicle Detection
         # ──────────────────────────────────────────────────────────
         detected_vehicles = []
+        t0_v = time.perf_counter()
         if ANPR_CONFIG["vehicle_detection_enabled"]:
             v_results = v_model.predict(
                 img,
@@ -814,6 +897,7 @@ async def detect_plate(req: Base64DetectRequest):
                         "confidence": round(v_conf, 2),
                         "box": xyxy.tolist()
                     })
+        t_vehicle_ms = (time.perf_counter() - t0_v) * 1000.0
 
         vehicle_detected = len(detected_vehicles) > 0
         if vehicle_detected:
@@ -843,6 +927,20 @@ async def detect_plate(req: Base64DetectRequest):
             rejection_reason = f"REJECTED_NO_VEHICLE: No vehicle detected above confidence threshold ({ANPR_CONFIG['vehicle_conf_threshold']}). Plate detection skipped."
             record_rejection_stat("REJECTED_NO_VEHICLE")
 
+            t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+            timing_breakdown = {
+                "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+                "plateDetectionMs": 0.0,
+                "perspectiveMs": 0.0,
+                "tesseractMs": 0.0,
+                "easyOcrMs": 0.0,
+                "ocrTotalMs": 0.0,
+                "validationMs": 0.0,
+                "temporalTrackerMs": 0.0,
+                "totalProcessingMs": float(round(t_total_ms, 1)),
+                "inferenceBackend": active_vehicle_backend
+            }
+
             frame_telemetry = {
                 "frameId": frame_id,
                 "timestamp": now_ts,
@@ -857,6 +955,7 @@ async def detect_plate(req: Base64DetectRequest):
                 "clientKeyframeSharpness": req.keyframeSharpness,
                 "keyframeCandidates": req.keyframeCandidates,
                 "meanBrightness": round(mean_brightness, 1),
+                "timing": timing_breakdown,
 
                 # 16-point diagnostic records
                 "1_vehicleDetected": False,
@@ -881,6 +980,7 @@ async def detect_plate(req: Base64DetectRequest):
                     "status": "REJECTED_NO_VEHICLE",
                     "reason": rejection_reason,
                     "failureStage": "Stage 1: Vehicle Detection",
+                    "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
                 },
                 "candidates": []
             }
@@ -906,6 +1006,7 @@ async def detect_plate(req: Base64DetectRequest):
         raw_candidates_evaluated = []
         valid_candidates_to_ocr = []
 
+        t0_p = time.perf_counter()
         if vehicle_detected:
             # Search inside each detected vehicle's bounding box
             for v_idx, v in enumerate(detected_vehicles):
@@ -1024,6 +1125,8 @@ async def detect_plate(req: Base64DetectRequest):
                     if passed_val:
                         valid_candidates_to_ocr.append(cand_obj)
 
+        t_plate_ms = (time.perf_counter() - t0_p) * 1000.0
+
         if len(raw_candidates_evaluated) > 0:
             DEBUG_STATS["plate_candidates_found_count"] += 1
 
@@ -1036,6 +1139,20 @@ async def detect_plate(req: Base64DetectRequest):
             )
             record_rejection_stat(primary_reason)
 
+            t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+            timing_breakdown = {
+                "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+                "plateDetectionMs": float(round(t_plate_ms, 1)),
+                "perspectiveMs": 0.0,
+                "tesseractMs": 0.0,
+                "easyOcrMs": 0.0,
+                "ocrTotalMs": 0.0,
+                "validationMs": 0.0,
+                "temporalTrackerMs": 0.0,
+                "totalProcessingMs": float(round(t_total_ms, 1)),
+                "inferenceBackend": active_vehicle_backend
+            }
+
             frame_telemetry = {
                 "frameId": frame_id,
                 "timestamp": now_ts,
@@ -1047,6 +1164,7 @@ async def detect_plate(req: Base64DetectRequest):
                 "sharpnessScore": float(round(laplacian_var, 1)),
                 "isBlurry": bool(is_blurry),
                 "meanBrightness": float(round(mean_brightness, 1)),
+                "timing": timing_breakdown,
 
                 "1_vehicleDetected": bool(vehicle_detected),
                 "2_vehicleClassAndConf": [{"class": str(v["class"]), "confidence": float(v["confidence"])} for v in detected_vehicles],
@@ -1070,6 +1188,7 @@ async def detect_plate(req: Base64DetectRequest):
                     "status": "REJECTED_GEOMETRY" if raw_candidates_evaluated else "REJECTED_NO_PLATES",
                     "reason": primary_reason,
                     "failureStage": "Stage 2: Plate Localization / Geometric Validation",
+                    "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
                 },
                 "candidates": raw_candidates_evaluated
             }
@@ -1111,7 +1230,9 @@ async def detect_plate(req: Base64DetectRequest):
             crop = img[cy1:cy2, cx1:cx2]
 
             # Phase 1: Perspective / Skew Rectification (Confidence-Aware Dual Candidate)
+            t0_persp = time.perf_counter()
             rectified_crop, skew_deg, persp_status = rectify_plate_perspective(crop)
+            t_persp_ms += (time.perf_counter() - t0_persp) * 1000.0
             persp_applied = persp_status.startswith("APPLIED")
 
             # POINT 10: Save plate crop before OCR
@@ -1131,8 +1252,13 @@ async def detect_plate(req: Base64DetectRequest):
                     cv2.imwrite(crop_rect_path, rectified_crop)
 
             # POINT 11, 12, 13: OCR Recognition (Dual-Candidate Evaluation)
-            orig_clean, orig_raw, orig_conf, orig_engine = extract_plate_ocr(crop)
+            orig_clean, orig_raw, orig_conf, orig_engine, orig_timing = extract_plate_ocr(crop, return_timing=True)
+            t_tesseract_ms += orig_timing.get("tesseract_ms", 0.0)
+            t_easyocr_ms += orig_timing.get("easyocr_ms", 0.0)
+
+            t0_val = time.perf_counter()
             orig_valid, orig_syn_score, orig_state, orig_sname, orig_match = validate_indian_plate_syntax(orig_clean)
+            t_val_ms += (time.perf_counter() - t0_val) * 1000.0
 
             selected_source = "ORIGINAL"
             clean_text = orig_clean
@@ -1148,8 +1274,13 @@ async def detect_plate(req: Base64DetectRequest):
             rect_clean = ""
 
             if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
-                rect_clean, rect_raw, rect_conf, rect_engine = extract_plate_ocr(rectified_crop)
+                rect_clean, rect_raw, rect_conf, rect_engine, rect_timing = extract_plate_ocr(rectified_crop, return_timing=True)
+                t_tesseract_ms += rect_timing.get("tesseract_ms", 0.0)
+                t_easyocr_ms += rect_timing.get("easyocr_ms", 0.0)
+
+                t0_val = time.perf_counter()
                 rect_valid, rect_syn_score, rect_state, rect_sname, rect_match = validate_indian_plate_syntax(rect_clean)
+                t_val_ms += (time.perf_counter() - t0_val) * 1000.0
 
                 orig_composite = (1.0 if orig_valid else 0.0) * 0.40 + orig_conf * 0.40 + (orig_syn_score * 0.20)
                 rect_composite = (1.0 if rect_valid else 0.0) * 0.40 + rect_conf * 0.40 + (rect_syn_score * 0.20)
@@ -1177,12 +1308,14 @@ async def detect_plate(req: Base64DetectRequest):
 
             # POINT 15: Multi-frame confirmation status
             if is_valid_syntax:
+                t0_track = time.perf_counter()
                 is_confirmed, final_plate, cons_conf, sightings = temporal_tracker.process_candidate(
                     req.cameraId,
                     clean_text,
                     overall_conf,
                     bypass_temporal=req.manualScan
                 )
+                t_tracker_ms += (time.perf_counter() - t0_track) * 1000.0
                 conf_status = "CONFIRMED" if is_confirmed else "CANDIDATE_ACCUMULATING"
                 if is_confirmed:
                     DEBUG_STATS["confirmed_count"] += 1
@@ -1246,6 +1379,21 @@ async def detect_plate(req: Base64DetectRequest):
             if is_confirmed and confirmed_detection is None:
                 confirmed_detection = eval_record
 
+        # Final timing computation
+        t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+        timing_payload = {
+            "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+            "plateDetectionMs": float(round(t_plate_ms, 1)),
+            "perspectiveMs": float(round(t_persp_ms, 1)),
+            "tesseractMs": float(round(t_tesseract_ms, 1)),
+            "easyOcrMs": float(round(t_easyocr_ms, 1)),
+            "ocrTotalMs": float(round(t_tesseract_ms + t_easyocr_ms, 1)),
+            "validationMs": float(round(t_val_ms, 2)),
+            "temporalTrackerMs": float(round(t_tracker_ms, 2)),
+            "totalProcessingMs": float(round(t_total_ms, 1)),
+            "inferenceBackend": active_vehicle_backend
+        }
+
         # Construct comprehensive 16-point diagnostic payload for this frame
         primary_eval = all_evaluations[0] if all_evaluations else {}
         frame_telemetry = {
@@ -1259,6 +1407,7 @@ async def detect_plate(req: Base64DetectRequest):
             "sharpnessScore": float(round(laplacian_var, 1)),
             "isBlurry": bool(is_blurry),
             "meanBrightness": float(round(mean_brightness, 1)),
+            "timing": timing_payload,
 
             # The 16 requested diagnostic points:
             "1_vehicleDetected": bool(vehicle_detected),
@@ -1293,7 +1442,8 @@ async def detect_plate(req: Base64DetectRequest):
                 "reason": primary_eval.get("rejectionReason") if not confirmed_detection else f"Confirmed plate {confirmed_detection['plate']}",
                 "failureStage": "None (Passed)" if confirmed_detection else (
                     "Stage 5: Multi-Frame Temporal Window" if primary_eval.get("confirmationStatus") == "CANDIDATE_ACCUMULATING" else "Stage 4: OCR / Syntax Validation"
-                )
+                ),
+                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
             },
             "candidates": raw_candidates_evaluated,
             "evaluations": all_evaluations

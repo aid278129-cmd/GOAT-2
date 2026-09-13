@@ -1170,7 +1170,10 @@ class ANPREngine {
       const skewVal = serverDebug && serverDebug.estimatedSkewDegrees != null ? serverDebug.estimatedSkewDegrees : 0.0;
       const skewSource = serverDebug ? (serverDebug.perspectiveSelected || 'ORIG') : 'NONE';
       const skewSign = skewVal > 0 ? '+' : '';
-      ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | SIGHTINGS: ${this.statsPerCam[cameraId] ? this.statsPerCam[cameraId].vehicleCount : 0}`, hudX + 6, hudY + 48);
+      const timing = serverDebug && serverDebug.timing;
+      const tTotal = timing && timing.totalProcessingMs != null ? `${timing.totalProcessingMs.toFixed(0)}ms` : '--';
+      const backend = timing && timing.inferenceBackend ? timing.inferenceBackend.toUpperCase() : 'ONNX';
+      ctx.fillText(`SKEW: ${skewSign}${skewVal.toFixed(1)}° [${skewSource}] | LATENCY: ${tTotal} [${backend}]`, hudX + 6, hudY + 48);
 
       // Rejection or Confirmation state
       let diagMsg = '';
