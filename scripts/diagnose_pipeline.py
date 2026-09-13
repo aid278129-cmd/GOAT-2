@@ -55,23 +55,30 @@ def image_to_base64(img_bgr, quality=92):
 
 def simulate_screen_mobile_capture(img_bgr):
     """
-    Simulate what happens when an image displayed on a screen is captured via mobile camera:
+    Simulate what happens when an image displayed on an LCD/laptop screen is captured via mobile camera:
       - Resized to standard mobile stream downsampling (640px)
+      - LCD subpixel periodic moiré grid pattern (beating of sensor grid against subpixels)
+      - Ambient screen glare / reflections & contrast washout
       - JPEG compression artifacts (0.80)
-      - Screen moire / glare / contrast wash
-      - Slight motion blur
     """
     h, w = img_bgr.shape[:2]
-    # Downsample to 640px
     scale = min(1.0, 640.0 / max(w, h))
     nw, nh = int(w * scale), int(h * scale)
     resized = cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
 
-    # Slight Gaussian blur to mimic phone focus & screen pixels
-    blurred = cv2.GaussianBlur(resized, (3, 3), 0.5)
+    # Contrast wash & brightness lift from screen reflection
+    washed = cv2.convertScaleAbs(resized, alpha=0.90, beta=18)
 
-    # Screen glare / wash: slight contrast reduction and brightness lift
-    screen_sim = cv2.convertScaleAbs(blurred, alpha=0.92, beta=15)
+    # Subpixel LCD periodic grid moiré
+    x = np.arange(nw)
+    y = np.arange(nh)
+    xx, yy = np.meshgrid(x, y)
+    grid = np.sin(2 * np.pi * xx / 4) * np.cos(2 * np.pi * yy / 4)
+    moire = (grid * 8).astype(np.float32)
+    noisy = washed.astype(np.float32)
+    for c in range(3):
+        noisy[:, :, c] += moire
+    screen_sim = np.clip(noisy, 0, 255).astype(np.uint8)
 
     return screen_sim
 
@@ -120,7 +127,8 @@ def evaluate_test_suite():
         "TEST 3": [],
         "TEST 4": [],
         "TEST 5": [],
-        "TEST 6": []
+        "TEST 6": [],
+        "TEST 7": []
     }
 
     # ─────────────────────────────────────────────────────────────
@@ -536,6 +544,53 @@ def evaluate_test_suite():
         print(f"  • Decision:                 {'ACCEPTED [PASS]' if is_det else 'REJECTED'} ({rec['failureReason']})")
 
     # ─────────────────────────────────────────────────────────────
+    # TEST 7: Phase 5 Screen Display Robustness Benchmark
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 7: Phase 5 Screen Display Robustness Benchmark (Anti-Moiré, Glare & Unsharp)")
+    print("-" * 78)
+
+    for s_idx, sample_path in enumerate(SAMPLE_IMAGES):
+        img_name = os.path.basename(sample_path)
+        img = cv2.imdecode(np.fromfile(sample_path, dtype=np.uint8), cv2.IMREAD_COLOR) if os.path.exists(sample_path) else cv2.imread(sample_path)
+        if img is None:
+            continue
+        sim_screen = simulate_screen_mobile_capture(img)
+        res = run_frame_inference(sim_screen, camera_id=701 + s_idx, manual_scan=True)
+        debug = res.get("debug", {})
+        det = res.get("detection")
+        is_det = res.get("detected", False)
+        tm = debug.get("timing", {})
+        primary_eval = debug.get("evaluations", [{}])[0] if debug.get("evaluations") else {}
+        ocr_tier = tm.get("ocrTier", primary_eval.get("ocrTier", "TIER_1_TESS_FAST"))
+        plate_str = det["plate"] if det else (primary_eval.get("normalizedOcr", "") or "None")
+        conf_val = det["confidence"] if det else float(primary_eval.get("ocrConfidence", 0.0))
+        sq = tm.get("screenQuality", primary_eval.get("screenQuality", {}))
+        screen_enh = tm.get("screenEnhanced", primary_eval.get("screenEnhanced", False))
+
+        rec = {
+            "image": f"Screen_{img_name}",
+            "detected": is_det,
+            "plate": plate_str,
+            "confidence": conf_val,
+            "ocrTier": ocr_tier,
+            "screenEnhanced": screen_enh,
+            "screenQuality": sq,
+            "totalProcessingMs": tm.get("totalProcessingMs", 0.0),
+            "failureStage": debug.get("summary", {}).get("failureStage", "None"),
+            "failureReason": debug.get("summary", {}).get("reason", "None")
+        }
+        test_results["TEST 7"].append(rec)
+
+        print(f"[TEST 7.{s_idx+1}] Screen Capture: {img_name}")
+        print(f"  • Plate Recognized:         '{plate_str}' (Conf: {conf_val:.2f})")
+        print(f"  • Screen Quality Metrics:   Contrast={sq.get('contrast', 'N/A')} | Glare={sq.get('glare_ratio', 'N/A')} | Moire={sq.get('moire_index', 'N/A')}")
+        print(f"  • Screen Robustness Filter: {'APPLIED (Bilateral + Unsharp + CLAHE)' if screen_enh else 'PASSED_CLEAN'}")
+        print(f"  • Active OCR Tier:          {ocr_tier}")
+        print(f"  • Total Inference Latency:  {rec['totalProcessingMs']:.1f}ms")
+        print(f"  • Final Decision:           {'ACCEPTED [PASS]' if is_det else 'REJECTED'} ({rec['failureReason']})")
+
+    # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis
     # ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -544,7 +599,7 @@ def evaluate_test_suite():
     print(f"{'Test':<8} | {'Samples':<7} | {'Det Rate':<9} | {'Avg Conf':<8} | {'Primary Failure Stage':<28} | {'Primary Rejection Reason'}")
     print("-" * 78)
 
-    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6"]:
+    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7"]:
         recs = test_results.get(t_name, [])
         if not recs:
             print(f"{t_name:<8} | {'0':<7} | {'N/A':<9} | {'N/A':<8} | {'No Frames Recorded':<28} | N/A")

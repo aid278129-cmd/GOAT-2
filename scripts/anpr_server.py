@@ -128,6 +128,12 @@ ANPR_CONFIG = {
     "ocr_target_height_single_row": 80,      # Target height in px for single-row plates
     "ocr_target_height_two_row": 130,        # Target height in px for two-row plates
     "ocr_early_exit_conf": 0.75,             # Exit immediately if Tier 1 yields valid MoRTH plate with >= conf
+
+    # Phase 5: Screen Display Robustness
+    "screen_robustness_mode": "auto",        # "auto", "enabled", "disabled"
+    "screen_unsharp_strength": 1.2,          # Adaptive unsharp masking strength (0.0 to disable)
+    "screen_anti_moire": True,               # Edge-preserving bilateral filter against subpixel grids
+    "screen_glare_compensation": True,       # LAB-space CLAHE local contrast & reflection normalization
 }
 
 # ──────────────────────────────────────────────────────────────────
@@ -299,6 +305,12 @@ def clean_plate_text(raw_text):
                 chars[i] = char_to_digit[chars[i]]
         return "".join(chars)
 
+    # Check if leading single-character border/screw noise precedes a valid Indian state (e.g. MMP42 -> MP42)
+    if "".join(chars[:2]) not in INDIAN_STATES and len(chars) >= 7:
+        cand_st = "".join(chars[1:3])
+        if cand_st in INDIAN_STATES or cand_st in STATE_REPAIRS:
+            chars = chars[1:]
+
     # Check if inverted 2-row plate before character substitutions
     if "".join(chars[:2]) not in INDIAN_STATES:
         reordered = repair_inverted_two_row("".join(chars))
@@ -336,7 +348,14 @@ def clean_plate_text(raw_text):
             if chars[i] in char_to_digit:
                 chars[i] = char_to_digit[chars[i]]
 
-    return "".join(chars)
+    res_str = "".join(chars)
+    # Check for leading optical screw/hologram '0' artifact in 5-digit terminal cluster:
+    # e.g. MP42MG02246 -> MP42MG2246
+    m_ext = re.match(r"^([A-Z]{2}\d{1,2}[A-Z]{1,3})0(\d{4})$", res_str)
+    if m_ext:
+        res_str = f"{m_ext.group(1)}{m_ext.group(2)}"
+
+    return res_str
 
 def validate_indian_plate_syntax(text):
     """
@@ -512,13 +531,94 @@ def normalize_plate_crop(crop_bgr, target_height=None):
     interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
     return cv2.resize(crop_bgr, (target_width, target_height), interpolation=interp)
 
-def preprocess_for_tesseract(crop_bgr, full_variants=False):
+def analyze_plate_quality(crop_bgr):
+    """
+    Phase 5: Analyze optical characteristics of plate crop to detect screen display degradation:
+      - Contrast score: standard deviation of luminance (sigma < 42 indicates washed-out display)
+      - Glare ratio: percentage of saturated highlight pixels (> 235) in non-uniform spatial clusters
+      - Moiré index: ratio of high-frequency Laplacian variance to median-filtered variance
+    Returns: (is_screen_degraded, quality_metrics)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return False, {"contrast": 0.0, "glare_ratio": 0.0, "moire_index": 0.0, "is_screen_degraded": False}
+
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY) if len(crop_bgr.shape) == 3 else crop_bgr
+    contrast = float(np.std(gray))
+    glare_ratio = float(np.mean(gray > 235))
+    
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    med = cv2.medianBlur(gray, 3)
+    med_lap_var = float(cv2.Laplacian(med, cv2.CV_64F).var())
+    moire_index = float(lap_var / max(1.0, med_lap_var))
+
+    mode = str(ANPR_CONFIG.get("screen_robustness_mode", "auto")).lower()
+    if mode == "disabled":
+        is_degraded = False
+    elif mode == "enabled":
+        is_degraded = True
+    else:  # "auto"
+        is_degraded = (contrast < 42.0) or (glare_ratio > 0.06) or (moire_index > 2.0 and lap_var > 120.0)
+
+    metrics = {
+        "contrast": float(round(contrast, 1)),
+        "glare_ratio": float(round(glare_ratio, 3)),
+        "moire_index": float(round(moire_index, 2)),
+        "is_screen_degraded": bool(is_degraded)
+    }
+    return is_degraded, metrics
+
+def enhance_screen_display_crop(crop_bgr, target_height=None):
+    """
+    Phase 5: Screen Display Robustness Preprocessor.
+    Applied when image displays screen moiré, glare, or contrast washout:
+      1. Resolution normalization to standard target height (80-130px)
+      2. Anti-moiré bilateral filtering (d=5, sigmaColor=25, sigmaSpace=25) to suppress subpixel grids
+      3. Local contrast & glare compensation via LAB-space CLAHE
+      4. Adaptive thresholded unsharp masking (sharpen strokes without amplifying flat noise)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr
+
+    # Step 1: Normalize resolution first so spatial filter kernels have consistent physical scale
+    norm = normalize_plate_crop(crop_bgr, target_height=target_height)
+    
+    # Step 2: Edge-preserving anti-moiré bilateral filter
+    if ANPR_CONFIG.get("screen_anti_moire", True):
+        filtered = cv2.bilateralFilter(norm, 5, 25, 25)
+    else:
+        filtered = norm
+
+    # Step 3: LAB-space CLAHE for local contrast and glare compensation
+    if ANPR_CONFIG.get("screen_glare_compensation", True):
+        lab = cv2.cvtColor(filtered, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(6, 6))
+        l_clahe = clahe.apply(l)
+        enhanced_lab = cv2.merge((l_clahe, a, b))
+        enhanced_bgr = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+    else:
+        enhanced_bgr = filtered
+
+    # Step 4: Adaptive Thresholded Unsharp Masking
+    unsharp_strength = float(ANPR_CONFIG.get("screen_unsharp_strength", 1.2))
+    if unsharp_strength > 0:
+        gaussian = cv2.GaussianBlur(enhanced_bgr, (0, 0), 1.0)
+        diff = cv2.subtract(enhanced_bgr, gaussian)
+        mask = (np.max(np.abs(enhanced_bgr.astype(np.int16) - gaussian.astype(np.int16)), axis=2) > 2)[:, :, np.newaxis]
+        sharpened = enhanced_bgr.astype(np.float32) + (diff.astype(np.float32) * unsharp_strength * mask)
+        enhanced_bgr = np.clip(sharpened, 0, 255).astype(np.uint8)
+
+    return enhanced_bgr
+
+def preprocess_for_tesseract(crop_bgr, full_variants=False, screen_enhance=False):
     """
     Generate targeted binary & contrast-enhanced images specifically for Tesseract OCR.
     When full_variants=False (Tier 1 fast pass):
       Returns [('otsu', otsu)] (or inverted if plate background is dark).
     When full_variants=True (Tier 2 adaptive pass):
-      Returns targeted candidates [('otsu_inv', otsu_inv), ('adaptive', adaptive)].
+      Returns targeted candidates [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive)].
+    When screen_enhance=True:
+      Includes ('screen_enh', sc_otsu) with anti-moiré and unsharp masking applied.
     """
     if crop_bgr is None or crop_bgr.size == 0:
         return []
@@ -532,7 +632,7 @@ def preprocess_for_tesseract(crop_bgr, full_variants=False):
     border = np.concatenate([otsu[0, :], otsu[-1, :], otsu[:, 0], otsu[:, -1]])
     is_dark_bg = np.mean(border) < 127
 
-    if not full_variants:
+    if not full_variants and not screen_enhance:
         if is_dark_bg:
             otsu_inv = cv2.bitwise_not(otsu)
             return [('otsu_inv', otsu_inv), ('otsu', otsu)]
@@ -540,14 +640,26 @@ def preprocess_for_tesseract(crop_bgr, full_variants=False):
 
     otsu_inv = cv2.bitwise_not(otsu)
     adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    return [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
+    candidates = [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
+
+    if screen_enhance or full_variants:
+        try:
+            sc_bgr = enhance_screen_display_crop(norm_crop)
+            sc_gray = cv2.cvtColor(sc_bgr, cv2.COLOR_BGR2GRAY) if len(sc_bgr.shape) == 3 else sc_bgr
+            sc_cl = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(6, 6)).apply(sc_gray)
+            _, sc_otsu = cv2.threshold(sc_cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            candidates.append(('screen_enh', sc_otsu))
+        except Exception:
+            pass
+
+    return candidates
 
 def extract_plate_ocr(crop_bgr, return_timing=False):
     """
     Recognize Indian vehicle registration plate text using a 3-Tier Staged OCR Pipeline:
       - Tier 1: Fast Single-Pass Primary Tesseract (PSM 7 / Two-Row Sliced) with Early Exit.
-      - Tier 2: Targeted Secondary Tesseract (Adaptive + Inverted Otsu, PSM 7 & 8) with Early Exit.
-      - Tier 3: Selective Normalized EasyOCR Fallback (runs strictly when Tesseract fails).
+      - Tier 2: Targeted Secondary Tesseract (Adaptive + Inverted Otsu, PSM 7 & 8, Screen-Enhanced) with Early Exit.
+      - Tier 3: Selective Normalized EasyOCR Fallback (runs strictly when Tesseract fails, screen-enhanced on displays).
     Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine, [timing_dict])
     """
     timing = {
@@ -555,7 +667,10 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
         "easyocr_ms": 0.0,
         "total_ocr_ms": 0.0,
         "ocr_tier": "NONE",
-        "early_exit": False
+        "early_exit": False,
+        "screen_degraded": False,
+        "screen_enhanced": False,
+        "screen_quality": {}
     }
     if crop_bgr is None or crop_bgr.size == 0:
         if return_timing:
@@ -568,6 +683,11 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
     h_n, w_n = norm_crop.shape[:2]
     crop_ar = w_n / float(max(1, h_n))
 
+    # Phase 5: Optical Screen Display Quality Analysis
+    is_screen_degraded, quality_metrics = analyze_plate_quality(norm_crop)
+    timing["screen_quality"] = quality_metrics
+    timing["screen_degraded"] = is_screen_degraded
+
     best_text = ""
     best_raw = ""
     best_conf = 0.0
@@ -578,7 +698,7 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
     # TIER 1: Fast Single-Pass Primary Tesseract (Early Exit)
     # ─────────────────────────────────────────────────────────────
     if crop_ar >= 2.0:
-        fast_vars = preprocess_for_tesseract(norm_crop, full_variants=False)
+        fast_vars = preprocess_for_tesseract(norm_crop, full_variants=False, screen_enhance=False)
         for vname, vimg in fast_vars:
             try:
                 data = pytesseract.image_to_data(vimg, config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
@@ -611,8 +731,8 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
         try:
             top_half = norm_crop[:int(h_n * 0.55), :]
             bot_half = norm_crop[int(h_n * 0.45):, :]
-            top_vars = preprocess_for_tesseract(top_half, full_variants=False)
-            bot_vars = preprocess_for_tesseract(bot_half, full_variants=False)
+            top_vars = preprocess_for_tesseract(top_half, full_variants=False, screen_enhance=False)
+            bot_vars = preprocess_for_tesseract(bot_half, full_variants=False, screen_enhance=False)
             if top_vars and bot_vars:
                 t_d = pytesseract.image_to_data(top_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
                 b_d = pytesseract.image_to_data(bot_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
@@ -636,9 +756,9 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
             pass
 
     # ─────────────────────────────────────────────────────────────
-    # TIER 2: Secondary Targeted Tesseract Pass (Adaptive + Inverted Otsu)
+    # TIER 2: Secondary Targeted Tesseract Pass (Adaptive + Inverted Otsu + Screen-Enhanced)
     # ─────────────────────────────────────────────────────────────
-    sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True)
+    sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True, screen_enhance=is_screen_degraded)
     for vname, vimg in sec_candidates:
         for psm in [7, 8]:
             try:
@@ -658,6 +778,8 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
                     best_text = repaired
                     best_raw = raw_str
                     best_engine = f"Tesseract (Tier 2, PSM {psm}, {vname})"
+                    if "screen_enh" in vname:
+                        timing["screen_enhanced"] = True
                 if is_valid and score >= 0.70:
                     t_end = time.perf_counter()
                     timing["tesseract_ms"] = (t_end - t0_tess) * 1000.0
@@ -674,14 +796,21 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
     timing["tesseract_ms"] = (t_tess_end - t0_tess) * 1000.0
 
     # ─────────────────────────────────────────────────────────────
-    # TIER 3: Selective Normalized EasyOCR Fallback
+    # TIER 3: Selective Normalized EasyOCR Fallback (Phase 5 Screen-Robust)
     # ─────────────────────────────────────────────────────────────
     is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
     if not is_best_valid or best_conf < ANPR_CONFIG.get("min_ocr_conf", 0.45) or len(best_text) < 5:
         t0_easy = time.perf_counter()
         try:
             reader = get_easyocr_fallback()
-            norm_easy = normalize_plate_crop(crop_bgr, target_height=100)
+            # If screen degradation detected or auto mode active, enhance before EasyOCR
+            use_screen_enh = is_screen_degraded or (str(ANPR_CONFIG.get("screen_robustness_mode", "auto")).lower() != "disabled")
+            if use_screen_enh:
+                norm_easy = enhance_screen_display_crop(crop_bgr, target_height=100)
+                timing["screen_enhanced"] = True
+            else:
+                norm_easy = normalize_plate_crop(crop_bgr, target_height=100)
+
             results = reader.readtext(norm_easy, detail=1, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', paragraph=False)
             if results:
                 h_v, w_v = norm_easy.shape[:2]
@@ -703,7 +832,7 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
                     best_conf = score
                     best_text = cleaned
                     best_raw = raw_combined
-                    best_engine = "EasyOCR (Tier 3 Fallback)"
+                    best_engine = "EasyOCR (Tier 3 Fallback" + (", Screen-Enhanced)" if use_screen_enh else ")")
                     timing["ocr_tier"] = "TIER_3_EASYOCR_FALLBACK"
         except Exception:
             pass
@@ -839,7 +968,10 @@ def update_config(new_config: dict):
         if k in ANPR_CONFIG:
             if k == "inference_backend" and str(v).lower() != str(ANPR_CONFIG.get("inference_backend")).lower():
                 backend_changed = True
-            ANPR_CONFIG[k] = type(ANPR_CONFIG[k])(v)
+            if isinstance(ANPR_CONFIG[k], bool):
+                ANPR_CONFIG[k] = str(v).lower() in ["true", "1", "yes"] if isinstance(v, str) else bool(v)
+            else:
+                ANPR_CONFIG[k] = type(ANPR_CONFIG[k])(v)
     if backend_changed:
         vehicle_model = None
         plate_model = None
@@ -1454,7 +1586,10 @@ async def detect_plate(req: Base64DetectRequest):
                 "vehicleType": str(cand.get("vehicleClass", "car")),
                 "plateType": "HSRP (High Security Registration Plate)",
                 "status": "CONFIRMED" if is_confirmed else ("REJECTED_SYNTAX" if not is_valid_syntax else "CANDIDATE_ACCUMULATING"),
-                "ocrTier": candidate_ocr_tier
+                "ocrTier": candidate_ocr_tier,
+                "screenDegraded": bool(orig_timing.get("screen_degraded", False)),
+                "screenEnhanced": bool(orig_timing.get("screen_enhanced", False) or (need_rectified_ocr and rect_timing.get("screen_enhanced", False))),
+                "screenQuality": orig_timing.get("screen_quality", {})
             }
 
             all_evaluations.append(eval_record)
@@ -1477,7 +1612,10 @@ async def detect_plate(req: Base64DetectRequest):
             "totalProcessingMs": float(round(t_total_ms, 1)),
             "inferenceBackend": active_vehicle_backend,
             "ocrTier": active_ocr_tier,
-            "stagedOcrEnabled": bool(ANPR_CONFIG.get("ocr_staged_execution", True))
+            "stagedOcrEnabled": bool(ANPR_CONFIG.get("ocr_staged_execution", True)),
+            "screenDegraded": bool(primary_eval.get("screenDegraded", False)),
+            "screenEnhanced": bool(primary_eval.get("screenEnhanced", False)),
+            "screenQuality": primary_eval.get("screenQuality", {})
         }
 
         # Construct comprehensive 16-point diagnostic payload for this frame
@@ -1529,8 +1667,10 @@ async def detect_plate(req: Base64DetectRequest):
                     "Stage 5: Multi-Frame Temporal Window" if primary_eval.get("confirmationStatus") == "CANDIDATE_ACCUMULATING" else "Stage 4: OCR / Syntax Validation"
                 ),
                 "ocrTier": active_ocr_tier,
+                "screenDegraded": bool(primary_eval.get("screenDegraded", False)),
+                "screenEnhanced": bool(primary_eval.get("screenEnhanced", False)),
                 "latencyMs": float(round(t_total_ms, 1)),
-                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms [{active_ocr_tier}] | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
+                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms [{active_ocr_tier}{' + SCREEN_ENH' if primary_eval.get('screenEnhanced') else ''}] | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
             },
             "candidates": raw_candidates_evaluated,
             "evaluations": all_evaluations

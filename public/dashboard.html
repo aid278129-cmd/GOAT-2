@@ -487,6 +487,14 @@
                 <option value="pytorch">PyTorch (.pt standard)</option>
               </select>
             </div>
+            <div style="grid-column: span 2;">
+              <label style="color:#ffb400;display:block;font-weight:bold;">📱 SCREEN ROBUSTNESS (PHASE 5)</label>
+              <select id="cfgScreenMode" style="width:100%;background:#161f30;border:1px solid #ffb400;color:#ffb400;padding:3px 4px;font-size:10px;border-radius:2px;font-weight:bold;">
+                <option value="auto">Auto-Adaptive (Anti-Moiré + Glare CLAHE)</option>
+                <option value="enabled">Always Enabled (Force Unsharp + Bilateral)</option>
+                <option value="disabled">Disabled (Strict Physical Camera Mode)</option>
+              </select>
+            </div>
           </div>
           <div style="margin-top:6px;display:flex;align-items:center;gap:6px;">
             <input type="checkbox" id="cfgAllowFallback" />
@@ -1126,6 +1134,9 @@ async function loadDiagnosticsConfig() {
       if (cfg.inference_backend && document.getElementById('cfgBackend')) {
         document.getElementById('cfgBackend').value = cfg.inference_backend;
       }
+      if (cfg.screen_robustness_mode && document.getElementById('cfgScreenMode')) {
+        document.getElementById('cfgScreenMode').value = cfg.screen_robustness_mode;
+      }
     }
   } catch (e) {
     console.warn('Could not load config:', e);
@@ -1142,7 +1153,8 @@ async function saveDiagnosticsConfig() {
       min_plate_aspect_ratio: parseFloat(document.getElementById('cfgMinAR').value),
       max_plate_aspect_ratio: parseFloat(document.getElementById('cfgMaxAR').value),
       allow_fullframe_fallback: document.getElementById('cfgAllowFallback').checked,
-      inference_backend: document.getElementById('cfgBackend') ? document.getElementById('cfgBackend').value : 'onnx'
+      inference_backend: document.getElementById('cfgBackend') ? document.getElementById('cfgBackend').value : 'onnx',
+      screen_robustness_mode: document.getElementById('cfgScreenMode') ? document.getElementById('cfgScreenMode').value : 'auto'
     };
     const res = await fetch('/api/anpr/config', {
       method: 'POST',
@@ -1225,6 +1237,13 @@ async function fetchDiagnosticsNow() {
     const tTier = tm.ocrTier || (data.summary && data.summary.ocrTier) || 'TIER_1_TESS_FAST';
     const timingStr = `Total: ${tTot} [${tBackend}] · OCR: ${tOcr} [${tTier}] (Veh: ${tVeh} | Plt: ${tPlt})`;
 
+    const sq = tm.screenQuality || (data.evaluations && data.evaluations[0] && data.evaluations[0].screenQuality) || {};
+    const screenDeg = tm.screenDegraded || (data.evaluations && data.evaluations[0] && data.evaluations[0].screenDegraded);
+    const screenEnh = tm.screenEnhanced || (data.evaluations && data.evaluations[0] && data.evaluations[0].screenEnhanced);
+    const screenStr = screenEnh
+      ? `APPLIED (Bilateral + Unsharp + CLAHE) · Contrast: ${sq.contrast || '--'} | Glare: ${sq.glare_ratio || '--'} | Moiré: ${sq.moire_index || '--'}`
+      : (screenDeg ? `SCREEN DETECTED (Contrast: ${sq.contrast || '--'}, Glare: ${sq.glare_ratio || '--'})` : `PASSED CLEAN (Contrast: ${sq.contrast || '--'})`);
+
     const items = [
       { id: 1, label: 'Vehicle Detected', val: data["1_vehicleDetected"] ? 'YES' : 'NO', status: data["1_vehicleDetected"] ? 'pass' : 'fail' },
       { id: 2, label: 'Vehicle Class & Confidence', val: vNames || 'None', status: vNames ? 'info' : 'fail' },
@@ -1242,7 +1261,8 @@ async function fetchDiagnosticsNow() {
       { id: 14, label: 'Indian Registration Syntax Match', val: synFmt || 'Not Evaluated', status: synFmt.includes('VALID') ? 'pass' : 'fail' },
       { id: 15, label: 'Multi-Frame Confirmation Status', val: data["15_multiFrameConfirmationStatus"] || 'NONE', status: data["15_multiFrameConfirmationStatus"] === 'CONFIRMED' ? 'pass' : 'warn' },
       { id: 16, label: 'Final Decision & Failure Stage', val: `${data["16_finalDecision"]} · ${data.summary ? data.summary.failureStage : '--'}`, status: data["16_finalDecision"] === 'ACCEPTED' ? 'pass' : 'fail' },
-      { id: 17, label: 'CPU Inference Latency & Staged OCR Tier (Phase 3 & 4)', val: timingStr, status: 'pass' }
+      { id: 17, label: 'CPU Inference Latency & Staged OCR Tier (Phases 3 & 4)', val: timingStr, status: 'pass' },
+      { id: 18, label: 'Screen Display Robustness & Anti-Moiré (Phase 5)', val: screenStr, status: screenEnh ? 'pass' : (screenDeg ? 'warn' : 'info') }
     ];
 
     pList.innerHTML = items.map(it => {
