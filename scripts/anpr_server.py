@@ -330,6 +330,126 @@ def validate_indian_plate_syntax(text):
     return False, 0.0, state_code, "Unrecognized Syntax", "REJECTED_SYNTAX (Pattern mismatch against MoRTH/BH series)"
 
 # ──────────────────────────────────────────────────────────────────
+# Perspective & Skew Correction (Phase 1)
+# ──────────────────────────────────────────────────────────────────
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]   # top-left
+    rect[2] = pts[np.argmax(s)]   # bottom-right
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]  # top-right
+    rect[3] = pts[np.argmax(diff)]  # bottom-left
+    return rect
+
+def rectify_plate_perspective(crop_bgr):
+    """
+    Detect plate boundary or line orientation and apply 4-point perspective
+    transformation or rotation to rectify skewed / angled license plates.
+    Returns: (rectified_crop, skew_degrees, status_str)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr, 0.0, "SKIPPED_EMPTY"
+
+    h, w = crop_bgr.shape[:2]
+    if h < 10 or w < 20:
+        return crop_bgr, 0.0, "SKIPPED_TOO_SMALL"
+
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Method 1: Quadrilateral Contour Detection (4-point Homography)
+    try:
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blurred, 40, 160)
+        contours, _ = cv2.findContours(edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:8]
+
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < 0.20 * (w * h):
+                continue
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.035 * peri, True)
+
+            if len(approx) == 4 and cv2.isContourConvex(approx):
+                pts = approx.reshape(4, 2).astype("float32")
+                rect = order_points(pts)
+                (tl, tr, br, bl) = rect
+
+                widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+                widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+                maxWidth = max(int(widthA), int(widthB))
+
+                heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+                heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+                maxHeight = max(int(heightA), int(heightB))
+
+                if maxWidth < 25 or maxHeight < 10:
+                    continue
+
+                ar = maxWidth / float(max(1, maxHeight))
+                if ar < 1.0 or ar > 7.0:
+                    continue
+
+                dx = tr[0] - tl[0]
+                dy = tr[1] - tl[1]
+                skew_deg = float(np.degrees(np.arctan2(dy, dx)))
+
+                if abs(skew_deg) < 1.5:
+                    return crop_bgr, float(round(skew_deg, 2)), "SKIPPED_NEGLIGIBLE_SKEW"
+
+                dst = np.array([
+                    [0, 0],
+                    [maxWidth - 1, 0],
+                    [maxWidth - 1, maxHeight - 1],
+                    [0, maxHeight - 1]
+                ], dtype="float32")
+
+                M = cv2.getPerspectiveTransform(rect, dst)
+                rectified = cv2.warpPerspective(crop_bgr, M, (maxWidth, maxHeight), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rectified, float(round(skew_deg, 2)), "APPLIED_4PT_HOMOGRAPHY"
+    except Exception:
+        pass
+
+    # Method 2: Hough Line Skew Analysis (Detect plate borders & text baseline)
+    try:
+        edged = cv2.Canny(gray, 40, 160)
+        min_len = max(20, int(w * 0.25))
+        lines = cv2.HoughLinesP(edged, 1, np.pi / 180, threshold=40, minLineLength=min_len, maxLineGap=15)
+        weighted_angles = []
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line.ravel()
+                dx = float(x2 - x1)
+                dy = float(y2 - y1)
+                deg = float(np.degrees(np.arctan2(dy, dx)))
+                length = np.sqrt(dx * dx + dy * dy)
+                if abs(deg) <= 20.0:
+                    weighted_angles.append((deg, length))
+
+        if len(weighted_angles) >= 2:
+            weighted_angles.sort(key=lambda x: x[1], reverse=True)
+            top_angles = [a[0] for a in weighted_angles[:10]]
+            median_skew = float(np.median(top_angles))
+            if abs(median_skew) >= 1.5:
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, median_skew, 1.0)
+                cos = np.abs(M[0, 0])
+                sin = np.abs(M[0, 1])
+                new_w = int((h * sin) + (w * cos))
+                new_h = int((h * cos) + (w * sin))
+                M[0, 2] += (new_w / 2) - center[0]
+                M[1, 2] += (new_h / 2) - center[1]
+                rectified = cv2.warpAffine(crop_bgr, M, (new_w, new_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rectified, float(round(median_skew, 2)), "APPLIED_HOUGH_ROTATION"
+            else:
+                return crop_bgr, float(round(median_skew, 2)), "SKIPPED_NEGLIGIBLE_SKEW"
+    except Exception:
+        pass
+
+    return crop_bgr, 0.0, "SKIPPED_NO_SIGNIFICANT_SKEW"
+
+# ──────────────────────────────────────────────────────────────────
 # Tesseract OCR & Image Enhancement
 # ──────────────────────────────────────────────────────────────────
 def preprocess_for_tesseract(crop_bgr):
@@ -977,19 +1097,66 @@ async def detect_plate(req: Base64DetectRequest):
 
             crop = img[cy1:cy2, cx1:cx2]
 
+            # Phase 1: Perspective / Skew Rectification (Confidence-Aware Dual Candidate)
+            rectified_crop, skew_deg, persp_status = rectify_plate_perspective(crop)
+            persp_applied = persp_status.startswith("APPLIED")
+
             # POINT 10: Save plate crop before OCR
             crop_filename = f"crop_{frame_id}_cand{c_idx}.jpg"
+            crop_orig_filename = f"crop_{frame_id}_cand{c_idx}_orig.jpg"
+            crop_rect_filename = f"crop_{frame_id}_cand{c_idx}_rect.jpg"
+
             crop_saved_path = os.path.join(DEBUG_CROPS_DIR, crop_filename)
+            crop_orig_path = os.path.join(DEBUG_CROPS_DIR, crop_orig_filename)
+            crop_rect_path = os.path.join(DEBUG_CROPS_DIR, crop_rect_filename)
             crop_relative_url = f"/debug_output/crops/{crop_filename}"
+
             if ANPR_CONFIG.get("save_debug_crops", True) and crop.size > 0:
                 cv2.imwrite(crop_saved_path, crop)
+                cv2.imwrite(crop_orig_path, crop)
+                if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
+                    cv2.imwrite(crop_rect_path, rectified_crop)
 
-            # POINT 11, 12, 13: OCR Recognition
-            clean_text, raw_ocr_text, ocr_conf, ocr_engine = extract_plate_ocr(crop)
+            # POINT 11, 12, 13: OCR Recognition (Dual-Candidate Evaluation)
+            orig_clean, orig_raw, orig_conf, orig_engine = extract_plate_ocr(crop)
+            orig_valid, orig_syn_score, orig_state, orig_sname, orig_match = validate_indian_plate_syntax(orig_clean)
+
+            selected_source = "ORIGINAL"
+            clean_text = orig_clean
+            raw_ocr_text = orig_raw
+            ocr_conf = orig_conf
+            ocr_engine = orig_engine
+            is_valid_syntax = orig_valid
+            syn_score = orig_syn_score
+            state_code = orig_state
+            state_name = orig_sname
+            match_type = orig_match
+            rect_raw = ""
+            rect_clean = ""
+
+            if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
+                rect_clean, rect_raw, rect_conf, rect_engine = extract_plate_ocr(rectified_crop)
+                rect_valid, rect_syn_score, rect_state, rect_sname, rect_match = validate_indian_plate_syntax(rect_clean)
+
+                orig_composite = (1.0 if orig_valid else 0.0) * 0.40 + orig_conf * 0.40 + (orig_syn_score * 0.20)
+                rect_composite = (1.0 if rect_valid else 0.0) * 0.40 + rect_conf * 0.40 + (rect_syn_score * 0.20)
+
+                # Select rectified only if it produces valid syntax or higher composite evidence
+                if (rect_valid and not orig_valid) or (rect_valid == orig_valid and rect_composite > orig_composite):
+                    selected_source = "RECTIFIED"
+                    clean_text = rect_clean
+                    raw_ocr_text = rect_raw
+                    ocr_conf = rect_conf
+                    ocr_engine = f"{rect_engine} [Perspective {skew_deg:+.1f}°]"
+                    is_valid_syntax = rect_valid
+                    syn_score = rect_syn_score
+                    state_code = rect_state
+                    state_name = rect_sname
+                    match_type = rect_match
+                    if ANPR_CONFIG.get("save_debug_crops", True):
+                        cv2.imwrite(crop_saved_path, rectified_crop)
 
             # POINT 14: Indian registration format validation result
-            is_valid_syntax, syn_score, state_code, state_name, match_type = validate_indian_plate_syntax(clean_text)
-
             if is_valid_syntax:
                 DEBUG_STATS["syntax_valid_count"] += 1
 
@@ -1049,6 +1216,12 @@ async def detect_plate(req: Base64DetectRequest):
                 "rejectionReason": rejection_reason,
                 "cropSavedPath": crop_saved_path,
                 "cropUrl": crop_relative_url,
+                "perspectiveCorrection": "APPLIED" if persp_applied else "SKIPPED",
+                "perspectiveStatus": persp_status,
+                "estimatedSkewDegrees": float(round(skew_deg, 2)),
+                "perspectiveSelected": selected_source,
+                "originalOcr": orig_raw,
+                "rectifiedOcr": rect_raw if persp_applied else "N/A",
                 "bbox": [int(x1), int(y1), int(bw), int(bh)],
                 "cameraId": req.cameraId,
                 "vehicleType": str(cand.get("vehicleClass", "car")),
@@ -1092,6 +1265,11 @@ async def detect_plate(req: Base64DetectRequest):
             "14_indianFormatValidationResults": [{"valid": bool(e["syntaxValid"]), "syntax": str(e["syntaxMatch"]), "state": str(e["stateCode"])} for e in all_evaluations],
             "15_multiFrameConfirmationStatus": str(primary_eval.get("confirmationStatus", "NONE")),
             "16_finalDecision": "ACCEPTED" if confirmed_detection else str(primary_eval.get("finalDecision", "REJECTED")),
+            "perspectiveCorrection": str(primary_eval.get("perspectiveCorrection", "SKIPPED")),
+            "estimatedSkewDegrees": float(primary_eval.get("estimatedSkewDegrees", 0.0)),
+            "perspectiveSelected": str(primary_eval.get("perspectiveSelected", "NONE")),
+            "originalOcr": str(primary_eval.get("originalOcr", "")),
+            "rectifiedOcr": str(primary_eval.get("rectifiedOcr", "N/A")),
 
             "summary": {
                 "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "NO_DETECTION"),

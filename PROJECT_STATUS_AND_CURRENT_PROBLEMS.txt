@@ -1,0 +1,229 @@
+====================================================================================================
+SIH PROBLEM STATEMENT ID: 26127 (BHARAT ELECTRONICS LIMITED - BEL)
+PROJECT: CITY-WIDE AI ENGINE FOR MULTI-CAMERA ANPR TRAJECTORY TRACKING & URBAN TRAFFIC ANALYTICS
+DOCUMENT: CURRENT SYSTEM STATUS, ARCHITECTURE, AND OPERATIONAL PROBLEMS BEING FACED
+DATE: September 13, 2026
+LOCATION: d:\college work\Hackaton projects\new zyn
+GIT REPOSITORY: https://github.com/aid278129-cmd/backup-project.git (Branch: main)
+====================================================================================================
+
+1. PROJECT OVERVIEW & CORE OBJECTIVES
+----------------------------------------------------------------------------------------------------
+This project is an end-to-end intelligent traffic surveillance and urban analytics prototype developed
+for Smart India Hackathon (SIH) under Problem Statement ID 26127 (BEL).
+
+The primary objectives are:
+  1. Multi-Camera Video Ingestion: Ingest live feeds from IP cameras, RTSP streams, and smartphones
+     acting as mobile edge cameras via low-latency WebRTC.
+  2. Automatic Number Plate Recognition (ANPR): Detect vehicles (cars, motorcycles, buses, trucks),
+     localize license plates inside vehicle regions of interest (ROI), and perform optical character
+     recognition conforming to Indian Ministry of Road Transport and Highways (MoRTH) standards
+     (standard plates, 2-row square plates, and All-India Bharat Series 'BH' plates).
+  3. Multi-Frame Temporal Validation: Eliminate single-frame false positives (glitches, road signs,
+     billboards) using sliding-window temporal candidate accumulation.
+  4. Cross-Camera Trajectory Tracking & Vehicle Re-Identification (Re-ID): Stitch vehicle movements
+     across geographically distributed cameras on an interactive GIS map, estimating speed, travel
+     time, and route deviations.
+  5. Watchlist & Stolen Vehicle Hotlist Alerting: Match recognized plates against law enforcement
+     watchlists (wanted, stolen, expired registration) in real time with immediate audio-visual alerts.
+  6. Urban Traffic Analytics: Compute vehicle density, congestion heatmaps, peak hour flow patterns,
+     and violation detections (e.g. wrong-way driving, speeding).
+
+
+2. CURRENT SYSTEM ARCHITECTURE & COMPONENTS
+----------------------------------------------------------------------------------------------------
+The platform operates as a distributed hybrid architecture:
+
+A. CORE BACKEND SERVICE (Node.js / Express / WebSocket / WebRTC Signaling)
+   - File: `server.js` (Port 3000, HTTPS with self-signed SSL/TLS certificates).
+   - Functions:
+     * Full duplex WebSocket server for real-time telemetry, detection alerts, and dashboard sync.
+     * WebRTC signaling server (SDP offer/answer and ICE candidate exchange) allowing smartphones
+       to stream HD camera feeds directly to the dashboard over local Wi-Fi or LAN.
+     * REST APIs for watchlist CRUD operations (`/api/watchlist`), vehicle trajectory history
+       (`/api/trajectories`), camera topology management (`/api/cameras`), and system stats.
+     * Reverse proxy endpoints (`/api/anpr/*`) forwarding telemetry, configuration, and debug
+       requests to the Python ANPR microservice.
+     * Static file hosting for dashboard UI and archived diagnostic frames (`/debug_output/*`).
+
+B. ANPR INFERENCE MICROSERVICE (Python 3.14 / FastAPI / PyTorch / YOLOv8 / Tesseract / EasyOCR)
+   - File: `scripts/anpr_server.py` (Port 5001, HTTP).
+   - Multi-stage pipeline:
+     * Stage 1 - Vehicle-First Detection: YOLOv8n COCO model detects vehicles (`car`, `motorcycle`,
+       `bus`, `truck`) with confidence >= 0.22. Crops vehicle ROI with 5% spatial margin.
+     * Stage 2 - License Plate Localization: Trained custom YOLOv8 model (`models/indian_plate_best.pt`)
+       detects plate candidate bounding boxes inside vehicle ROIs with confidence >= 0.40.
+       Full-frame fallback is active (threshold 0.45) if 0 full vehicles are detected (close-up framing).
+     * Stage 3 - Geometric & Spatial Filtering: Validates plate aspect ratio (width/height between 1.1
+       and 6.2 to accommodate both 2-row square plates and standard rectangular plates), minimum
+       pixel dimensions (20x8 px), maximum area ratio (<35% of vehicle area), and vertical position.
+     * Stage 4 - OCR & Image Enhancement:
+       - CLAHE (Contrast Limited Adaptive Histogram Equalization) + Bilateral filtering.
+       - Dual-Otsu binarization (standard dark-on-light + inverted light-on-dark).
+       - Primary OCR: Tesseract v5.4.0 with PSM modes 7, 8, 6 and alphanumeric character whitelisting.
+       - Fallback OCR: EasyOCR with aspect-ratio-aware reading order (left-to-right for horizontal
+         plates, vertical row grouping for square plates).
+       - Inverted two-row reconstruction (`repair_inverted_two_row`): Reorders OCR text when the
+         bottom registration number is read before the top state/district code.
+       - State prefix optical repairs (e.g. `0L` -> `DL`, `MG` -> `MH`, `K1` -> `KL`, `VP` -> `UP`).
+       - MoRTH & Bharat Series regex validation (`STANDARD_MORTH`, `BHARAT_SERIES`, `VALID_HISTORICAL`).
+     * Stage 5 - Multi-Frame Temporal Confirmation Tracker:
+       - Sliding window duration: 10.0 seconds.
+       - Minimum required consecutive sightings: 2 frames.
+       - Levenshtein string similarity threshold: >= 80%.
+       - Single-frame transient noise is rejected; confirmed events are forwarded to the Node.js backend.
+     * Stage 6 - Comprehensive 16-Point Per-Frame Diagnostics:
+       - Every processed frame records all 16 telemetry points (vehicle detection, confidence, bounding
+         boxes, candidate counts, aspect ratios, geometric pass/fail flags, pre-OCR crop file paths,
+         raw OCR, normalized OCR, Indian syntax validity, multi-frame accumulation status, and final decision).
+       - Incoming frames are saved to `debug_output/frames/` and pre-OCR crops to `debug_output/crops/`.
+
+C. OPERATOR DASHBOARD & FRONTEND (Vanilla HTML5 / CSS3 / JavaScript / Leaflet.js)
+   - Files: `public/dashboard.html`, `public/mobile.html`, `public/js/anpr-engine.js`, `public/css/style.css`.
+   - Features:
+     * Multi-camera video monitoring matrix (Cameras 1 to 4) with real-time video playback.
+     * WebRTC Mobile Streamer (`mobile.html`) enabling any smartphone to act as an edge ANPR camera.
+     * Interactive GIS Leaflet map displaying camera geo-locations, active vehicle trajectories, and
+       animated route paths between intersections.
+     * Real-time Detection Feed & Watchlist Alert Banners with audio notifications.
+     * Canvas Developer HUD: Renders live cyan bounding boxes for vehicles, crimson dashed boxes with
+       failure codes for rejected candidates, amber boxes for accumulating candidates, and neon green
+       boxes for confirmed plates.
+     * Interactive 16-Point Diagnostics Inspector Modal: Displays live stream frame, saved pre-OCR crop,
+       pass/fail telemetry list, and runtime threshold tuning sliders.
+
+D. AUTOMATED PIPELINE DIAGNOSTIC SUITE
+   - File: `scripts/diagnose_pipeline.py`.
+   - Automated test runner testing 3 mandatory scenarios:
+     1. TEST 1: Direct file inference on repository vehicle images.
+     2. TEST 2: Screen display & mobile camera capture simulation (downsampling, 80% JPEG, glare).
+     3. TEST 3: Real vehicle / live mobile camera WebRTC stream frames.
+
+
+3. CURRENT STATUS & WORKING FUNCTIONALITY
+----------------------------------------------------------------------------------------------------
+[x] Node.js backend running smoothly on HTTPS port 3000.
+[x] Python FastAPI ANPR inference server running on port 5001.
+[x] WebRTC live video streaming fully functional from mobile phones to the desktop dashboard.
+[x] 16-Point per-frame diagnostic telemetry instrumentation complete and operational.
+[x] Calibrated Aspect Ratio for MoRTH Rule 50 Two-Row Plates:
+    - Min aspect ratio lowered from 1.5 to 1.1, enabling recognition of square/semi-square plates.
+[x] Close-Up Mobile Framing Fallback:
+    - Enabled `allow_fullframe_fallback: True` (threshold 0.45) so close bumper framing is detected.
+[x] Inverted Two-Row OCR Reconstruction:
+    - Successfully reconstructs inverted two-row OCR strings (e.g. `0074AHAP29` -> `AP29AH0074`).
+[x] Multi-Frame Temporal Window Calibrated:
+    - Set to 10.0 seconds to accommodate CPU inference times and realistic vehicle traversals.
+[x] Automated Diagnostic Suite Passing across all 3 test suites (`scripts/diagnose_pipeline.py`):
+    - TEST 1 (Direct File): CONFIRMED `AP29AH0074` (STANDARD_MORTH, 96.0% confidence) [PASS].
+    - TEST 2 (Screen Sim): CONFIRMED `AP794H64` (VALID_HISTORICAL, 89.0% confidence) [PASS].
+    - TEST 3 (Real Stream): CONFIRMED `AP29AH0074` (STANDARD_MORTH, 97.0% confidence) [PASS].
+[x] Git Repository Synchronization:
+    - All code, diagnostic scripts, HUD elements, and documentation committed and pushed to GitHub
+      repository `aid278129-cmd/backup-project.git` on branch `main`.
+
+
+4. CURRENT PROBLEMS & CHALLENGES BEING FACED
+----------------------------------------------------------------------------------------------------
+Despite the working core pipeline and passing diagnostic benchmarks, several significant technical
+and operational problems are currently being faced that impact production deployment:
+
+PROBLEM 1: CPU INFERENCE LATENCY & STREAM BOTTLENECK (HIGH PRIORITY)
+  - Issue: The machine is running inference entirely on CPU without NVIDIA CUDA GPU acceleration.
+  - Impact:
+    * A complete inference cycle (YOLOv8 vehicle detection + YOLOv8 plate detection + CLAHE/Bilateral
+      image enhancement + Tesseract OCR + EasyOCR fallback + syntax validation) takes ~3.5 to 5.5
+      seconds per frame on CPU.
+    * Real-time mobile video streams deliver 10 to 15 frames per second.
+    * Attempting to run inference on every single frame causes request backlogs, high memory
+      consumption, and delayed detection alerts.
+  - Workaround Currently in Place:
+    * The frontend throttles frame sampling to 1 frame every 1.5 to 2.0 seconds per camera.
+    * Temporal sliding window was expanded to 10.0 seconds so consecutive frames are not discarded.
+  - Permanent Solution Needed:
+    * GPU acceleration (NVIDIA CUDA / TensorRT) to bring per-frame latency down to 30-80 milliseconds.
+    * If GPU is unavailable, export YOLO models and OCR to ONNX Runtime with INT8 quantization.
+
+PROBLEM 2: OCR SENSITIVITY TO SEVERE CAMERA ANGLES & SKEW (PERSPECTIVE DISTORTION)
+  - Issue: In real-world roadside and mobile camera scenarios, vehicles are viewed from sharp angles
+    (30 to 60 degrees from center), creating trapezoidal perspective distortion on the number plate.
+  - Impact:
+    * Tesseract OCR and standard horizontal binarization assume characters are upright and parallel
+      to the horizon.
+    * When plates are tilted or captured at an angle (e.g. Test 1.3 `Datacluster (101).jpg`), characters
+      overlap diagonally or merge, causing character substitution or omission (e.g. `MPHMG224`
+      instead of `MP42MG2246`).
+  - Solution Needed:
+    * Implement a 4-point perspective transform (homography rectification) to warp tilted plate
+      crops into flat, rectangular, upright images prior to OCR.
+
+PROBLEM 3: SCREEN DISPLAY VS. PHYSICAL VEHICLE OPTICAL ARTIFACTS
+  - Issue: Testing mobile cameras by pointing phones at laptop/monitor screens showing vehicle photos
+    causes severe LCD subpixel moire patterns, screen reflection glare, and contrast washout.
+  - Impact:
+    * Tesseract Otsu binarization struggles with screen moire, producing empty text strings on screen
+      captures unless contrast enhancement is aggressively tuned.
+    * In Test 2.3, characters were washed out on screen capture simulation.
+  - Solution Needed:
+    * Testing should ideally be conducted on physical vehicles or printed high-resolution photographs
+      under natural diffuse lighting.
+    * Add an adaptive unsharp mask filter to suppress high-frequency LCD grid frequencies.
+
+PROBLEM 4: VEHICLE RE-IDENTIFICATION (RE-ID) DEPTH BEYOND PLATE STRINGS
+  - Issue: The multi-camera trajectory tracking module currently stitches vehicle journeys across
+    cameras primarily by matching exact or fuzzy license plate strings (`SequenceMatcher >= 0.8`).
+  - Impact:
+    * If a vehicle's license plate is obscured (mud, dirt, trailer hitch, deliberate tampering),
+      missing, or unreadable due to headlight glare, the system cannot link the vehicle across cameras.
+    * True city-wide surveillance requires tracking the physical appearance of the vehicle itself.
+  - Solution Needed:
+    * Integrate a visual vehicle Re-ID deep learning model (e.g. FastReID / OSNet / MobileNetV4) that
+      extracts a 512-dimensional feature embedding of the vehicle's body shape, color, make, and visual
+      features, enabling trajectory stitching even when the plate is unreadable.
+
+PROBLEM 5: HTTPS SELF-SIGNED CERTIFICATE TRUST WARNING ON MOBILE DEVICES
+  - Issue: The Node.js server uses locally generated self-signed SSL/TLS certificates (`cert.pem`,
+    `key.pem`) to satisfy browser requirements for WebRTC and camera access (`getUserMedia`).
+  - Impact:
+    * When opening `https://<LAN_IP>:3000/mobile.html` on mobile Chrome or Safari, the browser
+      displays a red "Your connection is not private" / "Potential security risk" warning.
+    * Users must manually tap "Advanced" -> "Proceed to unsafe" to grant camera access.
+  - Solution Needed:
+    * For production or exhibition demos, use a valid domain name with Let's Encrypt SSL certificates,
+      or generate a local Certificate Authority (CA) root certificate using `mkcert` and install it on
+      test devices.
+
+PROBLEM 6: PROCESS MANAGEMENT & STARTUP COORDINATION
+  - Issue: The platform currently relies on two separate independent processes:
+    1. Node.js backend (`node server.js` on port 3000).
+    2. Python FastAPI server (`python scripts/anpr_server.py` on port 5001).
+  - Impact:
+    * Server restarts, terminal closures, or system reboot terminate background tasks, requiring
+      manual restart of both processes in proper sequence.
+  - Solution Needed:
+    * A unified process manager (e.g., PM2 ecosystem config, Windows Service, or Docker Compose)
+      that automatically launches, monitors, and restarts both services on failure.
+
+
+5. ACTIONABLE NEXT STEPS & IMPLEMENTATION ROADMAP
+----------------------------------------------------------------------------------------------------
+Phase 1 (Immediate / High Impact):
+  - Add 4-Point Homography & Perspective Rectification to `scripts/anpr_server.py` to un-skew tilted
+    crops before OCR.
+  - Create a unified startup script (`start_system.bat` / `start_system.ps1`) to launch and monitor
+    both Node.js and Python servers with one click.
+
+Phase 2 (Performance & Acceleration):
+  - Enable GPU acceleration (CUDA) or export models to ONNX Runtime with INT8 quantization to reduce
+    per-frame inference time from 4.5s to < 100ms.
+  - Implement dynamic keyframe extraction (Laplacian variance sharpness filter) on the mobile client
+    so only the sharpest 1 frame per second is transmitted.
+
+Phase 3 (SIH Advanced Analytics):
+  - Implement Deep Vehicle Appearance Re-ID feature embedding vectors for plate-free vehicle tracking.
+  - Integrate ANPR trajectory data with speed estimation and automated wrong-way alert triggers.
+  - Build automated PDF violation report generation for law enforcement export.
+
+====================================================================================================
+END OF STATUS REPORT
+====================================================================================================

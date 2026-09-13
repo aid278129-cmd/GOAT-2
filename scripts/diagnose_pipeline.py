@@ -159,6 +159,9 @@ def evaluate_test_suite():
             "ocrRaw": debug.get("11_ocrRawResults", [""])[0] if debug.get("11_ocrRawResults") else "",
             "syntaxStatus": debug.get("14_indianFormatValidationResults", [{}])[0].get("syntax", "NONE") if debug.get("14_indianFormatValidationResults") else "NONE",
             "confirmationStatus": debug.get("15_multiFrameConfirmationStatus", "NONE"),
+            "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
+            "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
+            "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
             "failureStage": debug.get("summary", {}).get("failureStage", "None"),
             "failureReason": debug.get("summary", {}).get("reason", "None")
         }
@@ -167,6 +170,7 @@ def evaluate_test_suite():
         print(f"  - 1. Vehicle Detected:      {record['vehicleDetected']} (Conf: {record['vehicleConf']})")
         print(f"  - 4. Plate Attempted:       {record['plateAttempted']}")
         print(f"  - 5. Plate Candidates:      {record['plateCandidates']} (Best Conf: {record['bestPlateConf']})")
+        print(f"  - 10b. Perspective Corr:    {record['perspectiveCorrection']} (Skew: {record['estimatedSkew']}°, Selected: {record['perspectiveSelected']})")
         print(f"  - 11. OCR Raw:              '{record['ocrRaw']}'")
         print(f"  - 13. Normalized Plate:     '{record['plate']}'")
         print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
@@ -212,6 +216,9 @@ def evaluate_test_suite():
             "ocrRaw": debug.get("11_ocrRawResults", [""])[0] if debug.get("11_ocrRawResults") else "",
             "syntaxStatus": debug.get("14_indianFormatValidationResults", [{}])[0].get("syntax", "NONE") if debug.get("14_indianFormatValidationResults") else "NONE",
             "confirmationStatus": debug.get("15_multiFrameConfirmationStatus", "NONE"),
+            "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
+            "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
+            "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
             "failureStage": debug.get("summary", {}).get("failureStage", "None"),
             "failureReason": debug.get("summary", {}).get("reason", "None")
         }
@@ -220,6 +227,7 @@ def evaluate_test_suite():
         print(f"  - 1. Vehicle Detected:      {record['vehicleDetected']} (Conf: {record['vehicleConf']})")
         print(f"  - 4. Plate Attempted:       {record['plateAttempted']}")
         print(f"  - 5. Plate Candidates:      {record['plateCandidates']} (Best Conf: {record['bestPlateConf']})")
+        print(f"  - 10b. Perspective Corr:    {record['perspectiveCorrection']} (Skew: {record['estimatedSkew']}°, Selected: {record['perspectiveSelected']})")
         print(f"  - 11. OCR Raw:              '{record['ocrRaw']}'")
         print(f"  - 13. Normalized Plate:     '{record['plate']}'")
         print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
@@ -267,6 +275,9 @@ def evaluate_test_suite():
                 "ocrRaw": debug.get("11_ocrRawResults", [""])[0] if debug.get("11_ocrRawResults") else "",
                 "syntaxStatus": debug.get("14_indianFormatValidationResults", [{}])[0].get("syntax", "NONE") if debug.get("14_indianFormatValidationResults") else "NONE",
                 "confirmationStatus": debug.get("15_multiFrameConfirmationStatus", "NONE"),
+                "perspectiveCorrection": debug.get("perspectiveCorrection", "SKIPPED"),
+                "estimatedSkew": debug.get("estimatedSkewDegrees", 0.0),
+                "perspectiveSelected": debug.get("perspectiveSelected", "NONE"),
                 "failureStage": debug.get("summary", {}).get("failureStage", "None"),
                 "failureReason": debug.get("summary", {}).get("reason", "None")
             }
@@ -275,6 +286,7 @@ def evaluate_test_suite():
             print(f"  - 1. Vehicle Detected:      {record['vehicleDetected']} (Conf: {record['vehicleConf']})")
             print(f"  - 4. Plate Attempted:       {record['plateAttempted']}")
             print(f"  - 5. Plate Candidates:      {record['plateCandidates']} (Best Conf: {record['bestPlateConf']})")
+            print(f"  - 10b. Perspective Corr:    {record['perspectiveCorrection']} (Skew: {record['estimatedSkew']}°, Selected: {record['perspectiveSelected']})")
             print(f"  - 11. OCR Raw:              '{record['ocrRaw']}'")
             print(f"  - 13. Normalized Plate:     '{record['plate']}'")
             print(f"  - 14. Syntax Status:        {record['syntaxStatus']}")
