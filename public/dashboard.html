@@ -1135,8 +1135,7 @@ async function initSidebarFeed() {
         if (sbCount) sbCount.textContent = `${totalDet} detections today`;
         document.getElementById('detSidebarCount').textContent = Math.min(dets.length, MAX_SIDEBAR_ITEMS);
 
-        const sorted = [...dets].reverse();
-        sorted.slice(0, MAX_SIDEBAR_ITEMS).forEach(det => {
+        dets.slice(0, MAX_SIDEBAR_ITEMS).forEach(det => {
           const time  = new Date(det.timestamp).toTimeString().slice(0, 8);
           const conf  = Math.round(det.confidence * 100);
           const simTag = det.simulated ? '<span class="det-sim">SIM</span>' : '';
@@ -1169,8 +1168,7 @@ async function initSidebarFeed() {
         const navCount = document.getElementById('navAlertCount');
         if (navCount) navCount.textContent = alertCount;
 
-        const sortedAlerts = [...alerts].reverse();
-        sortedAlerts.slice(0, 20).forEach(alert => {
+        alerts.slice(0, 20).forEach(alert => {
           const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0, 8);
           const el   = document.createElement('div');
           el.className = 'alert-item';
