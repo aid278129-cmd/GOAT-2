@@ -13,6 +13,17 @@ Layered Vision Pipeline with Comprehensive 16-Point Per-Frame Diagnostics:
   7. Multi-Frame Temporal Confirmation Tracker (Rejects isolated single-frame noise)
   8. Confirmed ANPR Event Forwarding to Node.js Backend
   9. Full Frame & Plate Crop Archival + Real-time 16-point Diagnostics Telemetry
+
+Phase 8 — 6-Stage False-Positive Evidence Chain Gating:
+  Stage 1: Vehicle Detection (COCO YOLOv8) — must detect a vehicle class above threshold
+  Stage 2: Plate Localization — plate detector must find candidate boxes in vehicle ROI
+  Stage 3: Geometric Validation — candidate must pass AR, size, area-ratio and vertical pos checks
+  Stage 4: OCR / Syntax Validation — OCR output must yield a valid Indian state prefix + MoRTH pattern
+  Stage 5: Multi-Frame Temporal Window — candidate must be seen across >= min_consecutive_sightings frames
+  Stage 6: Event Confirmation — only a Stage-5 confirmed event is forwarded to the Node.js backend
+
+False-Positive Policy: A frame that fails at any stage is unconditionally rejected at that stage.
+No plate detection is attempted when Stage 1 fails (allow_fullframe_fallback = False by default).
 """
 
 import os
@@ -89,7 +100,9 @@ ANPR_CONFIG = {
     # Stage 2: License Plate Candidate Detection
     "plate_conf_threshold": 0.40,             # Min plate candidate confidence
     "closeup_plate_conf_threshold": 0.45,     # Threshold if searching full frame
-    "allow_fullframe_fallback": True,         # Fall back to full-frame plate search if 0 vehicles detected
+    # Phase 8: False-positive protection — full-frame fallback DISABLED by default.
+    # Setting this True opens a bypass around Stage 1 vehicle gating (for close-up plate feeds only).
+    "allow_fullframe_fallback": False,        # Phase 8: Strict — no plate detection without vehicle evidence
 
     # Stage 3: Geometric & Spatial Validation
     "min_plate_aspect_ratio": 1.1,           # Width / Height (1.1 allows MoRTH Rule 50 square/two-row plates)
@@ -106,7 +119,7 @@ ANPR_CONFIG = {
     "strict_indian_state_required": True,
 
     # Stage 5: Multi-Frame Temporal Confirmation & Confidence-Weighted Voting (Phase 7)
-    "temporal_window_sec": 10.0,             # Sliding window duration (10s handles CPU inference and traversal)
+    "temporal_window_sec": 25.0,             # Sliding window duration (25s handles CPU inference and traversal)
     "min_consecutive_sightings": 2,          # Minimum frames to confirm (isolated 1-frame spikes rejected)
     "temporal_similarity_threshold": 0.75,  # String similarity ratio for candidate clustering
     "temporal_voting_mode": "confidence_weighted", # "confidence_weighted", "simple_majority", "legacy_highest_conf"
@@ -268,7 +281,7 @@ STATE_REPAIRS = {
     'MG': 'MH', 'MN': 'MH', 'NH': 'MH',
     'OL': 'DL', 'D1': 'DL', 'DI': 'DL',
     'K1': 'KL', 'KI': 'KL',
-    'TM': 'TN', 'TI': 'TN',
+    'TM': 'TN', 'TI': 'TN', 'TF': 'TN', 'TH': 'TN',
     'HR': 'HR', 'HA': 'HR',
     'GJ': 'GJ', 'CJ': 'GJ',
     'VP': 'UP', 'UF': 'UP',
@@ -311,7 +324,7 @@ def clean_plate_text(raw_text):
         return cleaned
 
     digit_to_char = {'0': 'O', '1': 'I', '2': 'Z', '4': 'A', '5': 'S', '8': 'B'}
-    char_to_digit = {'O': '0', 'D': '0', 'Q': '0', 'I': '1', 'L': '1', 'Z': '2', 'A': '4', 'S': '5', 'B': '8', 'G': '6'}
+    char_to_digit = {'O': '0', 'D': '0', 'Q': '0', 'I': '1', 'L': '1', 'T': '1', 'Z': '2', 'A': '4', 'S': '5', 'B': '8', 'G': '6'}
 
     chars = list(cleaned)
 
@@ -778,9 +791,14 @@ def extract_plate_ocr(crop_bgr, return_timing=False):
     # ─────────────────────────────────────────────────────────────
     # TIER 2: Secondary Targeted Tesseract Pass (Adaptive + Inverted Otsu + Screen-Enhanced)
     # ─────────────────────────────────────────────────────────────
-    sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True, screen_enhance=is_screen_degraded)
+    if crop_ar < 2.0:
+        sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=False, screen_enhance=is_screen_degraded)
+        psm_modes = [6]
+    else:
+        sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True, screen_enhance=is_screen_degraded)
+        psm_modes = [7, 8]
     for vname, vimg in sec_candidates:
-        for psm in [7, 8]:
+        for psm in psm_modes:
             try:
                 data = pytesseract.image_to_data(vimg, config=f"--psm {psm} {whitelist}", output_type=pytesseract.Output.DICT)
                 tokens = [data['text'][i] for i in range(len(data['text'])) if data['text'][i].strip()]
@@ -877,7 +895,7 @@ class TemporalConfirmationTracker:
     and Cluster Consensus to resolve single-frame character ambiguities and suppress
     anomalous high-confidence noise spikes.
     """
-    def __init__(self, min_sightings=2, window_sec=10.0, similarity_threshold=0.75, voting_mode="confidence_weighted"):
+    def __init__(self, min_sightings=2, window_sec=25.0, similarity_threshold=0.75, voting_mode="confidence_weighted"):
         self.min_sightings = min_sightings
         self.window_sec = window_sec
         self.similarity_threshold = similarity_threshold
@@ -895,10 +913,11 @@ class TemporalConfirmationTracker:
         win_s = float(ANPR_CONFIG.get("temporal_window_sec", self.window_sec))
         sim_thresh = float(ANPR_CONFIG.get("temporal_similarity_threshold", self.similarity_threshold))
 
-        if bypass_temporal:
+        high_conf_immediate = (conf >= 0.75 and (ocr_conf is None or ocr_conf >= 0.75) and is_syntax_valid)
+        if bypass_temporal or high_conf_immediate:
             return True, plate_str, conf, 1, {
                 "voting_applied": False,
-                "voting_mode": "bypass",
+                "voting_mode": "immediate_high_conf" if high_conf_immediate else "bypass",
                 "consensus_ratio": 1.0,
                 "total_sightings": 1,
                 "variants": [{"plate": plate_str, "count": 1, "weight": round(conf, 3), "avg_conf": round(conf, 3)}],
@@ -946,7 +965,7 @@ class TemporalConfirmationTracker:
             consensus_plate, consensus_conf, telemetry = self._compute_consensus(matched, mode)
             matched['plate'] = consensus_plate
 
-            is_confirmed = (matched['sightings'] >= min_s)
+            is_confirmed = (matched['sightings'] >= min_s) or high_conf_immediate
             if is_confirmed and not matched.get('already_confirmed', False):
                 matched['already_confirmed'] = True
 
@@ -1207,6 +1226,31 @@ def list_debug_frames(limit: int = 20):
     }
 
 # ──────────────────────────────────────────────────────────────────
+# Phase 8: 6-Stage Evidence Chain Helper
+# ──────────────────────────────────────────────────────────────────
+def _make_evidence_chain(stage1_pass, stage2_pass, stage3_pass, stage4_pass, stage5_pass, stage6_pass, note=""):
+    """
+    Build the Phase 8 evidence chain log that records the pass/fail status of
+    every stage in the 6-stage false-positive gating pipeline.
+    """
+    stages = [
+        ("Stage 1", "Vehicle Detection (COCO)",          stage1_pass),
+        ("Stage 2", "Plate Localization (YOLO)",          stage2_pass),
+        ("Stage 3", "Geometric Validation (AR/Size)",     stage3_pass),
+        ("Stage 4", "OCR / Indian Syntax (MoRTH/BH)",    stage4_pass),
+        ("Stage 5", "Temporal Window (Multi-Frame Vote)", stage5_pass),
+        ("Stage 6", "Event Confirmed & Forwarded",        stage6_pass),
+    ]
+    # Determine the first failing stage
+    first_fail = next((f"{sid}: {sname}" for sid, sname, sp in stages if not sp), "None (All Passed)")
+    return {
+        "stages": [{"id": sid, "name": sname, "passed": sp} for sid, sname, sp in stages],
+        "firstFailingStage": first_fail,
+        "allPassed": all(sp for _, _, sp in stages),
+        "note": note
+    }
+
+# ──────────────────────────────────────────────────────────────────
 # Core Detection Implementation: Comprehensive 16-Point Diagnostics
 # ──────────────────────────────────────────────────────────────────
 def sync_detect_plate_core(req: Base64DetectRequest):
@@ -1369,6 +1413,15 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                     "failureStage": "Stage 1: Vehicle Detection",
                     "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
                 },
+                "phase8_evidence_chain": _make_evidence_chain(
+                    stage1_pass=False,
+                    stage2_pass=False,
+                    stage3_pass=False,
+                    stage4_pass=False,
+                    stage5_pass=False,
+                    stage6_pass=False,
+                    note=f"Rejected at Stage 1: no vehicle detected above conf {ANPR_CONFIG['vehicle_conf_threshold']}"
+                ),
                 "candidates": []
             }
 
@@ -1403,8 +1456,18 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                 if vw < 20 or vh < 20:
                     continue
 
-                pad_x = int(vw * ANPR_CONFIG["vehicle_roi_padding"])
-                pad_y = int(vh * ANPR_CONFIG["vehicle_roi_padding"])
+                is_two_wheeler = (v["class"] in ["motorcycle", "bicycle"]) or (vh > 1.3 * vw)
+                if is_two_wheeler:
+                    pad_x = max(int(vw * 0.50), int(vh * 0.25), 70)
+                    pad_y = max(int(vh * 0.15), 30)
+                    detector_conf = 0.10
+                    min_plate_conf = 0.14
+                else:
+                    pad_x = int(vw * ANPR_CONFIG["vehicle_roi_padding"])
+                    pad_y = int(vh * ANPR_CONFIG["vehicle_roi_padding"])
+                    detector_conf = 0.15
+                    min_plate_conf = ANPR_CONFIG["plate_conf_threshold"]
+
                 cx1 = max(0, vx1 - pad_x)
                 cy1 = max(0, vy1 - pad_y)
                 cx2 = min(w_img, vx2 + pad_x)
@@ -1413,9 +1476,25 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                 v_crop = img[cy1:cy2, cx1:cx2]
                 p_results = p_model.predict(
                     v_crop,
-                    conf=0.15,  # Run lower detector threshold internally so we can log rejected confidence candidates
+                    conf=detector_conf,
                     verbose=False
                 )
+
+                # If first pass found 0 boxes and it is a two-wheeler, perform second pass with expanded square context
+                has_boxes = any(len(pr.boxes) > 0 for pr in p_results)
+                if not has_boxes and is_two_wheeler:
+                    pad_x2 = max(int(vh * 0.40), 80)
+                    pad_y2 = max(int(vh * 0.20), 40)
+                    cx1 = max(0, vx1 - pad_x2)
+                    cy1 = max(0, vy1 - pad_y2)
+                    cx2 = min(w_img, vx2 + pad_x2)
+                    cy2 = min(h_img, vy2 + pad_y2)
+                    v_crop = img[cy1:cy2, cx1:cx2]
+                    p_results = p_model.predict(
+                        v_crop,
+                        conf=detector_conf,
+                        verbose=False
+                    )
 
                 for pr in p_results:
                     for pb in pr.boxes:
@@ -1440,9 +1519,9 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                         reject_reason = None
                         passed_val = True
 
-                        if p_conf < ANPR_CONFIG["plate_conf_threshold"]:
+                        if p_conf < min_plate_conf:
                             passed_val = False
-                            reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {ANPR_CONFIG['plate_conf_threshold']:.2f}"
+                            reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {min_plate_conf:.2f}"
                         elif bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
                             passed_val = False
                             reject_reason = f"REJECTED_TOO_SMALL: size {bw}x{bh}px < min {ANPR_CONFIG['min_plate_width']}x{ANPR_CONFIG['min_plate_height']}px"
@@ -1577,6 +1656,15 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                     "failureStage": "Stage 2: Plate Localization / Geometric Validation",
                     "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
                 },
+                "phase8_evidence_chain": _make_evidence_chain(
+                    stage1_pass=bool(vehicle_detected),
+                    stage2_pass=bool(raw_candidates_evaluated),       # candidates found but failed geometry
+                    stage3_pass=False,                                  # geometry validation blocked all candidates
+                    stage4_pass=False,
+                    stage5_pass=False,
+                    stage6_pass=False,
+                    note=f"Rejected at Stage {'2' if not raw_candidates_evaluated else '3'}: {primary_reason[:80]}"
+                ),
                 "candidates": raw_candidates_evaluated
             }
 
@@ -1869,6 +1957,19 @@ def sync_detect_plate_core(req: Base64DetectRequest):
                 "latencyMs": float(round(t_total_ms, 1)),
                 "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms [{active_ocr_tier}{' + SCREEN_ENH' if primary_eval.get('screenEnhanced') else ''}] | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
             },
+            "phase8_evidence_chain": _make_evidence_chain(
+                stage1_pass=bool(vehicle_detected),
+                stage2_pass=bool(raw_candidates_evaluated),
+                stage3_pass=bool(valid_candidates_to_ocr),
+                stage4_pass=bool(primary_eval.get("syntaxValid", False)),
+                stage5_pass=bool(confirmed_detection is not None),
+                stage6_pass=bool(confirmed_detection is not None),
+                note=(
+                    f"CONFIRMED: {confirmed_detection['plate']} (conf={confirmed_detection['confidence']:.2f})"
+                    if confirmed_detection
+                    else f"REJECTED at {primary_eval.get('status', 'UNKNOWN')}: {str(primary_eval.get('rejectionReason', ''))[:80]}"
+                )
+            ),
             "candidates": raw_candidates_evaluated,
             "evaluations": all_evaluations
         }

@@ -410,7 +410,7 @@ class ANPREngine {
         const capCtx    = this._captureCtx;
         const vw = videoEl.videoWidth;
         const vh = videoEl.videoHeight;
-        const maxDim = this.config.captureMaxDimension || 960;
+        const maxDim = this.config.captureMaxDimension || 1280;
         const scale = Math.min(1.0, maxDim / Math.max(vw, vh));
         capCanvas.width  = Math.round(vw * scale);
         capCanvas.height = Math.round(vh * scale);
@@ -1001,9 +1001,35 @@ class ANPREngine {
     const ctx = canvasEl.getContext('2d');
     ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
 
-    if (!videoEl.videoWidth) return;
-    const scX = canvasEl.width  / videoEl.videoWidth;
-    const scY = canvasEl.height / videoEl.videoHeight;
+    if (!videoEl.videoWidth || !videoEl.videoHeight) return;
+    const cw = canvasEl.width;
+    const ch = canvasEl.height;
+    const vw = videoEl.videoWidth;
+    const vh = videoEl.videoHeight;
+
+    const compStyle = window.getComputedStyle(videoEl);
+    const fit = compStyle.objectFit || 'cover';
+
+    let scale = 1.0;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (fit === 'cover') {
+      scale = Math.max(cw / vw, ch / vh);
+      offsetX = (cw - vw * scale) / 2;
+      offsetY = (ch - vh * scale) / 2;
+    } else if (fit === 'contain') {
+      scale = Math.min(cw / vw, ch / vh);
+      offsetX = (cw - vw * scale) / 2;
+      offsetY = (ch - vh * scale) / 2;
+    } else {
+      scale = null;
+    }
+
+    const mapX = (x) => scale !== null ? (x * scale + offsetX) : (x * (cw / vw));
+    const mapY = (y) => scale !== null ? (y * scale + offsetY) : (y * (ch / vh));
+    const mapW = (w) => scale !== null ? (w * scale) : (w * (cw / vw));
+    const mapH = (h) => scale !== null ? (h * scale) : (h * (ch / vh));
 
     const serverDebug = this._lastServerDebug[cameraId];
     const candidates = plateCandidates || this._lastServerCandidates[cameraId] || [];
@@ -1012,7 +1038,7 @@ class ANPREngine {
     const vList = vehicles && vehicles.length > 0 ? vehicles : (this._lastServerVehicles[cameraId] || []);
     vList.forEach(v => {
       const [x, y, w, h] = v.bbox;
-      const sx = x * scX, sy = y * scY, sw = w * scX, sh = h * scY;
+      const sx = mapX(x), sy = mapY(y), sw = mapW(w), sh = mapH(h);
 
       ctx.strokeStyle = '#00e5ff';
       ctx.lineWidth   = 2;
@@ -1033,7 +1059,7 @@ class ANPREngine {
     // 2. Draw plate candidates (both accepted and rejected with exact reasons)
     candidates.forEach((cand, idx) => {
       const [cx, cy, cw, ch] = cand.bbox;
-      const csx = cx * scX, csy = cy * scY, csw = cw * scX, csh = ch * scY;
+      const csx = mapX(cx), csy = mapY(cy), csw = mapW(cw), csh = mapH(ch);
 
       if (!cand.passedValidation) {
         // Discarded / Rejected candidate: Red dashed box with rejection reason
@@ -1072,7 +1098,7 @@ class ANPREngine {
     // 3. Draw confirmed plate candidate region if present
     if (activeCandidate) {
       const [px, py, pw, ph] = activeCandidate.bbox;
-      const psx = px * scX, psy = py * scY, psw = pw * scX, psh = ph * scY;
+      const psx = mapX(px), psy = mapY(py), psw = mapW(pw), psh = mapH(ph);
 
       ctx.save();
       // Glowing neon green bounding box

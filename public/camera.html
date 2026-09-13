@@ -279,16 +279,24 @@ async function getStream(facing) {
   if (localStream) {
     localStream.getTracks().forEach((t) => t.stop());
   }
+  const isPortrait = window.innerHeight > window.innerWidth;
   const constraints = {
     video: {
       facingMode: facing,
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
+      width: { ideal: isPortrait ? 1080 : 1920, min: 720 },
+      height: { ideal: isPortrait ? 1920 : 1080, min: 720 },
       frameRate: { ideal: 30 },
     },
     audio: false,
   };
-  return navigator.mediaDevices.getUserMedia(constraints);
+  try {
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (e) {
+    return await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+  }
 }
 
 async function startCamera() {

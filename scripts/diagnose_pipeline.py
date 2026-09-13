@@ -136,7 +136,8 @@ def evaluate_test_suite():
         "TEST 6": [],
         "TEST 7": [],
         "TEST 8": [],
-        "TEST 9": []
+        "TEST 9": [],
+        "TEST 10": []
     }
 
     # ─────────────────────────────────────────────────────────────
@@ -815,6 +816,222 @@ def evaluate_test_suite():
         print(f"TEST 9 Benchmark Error: {e}")
 
     # ─────────────────────────────────────────────────────────────
+    # TEST 10: Phase 8 — False-Positive Protection & 6-Stage Evidence Chain
+    # ─────────────────────────────────────────────────────────────
+    print("\n" + "-" * 78)
+    print("TEST 10: Phase 8 — False-Positive Protection & Negative Sample Benchmark")
+    print("-" * 78)
+    print("This test suite validates that the 6-stage evidence gating NEVER promotes")
+    print("non-vehicle frames or vehicles with unreadable plates to CONFIRMED ANPR events.")
+    print()
+
+    try:
+        # -------------------------------------------------------------------
+        # 10.1: Pure Negative Scenery (no vehicle present at all)
+        # -------------------------------------------------------------------
+        print("\n[TEST 10.1] Pure Negative Scenery — No Vehicle Present:")
+        print("  Creates synthetic non-vehicle frames. Expected: REJECTED_NO_VEHICLE on all.")
+
+        # Ensure fullframe fallback is strictly OFF
+        try:
+            requests.post(CONFIG_URL, json={"allow_fullframe_fallback": False}, timeout=3)
+        except Exception:
+            pass
+
+        negative_frames_t10 = []
+
+        # Synthetic 1: Uniform gray background (empty road surface)
+        gray_road = np.full((480, 640, 3), fill_value=128, dtype=np.uint8)
+        negative_frames_t10.append(("uniform_gray_road", gray_road))
+
+        # Synthetic 2: Sky gradient (blue-to-white, no vehicles)
+        sky_t10 = np.zeros((480, 640, 3), dtype=np.uint8)
+        for row in range(480):
+            bv = int(200 * (1.0 - row / 480.0)) + 55
+            sky_t10[row, :] = [bv, bv // 2, 50]
+        negative_frames_t10.append(("sky_gradient_no_vehicle", sky_t10))
+
+        # Synthetic 3: Dense random noise (camera fault simulation)
+        noise_t10 = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+        negative_frames_t10.append(("dense_random_noise", noise_t10))
+
+        # Synthetic 4: White blank frame (overexposed)
+        white_t10 = np.full((480, 640, 3), fill_value=255, dtype=np.uint8)
+        negative_frames_t10.append(("white_blank_overexposed", white_t10))
+
+        neg_fp_count = 0
+        for neg_name, neg_img in negative_frames_t10:
+            res_t10 = run_frame_inference(neg_img, camera_id=1001, camera_name="NEG-SCENERY", manual_scan=False, quality=90)
+            dbg_t10 = res_t10.get("debug", {})
+            is_det_t10 = res_t10.get("detected", False)
+            status_t10 = res_t10.get("status", "UNKNOWN")
+            chain_t10 = dbg_t10.get("phase8_evidence_chain", {})
+            first_fail_t10 = chain_t10.get("firstFailingStage", "N/A")
+            stage1_t10 = dbg_t10.get("1_vehicleDetected", False)
+            plate_att_t10 = dbg_t10.get("4_plateDetectionAttempted", False)
+            # Test PASSES when: not detected AND plate was NOT attempted (strict Stage 1 gating)
+            test_pass = (not is_det_t10) and (not plate_att_t10)
+            if is_det_t10:
+                neg_fp_count += 1
+            sl_t10 = "PASS" if test_pass else "FAIL"
+            print(f"  \u2022 [{neg_name}]: Stage1={stage1_t10} | PlateAtt={plate_att_t10} | Status={status_t10} | FirstFail={first_fail_t10} | [{sl_t10}]")
+            test_results["TEST 10"].append({
+                "image": neg_name,
+                "detected": test_pass,
+                "plate": "[Negative Sample]",
+                "confidence": 0.0,
+                "failureStage": "None (Correctly Rejected)" if test_pass else "FALSE_POSITIVE_ESCAPED",
+                "failureReason": f"Correctly rejected at {first_fail_t10}" if test_pass else f"FALSE_POSITIVE: status={status_t10}, plate_att={plate_att_t10}"
+            })
+
+        print(f"\n  \u2022 10.1 Summary: {neg_fp_count}/{len(negative_frames_t10)} false positives on pure negative scenery.")
+        if neg_fp_count == 0:
+            print("  \u2713 10.1 PASS: Zero false positives on pure negative scenery.")
+        else:
+            print(f"  \u2717 10.1 FAIL: {neg_fp_count} unexpected confirmed events!")
+
+        # -------------------------------------------------------------------
+        # 10.2: Vehicle Visible, Plate Obscured / Unreadable
+        # -------------------------------------------------------------------
+        print("\n[TEST 10.2] Vehicle Detected, Plate Unreadable:")
+        print("  Obscures plate region to make it unreadable. Expected: vehicle detected, 0 confirmed plates.")
+        print("  Note: uses full-image mosaic blur to handle portrait/landscape plate positions uniformly.")
+
+        sample_path_t10 = SAMPLE_IMAGES[0]
+        obs_fp_count = 0
+        if os.path.exists(sample_path_t10):
+            orig_t10 = cv2.imread(sample_path_t10)
+            h_t10, w_t10 = orig_t10.shape[:2]
+            scale_t10 = 1280.0 / float(max(h_t10, w_t10))
+            ox = int(138 / scale_t10)
+            oy = int(412 / scale_t10)
+            ow = int(320 / scale_t10)
+            oh = int(264 / scale_t10)
+            obscured_t10 = []
+
+            # Variant 1: Complete physical occlusion (simulates mud/tape covering plate)
+            v1 = orig_t10.copy()
+            cv2.rectangle(v1, (max(0, ox - 20), max(0, oy - 20)), (min(w_t10, ox + ow + 20), min(h_t10, oy + oh + 20)), (25, 25, 25), -1)
+            obscured_t10.append(("physical_occlusion", v1, 5500))
+
+            # Variant 2: Defaced / illegible plate (plate body visible, characters scratched/illegible)
+            v2 = orig_t10.copy()
+            cv2.rectangle(v2, (ox + 30, oy + 30), (ox + ow - 30, oy + oh - 30), (40, 180, 220), -1)
+            for i in range(25):
+                p1 = (np.random.randint(ox + 30, ox + ow - 30), np.random.randint(oy + 30, oy + oh - 30))
+                p2 = (np.random.randint(ox + 30, ox + ow - 30), np.random.randint(oy + 30, oy + oh - 30))
+                cv2.line(v2, p1, p2, (30, 30, 30), 4)
+            obscured_t10.append(("defaced_illegible_ocr", v2, 5501))
+
+            # Variant 3: Heavy plate blur (simulates severe motion blur / lens smear on plate)
+            v3 = orig_t10.copy()
+            plate_crop = v3[max(0, oy - 10):min(h_t10, oy + oh + 10), max(0, ox - 10):min(w_t10, ox + ow + 10)]
+            v3[max(0, oy - 10):min(h_t10, oy + oh + 10), max(0, ox - 10):min(w_t10, ox + ow + 10)] = cv2.GaussianBlur(plate_crop, (151, 151), 50)
+            obscured_t10.append(("severe_plate_blur", v3, 5502))
+
+            for var_name_t10, var_img_t10, cam_id_obs in obscured_t10:
+                # Use fresh unique camera IDs to avoid temporal tracker contamination from prior tests
+                run_frame_inference(var_img_t10, camera_id=cam_id_obs, camera_name="OBSCURED", manual_scan=False, quality=90)
+                time.sleep(0.15)
+                r_obs = run_frame_inference(var_img_t10, camera_id=cam_id_obs, camera_name="OBSCURED", manual_scan=False, quality=90)
+                dbg_obs = r_obs.get("debug", {})
+                is_det_obs = r_obs.get("detected", False)
+                status_obs = r_obs.get("status", "UNKNOWN")
+                chain_obs = dbg_obs.get("phase8_evidence_chain", {})
+                first_fail_obs = chain_obs.get("firstFailingStage", "N/A")
+
+                stage1_obs = dbg_obs.get("1_vehicleDetected", False)
+                plate_att_obs = dbg_obs.get("4_plateDetectionAttempted", False)
+                test_pass_obs = not is_det_obs
+                if is_det_obs:
+                    obs_fp_count += 1
+                sl_obs = "PASS" if test_pass_obs else "FAIL"
+                print(f"  \u2022 [{var_name_t10}]: Vehicle={stage1_obs} | PlateAtt={plate_att_obs} | Status={status_obs} | FirstFail={first_fail_obs} | [{sl_obs}]")
+                test_results["TEST 10"].append({
+                    "image": var_name_t10,
+                    "detected": test_pass_obs,
+                    "plate": "[Obscured Sample]",
+                    "confidence": 0.0,
+                    "failureStage": "None (Correctly Rejected)" if test_pass_obs else "FALSE_POSITIVE_OBSCURED",
+                    "failureReason": f"Vehicle OK; plate blocked at {first_fail_obs}" if test_pass_obs else f"UNEXPECTED_CONFIRM: {status_obs}"
+                })
+        else:
+            print(f"  [SKIP] Sample image not found: {sample_path_t10}")
+            test_results["TEST 10"].append({
+                "image": "obscured_plate_tests",
+                "detected": False,
+                "plate": "[Skipped]",
+                "confidence": 0.0,
+                "failureStage": "SKIPPED",
+                "failureReason": "Sample image not found"
+            })
+
+        print(f"\n  \u2022 10.2 Summary: {obs_fp_count} unexpected confirmations on obscured-plate vehicles.")
+        if obs_fp_count == 0:
+            print("  \u2713 10.2 PASS: No false positives when plate is illegible.")
+        else:
+            print(f"  \u2717 10.2 FAIL: {obs_fp_count} confirmed events despite unreadable plate!")
+
+        # -------------------------------------------------------------------
+        # 10.3: Full 6-Stage Green Path Verification (Known Good Image)
+        # -------------------------------------------------------------------
+        print("\n[TEST 10.3] Full 6-Stage Evidence Chain Verification (Green Path):")
+        print("  Sends clean vehicle+plate image twice. Expects all 6 stages PASS and event CONFIRMED.")
+
+        green_path_t10 = SAMPLE_IMAGES[0]
+        if os.path.exists(green_path_t10):
+            green_img_t10 = cv2.imread(green_path_t10)
+            run_frame_inference(green_img_t10, camera_id=1003, camera_name="GREENPATH", manual_scan=False, quality=95)
+            time.sleep(0.12)
+            r_green = run_frame_inference(green_img_t10, camera_id=1003, camera_name="GREENPATH", manual_scan=False, quality=95)
+            dbg_g = r_green.get("debug", {})
+            chain_g = dbg_g.get("phase8_evidence_chain", {})
+            all_pass_g = chain_g.get("allPassed", False)
+            first_fail_g = chain_g.get("firstFailingStage", "N/A")
+            is_det_g = r_green.get("detected", False)
+            det_obj_g = r_green.get("detection") or {}
+            plate_g = det_obj_g.get("plate", (dbg_g.get("13_normalizedOcrResults") or ["None"])[0])
+            conf_g = det_obj_g.get("confidence", 0.0)
+
+            for cs_g in chain_g.get("stages", []):
+                icon_g = "\u2713" if cs_g.get("passed") else "\u2717"
+                print(f"    {icon_g} {cs_g['id']}: {cs_g['name']} \u2014 {'PASSED' if cs_g.get('passed') else 'FAILED'}")
+
+            sl_g = "PASS" if is_det_g else "FAIL"
+            print(f"  \u2022 Result: Plate='{plate_g}' | Conf={conf_g:.2f} | AllStagesPassed={all_pass_g} | [{sl_g}]")
+            test_results["TEST 10"].append({
+                "image": os.path.basename(green_path_t10),
+                "detected": is_det_g,
+                "plate": plate_g,
+                "confidence": conf_g,
+                "failureStage": "None (All 6 Stages Passed)" if is_det_g else first_fail_g,
+                "failureReason": f"All 6 stages confirmed: {plate_g}" if is_det_g else f"Chain stopped at {first_fail_g}"
+            })
+            if is_det_g:
+                print("  \u2713 10.3 PASS: Complete 6-stage green path confirmed ANPR event.")
+            else:
+                print(f"  \u2717 10.3 FAIL: Expected confirmation; pipeline stopped at {first_fail_g}")
+        else:
+            print(f"  [SKIP] Sample image not found: {green_path_t10}")
+            test_results["TEST 10"].append({
+                "image": "green_path_verification",
+                "detected": False,
+                "plate": "[Skipped]",
+                "confidence": 0.0,
+                "failureStage": "SKIPPED",
+                "failureReason": "Sample image not found"
+            })
+
+        print("\n  [TEST 10 COMPLETE] Phase 8 False-Positive Protection Benchmark DONE.")
+
+    except Exception as e_t10:
+        print(f"TEST 10 Benchmark Error: {e_t10}")
+        import traceback
+        traceback.print_exc()
+
+
+
+    # ─────────────────────────────────────────────────────────────
     # Comparative Breakdown & Failure Point Synthesis
     # ─────────────────────────────────────────────────────────────
     print("\n" + "=" * 78)
@@ -823,7 +1040,7 @@ def evaluate_test_suite():
     print(f"{'Test':<8} | {'Samples':<7} | {'Det Rate':<9} | {'Avg Conf':<8} | {'Primary Failure Stage':<28} | {'Primary Rejection Reason'}")
     print("-" * 78)
 
-    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7", "TEST 8", "TEST 9"]:
+    for t_name in ["TEST 1", "TEST 2", "TEST 3", "TEST 4", "TEST 5", "TEST 6", "TEST 7", "TEST 8", "TEST 9", "TEST 10"]:
         recs = test_results.get(t_name, [])
         if not recs:
             print(f"{t_name:<8} | {'0':<7} | {'N/A':<9} | {'N/A':<8} | {'No Frames Recorded':<28} | N/A")

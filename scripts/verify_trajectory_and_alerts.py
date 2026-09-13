@@ -53,7 +53,7 @@ def test_watchlist_alerting():
     # 1. Add plate to watchlist
     wl_add_res = requests.post(
         f"{NODE_URL}/api/watchlist",
-        json={"plate": wl_plate, "reason": "BOLO: Stolen Luxury Sedan (SIH Demo)"},
+        json={"plate": wl_plate, "reason": "BOLO: Stolen Luxury Sedan"},
         verify=False,
         timeout=5
     )

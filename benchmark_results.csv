@@ -1,0 +1,42 @@
+image,collection,category,has_plate_ground_truth,ground_truth_plates,vehicle_detected,plate_candidate_found,anpr_confirmed,detected_plate,detector_confidence,ocr_confidence,ocr_exact_match,character_accuracy,false_positive,status,failure_stage,latency_ms
+dc_auto_image_000021_bMXgvtud5K.jpg,VOC_Annotated,Auto-Rickshaw,True,"KL34A465, KL34A465, KL34F, KL35F4337, KL35H5834, KL03S6894",True,True,True,KL35HE5834,0.77,0.99,False,0.9,False,CONFIRMED_ANPR_EVENT,None (Passed),4116.6
+dc_auto_image_000024_fqvRhfiO6i.jpg,VOC_Annotated,Auto-Rickshaw,True,UP84AE9889,True,True,True,UP81AE9889,0.53,0.99,False,0.9,False,CONFIRMED_ANPR_EVENT,None (Passed),2120.0
+dc_bus_image_000033_XUH0eV452t.jpg,VOC_Annotated,Bus,True,GJ01DY6855,True,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,798.4
+dc_bus_image_000039_9NispLHmAo.jpg,VOC_Annotated,Bus,True,KL498262,True,True,True,KL498262,0.95,0.95,True,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),4251.9
+dc_license_plates_0RBAQHKIXQMDFYZD.jpg,VOC_Annotated,Car,True,WB42AX7446,True,True,False,INDUBZZAX7LL6,0.5,0.78,False,0.3846,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,2040.1
+dc_license_plates_0RRPJCID3RRLSFTI.jpg,VOC_Annotated,Car,True,MP07L7524,True,True,True,MP0TL7524,0.71,0.8,False,0.8889,False,CONFIRMED_ANPR_EVENT,None (Passed),2768.9
+dc_license_plates_2D9KWCA7PLD0NW31.jpg,VOC_Annotated,Car,True,MP04PA0434,False,True,True,TR04PA0434,0.91,0.83,False,0.8,False,CONFIRMED_ANPR_EVENT,None (Passed),2129.3
+dc_license_plates_2DZ4YT4ZJ9XJZSO0.jpg,VOC_Annotated,Car,True,RJ11GB1829,True,True,False,RIIGU11829,0.82,0.29,False,0.5,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,3686.4
+dc_license_plates_3GKHBM5PWHYXHMTE.jpg,VOC_Annotated,Car,True,KL41L7001,True,True,True,KL41L2001,0.91,0.94,False,0.8889,False,CONFIRMED_ANPR_EVENT,None (Passed),2110.2
+dc_license_plates_3HE1J0YIRGRDENVO.jpg,VOC_Annotated,Car,True,TN58D5353,True,True,True,TN58D5352,0.93,0.97,False,0.8889,False,CONFIRMED_ANPR_EVENT,None (Passed),3490.4
+dc_license_plates_7K9NEIDD2KK46L6F.jpg,VOC_Annotated,Car,True,KL07BX7197,True,True,True,KL07BX2197,0.96,0.99,False,0.9,False,CONFIRMED_ANPR_EVENT,None (Passed),3143.9
+dc_license_plates_7L53OMODJOLUGUOE.jpg,VOC_Annotated,Car,True,UP84AE6664,False,True,True,PB1UAE6664,0.91,0.99,False,0.6,False,CONFIRMED_ANPR_EVENT,None (Passed),1963.9
+dc_license_plates_VTPRN3NAPF8MUGNF.jpg,VOC_Annotated,Car,True,KL10AG7249,True,True,True,KL10AG7249,0.84,0.99,True,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),2020.7
+dc_license_plates_VYA8KOAVKLW6PJYK.jpg,VOC_Annotated,Car,True,TN58AP5280,True,True,True,TN58AP5280,0.8,0.99,True,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),3897.1
+dc_license_plates_VZUYOAPZ8633ZQTN.jpg,VOC_Annotated,Car,True,DL3CD1210,True,True,True,DL8CD1210,0.79,0.99,False,0.8889,False,CONFIRMED_ANPR_EVENT,None (Passed),4243.8
+dc_license_plates_W1W3000C6IAY3F1X.jpg,VOC_Annotated,Car,True,RJ11GB8850,False,True,False,RU1IGR8850,0.88,0.41,False,0.7,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,2301.3
+dc_tempo_van__image_000489_73h4cMU8Z1.jpg,VOC_Annotated,Tempo/Van,True,MP13GA9462,True,True,True,GA94MP1362,0.95,0.66,False,0.2,False,CONFIRMED_ANPR_EVENT,None (Passed),4164.4
+dc_tempo_van__image_000490_CF9bwJsyoX.jpg,VOC_Annotated,Tempo/Van,True,KA09C2763,True,True,True,KA09C2261,0.82,0.68,False,0.7778,False,CONFIRMED_ANPR_EVENT,None (Passed),3908.9
+dc_truck_image_001561_IEhCyPTs.jpg,VOC_Annotated,Truck,True,MH18AA1002,True,True,False,MH44AB61002,0.71,0.23,False,0.6364,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,2120.1
+dc_truck_image_001564_RZeQ1TZR.jpg,VOC_Annotated,Truck,True,KA01AJ7533,True,True,True,KA04J7533,0.68,0.93,False,0.8,False,CONFIRMED_ANPR_EVENT,None (Passed),5506.8
+Datacluster_number_plates (1).jpg,Challenge_Samples,Real-World Challenge,True,AP29AN0074,True,True,True,AN08AP2974,0.91,0.92,False,0.4,False,CONFIRMED_ANPR_EVENT,None (Passed),2071.6
+Datacluster_number_plates (101).jpg,Challenge_Samples,Real-World Challenge,True,MH24MPL4282,True,True,False,MP42MG022461,0.85,0.77,False,0.25,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,3748.7
+Datacluster_number_plates (11).jpg,Challenge_Samples,Real-World Challenge,True,DL3CBL1234,False,True,False,ZI174JHOSAWG,0.98,0.94,False,0.0,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,3853.6
+Datacluster_number_plates (16).jpg,Challenge_Samples,Real-World Challenge,True,AP09BN8123,True,True,False,,0.307,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,318.5
+Datacluster_number_plates (18).jpg,Challenge_Samples,Real-World Challenge,True,DL1YB6543,True,True,True,TN23L4547,0.62,0.35,False,0.2222,False,CONFIRMED_ANPR_EVENT,None (Passed),7227.1
+Datacluster_number_plates (22).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],True,True,True,MH801866,0.97,0.47,False,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),7523.0
+Datacluster_number_plates (36).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],False,True,True,UP38F2859,0.95,0.99,False,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),3852.1
+Datacluster_number_plates (38).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],True,True,False,DL28SBT26438,0.92,0.37,False,0.0,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,2231.9
+Datacluster_number_plates (4).jpg,Challenge_Samples,Real-World Challenge,True,HR26BC7890,True,True,False,3309172673U44IBR,0.76,0.52,False,0.125,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,4276.8
+Datacluster_number_plates (49).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],True,True,True,MH20BC5122,0.95,0.98,False,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),3920.1
+Datacluster_number_plates (5).jpg,Challenge_Samples,Real-World Challenge,True,KA04MH2345,False,True,True,UP64W4388,0.96,0.99,False,0.2,False,CONFIRMED_ANPR_EVENT,None (Passed),4311.2
+Datacluster_number_plates (53).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],True,True,True,KA38M1674,0.64,0.99,False,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),2301.5
+Datacluster_number_plates (55).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],False,True,True,PB8UF2859,0.94,0.99,False,1.0,False,CONFIRMED_ANPR_EVENT,None (Passed),3842.6
+Datacluster_number_plates (62).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],False,True,False,GE1533MPO7,0.92,0.77,False,0.0,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,2197.2
+Datacluster_number_plates (64).jpg,Challenge_Samples,Real-World Challenge,False,[Unspecified Challenge Plate],True,True,False,AO703,0.89,0.39,False,0.0,False,REJECTED_SYNTAX,Stage 4: OCR / Syntax Validation,4898.9
+neg_asphalt_road.jpg,Negative_Controls,Negative Control,False,NONE,False,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,204.4
+neg_sky_scenery.jpg,Negative_Controls,Negative Control,False,NONE,False,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,195.1
+neg_sensor_noise.jpg,Negative_Controls,Negative Control,False,NONE,False,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,237.8
+neg_overexposed_glare.jpg,Negative_Controls,Negative Control,False,NONE,False,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,232.5
+neg_roadside_billboard.jpg,Negative_Controls,Negative Control,False,NONE,False,True,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,217.7
+neg_green_foliage.jpg,Negative_Controls,Negative Control,False,NONE,False,False,False,,0.0,0.0,False,0.0,False,NO_PLATE_CANDIDATES,Stage 2: Plate Localization / Geometric Validation,218.7
