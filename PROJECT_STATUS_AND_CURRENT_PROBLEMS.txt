@@ -5,7 +5,7 @@ DOCUMENT: CURRENT SYSTEM STATUS, ARCHITECTURE, BENCHMARK METRICS, AND OPERATIONA
 LAST UPDATED: September 13, 2026
 LOCATION: d:\college work\Hackaton projects\new zyn
 GIT REPOSITORY: https://github.com/aid278129-cmd/backup-project.git (Branch: main)
-LATEST COMMIT: 09cb79b (feat(anpr): Live camera ANPR hardening, two-wheeler plate detection & clean dashboard)
+LATEST COMMIT: ff8caf4 (feat(dashboard): persistent SPA tab navigation, prevent stream disconnects & background drop)
 ====================================================================================================
 
 1. PROJECT OVERVIEW & CORE OBJECTIVES
@@ -236,6 +236,12 @@ The following problems documented in earlier reports have been completely resolv
      RESOLVED via Phase 9 one-click startup scripts (`start_system.bat` and `start_system.ps1`).
   5. Two-Wheeler Detection Blindspot:
      RESOLVED via adaptive motorcycle ROI expansion and PSM 6 two-row plate optimization.
+  6. Navigation Page Unload & Stream Restart (Switching between Dashboard and Camera Network / Tracking / Analytics):
+     RESOLVED via unified Single-Page Application (SPA) tab switching inside dashboard.html. All 5 views
+     (Command Center, Vehicle Tracking, Analytics, Camera Network, Watchlist) now operate as persistent tabs
+     with URL hash routing (#cmd, #track, #analytics, #network, #watchlist). WebRTC video streams, Socket.io
+     signaling, and ANPR vision processing remain active in the background, completely eliminating stream
+     drops, renegotiation delays, and state resets when switching tabs.
 
 
 6. CURRENT PROBLEMS & OPERATIONAL CHALLENGES BEING FACED
