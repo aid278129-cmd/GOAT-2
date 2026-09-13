@@ -16,6 +16,8 @@ ENV/
 runs/
 yolov8n.pt
 dataset/images/
+*.cache
+*.log
 
 # Temporary Tesseract training scratch directory
 tess_training/
