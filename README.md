@@ -196,7 +196,19 @@ Optical noise frequently swaps visually identical glyphs. The syntactic parser r
 
 ### 1. One-Click Startup (Recommended)
 
-The repository includes smart, self-healing startup scripts that check system requirements, auto-install missing packages from `requirements.txt` and `package.json`, and launch all services simultaneously:
+#### Unified Python Launcher (Cross-Platform — Windows / Linux / macOS):
+```bash
+python run.py
+```
+*Runs pre-flight checks, handles port allocation, launches both Python ANPR backend (`scripts/anpr_server.py`) and Node.js frontend (`server.js`) with live log streaming, and automatically opens the dashboard in your default browser.*
+
+##### Useful Launcher Flags:
+- `python run.py --no-browser` : Launch services without opening browser
+- `python run.py --separate-windows` : Open services in separate consoles (Windows)
+- `python run.py --kill-existing` : Clear and restart existing port listeners (5001 & 3000)
+- `python run.py --install-deps` : Check and auto-install missing packages
+- `python run.py --backend-only` : Start only Python ANPR inference server
+- `python run.py --frontend-only` : Start only Node.js dashboard server
 
 #### Windows Command Prompt / Double-Click:
 ```cmd

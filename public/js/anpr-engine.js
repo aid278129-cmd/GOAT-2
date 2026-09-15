@@ -417,6 +417,8 @@ class ANPREngine {
         capCtx.drawImage(videoEl, 0, 0, capCanvas.width, capCanvas.height);
 
         const base64Img = capCanvas.toDataURL('image/jpeg', 0.88);
+        const frameCapturedAt = (typeof best !== 'undefined' && best && best.timestamp) ? best.timestamp : Date.now();
+        const keyframeSelectedAt = Date.now();
 
         const resp = await fetch('/api/anpr/detect', {
           method: 'POST',
@@ -429,13 +431,24 @@ class ANPREngine {
             developerMode: this.developerMode,
             keyframeSharpness: Math.round(selectedSharpness * 10) / 10,
             keyframeWindowMs: this.config.keyframe_window_ms,
-            keyframeCandidates: candidatesCount
+            keyframeCandidates: candidatesCount,
+            frameCapturedAt: frameCapturedAt,
+            keyframeSelectedAt: keyframeSelectedAt
           })
         });
 
         if (resp.ok) {
           const data = await resp.json();
           const inv = 1.0 / scale;
+          const frontendRenderedAt = Date.now();
+
+          if (data.timeline) {
+            data.timeline.frontendRenderedAt = frontendRenderedAt;
+            data.timeline.totalLiveConfirmationMs = frontendRenderedAt - frameCapturedAt;
+            if (this.config.logToConsole && data.detected) {
+              console.log(`⏱️ [LIVE TIMELINE] CAM 0${cameraId} -> Plate: ${data.detection?.plate} | Total Live Latency: ${data.timeline.totalLiveConfirmationMs}ms (Frame Sampling: ${(data.timeline.keyframeSelectedAt||0)-(data.timeline.frameCapturedAt||0)}ms, Queue: ${data.timeline.queueWaitMs||0}ms, ANPR Worker: ${data.timeline.totalProcessingMs||0}ms)`);
+            }
+          }
 
           if (data.queueTelemetry) {
             this._lastServerQueue = data.queueTelemetry;
@@ -485,6 +498,7 @@ class ANPREngine {
               ocrConfidence: det.ocrConfidence,
               vehicleType: det.vehicleType || 'Car',
               plateType: det.plateType || 'HSRP',
+              timeline: data.timeline || null,
               expires: Date.now() + 5000
             };
 
@@ -1311,7 +1325,12 @@ class ANPREngine {
 
     if (plateEl) plateEl.textContent = det.plate;
     if (stateEl) stateEl.textContent = det.stateName || 'Indian Vehicle';
-    if (subEl) subEl.textContent = `${det.vehicleType || 'CAR'} · ${Math.round(det.confidence * 100)}% CONF`;
+    if (subEl) {
+      const latMsg = det.timeline && det.timeline.totalLiveConfirmationMs
+        ? ` · ⏱️ ${det.timeline.totalLiveConfirmationMs}ms (${det.timeline.totalProcessingMs || 0}ms backend)`
+        : '';
+      subEl.textContent = `${det.vehicleType || 'CAR'} · ${Math.round(det.confidence * 100)}% CONF${latMsg}`;
+    }
 
     card.classList.add('visible');
     clearTimeout(card._hideTimer);

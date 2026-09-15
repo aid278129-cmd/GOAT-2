@@ -306,6 +306,7 @@ class MultiCameraQueueManager {
       }
 
       // Store current frame in the camera's pending slot
+      reqBody.requestQueuedAt = reqBody.requestQueuedAt || Date.now();
       cam.pending = {
         reqBody,
         resolve,
@@ -344,6 +345,8 @@ class MultiCameraQueueManager {
 
     const startTime = Date.now();
     const waitTime = startTime - task.enqueuedAt;
+    task.reqBody.workerDispatchedAt = startTime;
+    task.reqBody.queueWaitMs = waitTime;
 
     fetch('http://127.0.0.1:5001/detect', {
       method: 'POST',
@@ -353,6 +356,16 @@ class MultiCameraQueueManager {
       .then(async (pyResp) => {
         const durationMs = Date.now() - startTime;
         const data = await pyResp.json();
+
+        if (data && typeof data === 'object') {
+          data.timeline = data.timeline || {};
+          data.timeline.frameCapturedAt = task.reqBody.frameCapturedAt || data.timeline.frameCapturedAt || null;
+          data.timeline.keyframeSelectedAt = task.reqBody.keyframeSelectedAt || data.timeline.keyframeSelectedAt || null;
+          data.timeline.requestQueuedAt = task.reqBody.requestQueuedAt || data.timeline.requestQueuedAt || null;
+          data.timeline.workerDispatchedAt = task.reqBody.workerDispatchedAt || startTime;
+          data.timeline.queueWaitMs = waitTime;
+          data.timeline.nodeRoundTripMs = durationMs;
+        }
 
         // Update statistics
         this.globalStats.totalProcessed++;

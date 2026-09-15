@@ -1,1000 +1,197 @@
-You are continuing development of my existing Smart India Hackathon project.
+Use the latest 180-frame LIVE benchmark as the source of truth.
 
-PROJECT:
-ANPR Traffic Intelligence Platform
+Do NOT add new major features.
+Do NOT implement Vehicle Re-ID.
+Do NOT retrain/replace YOLO yet.
+Do NOT modify GIS, trajectory, watchlist, analytics or WebRTC architecture.
 
-SIH Problem Statement ID: 26127
+The objective is to improve LIVE ANPR conversion rate and eliminate
+remaining latency spikes while preserving false-positive protection.
 
-Title:
-City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking & Urban Traffic Analytics
+CURRENT LIVE FUNNEL:
 
-Organization:
-Bharat Electronics Limited (BEL)
+180 dispatched
+130 vehicle detected
+117 plate candidates
+36 geometry-valid
+24 final confirmed
 
-Project location:
-`d:\college work\Hackaton projects\new zyn`
+Current fast path:
+~310–460 ms
 
-Git repository:
-`https://github.com/aid278129-cmd/backup-project.git`
+Slow OCR fallback:
+~1.46–2.50 sec
 
-IMPORTANT:
-This is already a working project.
-
-DO NOT rebuild it.
-DO NOT replace the architecture.
-DO NOT redesign unrelated frontend components.
-DO NOT retrain or replace working AI models unless testing proves it is necessary.
-
-Inspect the existing code before making changes.
-
-The goal of this development phase is to FIX, OPTIMIZE and HARDEN the existing implementation.
-
----
-
-# CURRENT WORKING ARCHITECTURE
-
-The project currently contains:
-
-Node.js + Express
-Socket.io / WebSocket
-WebRTC mobile camera streaming
-FastAPI Python ANPR microservice
-YOLOv8 vehicle detection
-Custom YOLOv8 Indian plate detector
-Tesseract OCR
-EasyOCR fallback
-Indian MoRTH/Bharat-Series validation
-Multi-frame temporal confirmation
-Cross-camera trajectory tracking
-Leaflet GIS
-Traffic analytics
-Watchlist alerts
-16-point ANPR diagnostics
-JSON prototype persistence
-
-The following are already functional:
-
-* Node backend
-* Python ANPR server
-* mobile WebRTC cameras
-* multi-camera dashboard
-* vehicle detection
-* plate detection
-* OCR
-* Indian plate normalization
-* multi-frame confirmation
-* trajectory infrastructure
-* watchlist
-* analytics
-* diagnostics
-* screen simulation tests
-* real-stream tests
-
-Preserve all of them.
-
----
-
-# PRIMARY OBJECTIVE
-
-Improve the existing system in this order:
-
-1. Perspective/skew correction
-2. Intelligent sharp-frame selection
-3. CPU inference optimization
-4. Screen-capture robustness
-5. Reliable multi-camera processing
-6. One-click startup/process management
-7. Real-world ANPR benchmarking
-8. System reliability
-9. Only then consider vehicle Re-ID
-
-Do not attempt everything simultaneously.
-
-Implement and test one phase at a time.
+CRNN:
+~9.5 ms
 
 ==================================================
-PHASE 1 — PERSPECTIVE / SKEW CORRECTION
-=======================================
+TASK 1 — ADAPTIVE LIVE PLATE CONFIDENCE
+==================================================
 
-CURRENT PROBLEM:
+Keep static/direct-image plate threshold at 0.40.
 
-License plates captured at approximately 30–60 degree camera angles become trapezoidal.
+For LIVE WebRTC frames only, test:
+0.35
+0.32
+0.30
+0.28
 
-The detector may correctly locate the plate but OCR then reads distorted characters incorrectly.
+Do NOT automatically choose 0.28.
 
-Example:
+Benchmark each threshold on the same live test sequence.
 
-Expected:
-`MP42MG2246`
+For each threshold report:
 
-Incorrect:
-`MPHMG224`
+plate candidate recall
+geometry-valid candidates
+final confirmed plates
+false positives
+incorrect confirmations
+latency.
 
-Implement perspective correction BEFORE OCR.
+Choose the LOWEST-RISK threshold producing the best verified result.
 
-Desired pipeline:
+A low-confidence YOLO candidate must still pass:
 
-Vehicle Detection
-→ Vehicle ROI
-→ Plate Detection
-→ Plate Crop
-→ Perspective/Skew Analysis
-→ Perspective Rectification
-→ Image Enhancement
-→ OCR
-→ Validation
-
-Implement a robust 4-point perspective transformation / homography using OpenCV.
-
-Suggested approach:
-
-1. Receive detected plate crop.
-2. Detect plate boundary/corners where reliable.
-3. Determine four ordered corner points:
-   top-left
-   top-right
-   bottom-right
-   bottom-left
-4. Compute perspective transformation matrix.
-5. Warp the plate into a flat rectangular image.
-6. Correct rotation/skew.
-7. Preserve aspect ratio.
-8. Pass the corrected image to the existing enhancement/OCR pipeline.
-
-IMPORTANT:
-
-Perspective correction must be confidence-aware.
-
-If reliable plate corners cannot be determined, DO NOT destroy a good crop with an incorrect transformation.
-
-Use:
-
-Original crop
-+
-Rectified candidate
-
-Run OCR appropriately and select the result with stronger combined evidence such as:
-
+vehicle evidence
+geometry
+Indian syntax
 OCR confidence
-+
-Indian syntax validity
-+
-temporal consistency.
+temporal confirmation
 
-Save both crops in debug mode:
-
-`original_plate.jpg`
-`rectified_plate.jpg`
-
-Add diagnostics:
-
-Perspective correction:
-APPLIED / SKIPPED
-
-Estimated skew:
-XX degrees
-
-Original OCR:
-...
-
-Rectified OCR:
-...
-
-Selected:
-ORIGINAL / RECTIFIED
-
-Do not remove the existing CLAHE, bilateral filtering, Otsu processing, Tesseract or EasyOCR pipeline unless testing proves a replacement is better.
-
-TEST BEFORE MOVING ON.
-
-Use:
-
-* frontal plate
-* moderately angled plate
-* heavily angled plate
-* two-row Indian plate
-* Bharat Series plate
-
-Make sure perspective correction improves angled plates without degrading frontal ones.
+before becoming a final detection.
 
 ==================================================
-PHASE 2 — INTELLIGENT KEYFRAME SELECTION
-========================================
+TASK 2 — INVESTIGATE GEOMETRY BOTTLENECK
+==================================================
 
-CURRENT PROBLEM:
+117 plate candidates currently produce only 36 geometry-valid crops.
 
-Live cameras produce roughly 10–15 FPS while CPU inference is much slower.
+Do NOT loosen geometry rules blindly.
 
-Processing every frame is unnecessary and creates backlog.
+Instrument every rejection separately:
 
-Instead of blindly processing frames at fixed intervals, implement intelligent keyframe selection.
+REJECT_ASPECT_RATIO
+REJECT_MIN_WIDTH
+REJECT_MIN_HEIGHT
+REJECT_AREA_RATIO
+REJECT_VERTICAL_POSITION
+REJECT_OTHER_GEOMETRY
 
-Use image sharpness measurement such as:
+Save representative rejected plate crops into:
 
-Laplacian variance.
+debug_output/geometry_rejected/
+
+Generate counts and percentages for every rejection reason.
+
+Determine whether real plates are being rejected.
+
+Only modify the specific geometry rule if evidence demonstrates that
+valid Indian plates are being discarded.
+
+==================================================
+TASK 3 — HARD LIMIT FALLBACK OCR
+==================================================
+
+CRNN fast path is ~9.5 ms while fallback OCR can exceed 2 seconds.
+
+For LIVE video only, impose a TOTAL fallback OCR time budget of
+approximately 350 ms.
 
 Pipeline:
 
-Incoming Frames
-→ Lightweight Sharpness Analysis
-→ Candidate Frame Buffer
-→ Select Sharpest Useful Frame
-→ ANPR
+CRNN
+↓
+probabilistic positional decoder
+↓
+valid?
+YES -> STOP
 
-Example:
+NO
+↓
+fallback OCR with remaining time budget
 
-Frame A → sharpness 65
-Frame B → sharpness 148
-Frame C → sharpness 93
-Frame D → sharpness 201
+If the total fallback budget expires:
 
-Select:
+ABORT OCR FOR THAT FRAME.
 
-Frame D.
+Do NOT block the camera pipeline for 2+ seconds.
 
-Do NOT send every frame to the Python ANPR service.
+Allow the next sharp frame to provide another recognition opportunity.
 
-Implement a short rolling frame window.
-
-Prefer approximately the sharpest useful frame per second or configurable interval.
-
-Add configuration:
-
-keyframe_selection: true
-keyframe_window_ms
-minimum_sharpness
-anpr_sampling_interval
-
-Avoid selecting frames when:
-
-* extremely blurred
-* camera is moving rapidly
-* frame is almost identical to recently processed frame
-
-Do not interfere with WebRTC video playback.
-
-The dashboard should remain smooth even while ANPR is processing.
+Static/manual image scanning may retain a slower high-quality mode.
 
 ==================================================
-PHASE 3 — CPU PERFORMANCE OPTIMIZATION
-======================================
+TASK 4 — OCR EXACT-MATCH IMPROVEMENT
+==================================================
 
-CURRENT PROBLEM:
+Do not optimize only for character accuracy.
 
-Complete ANPR inference currently takes several seconds per frame on CPU.
+Current validation:
+Character accuracy = 92.3%
+Exact match = 32.2%
 
-PROFILE THE PIPELINE FIRST.
+PRIMARY OCR METRIC FROM NOW ON:
+FULL PLATE EXACT-MATCH ACCURACY.
 
-Measure separate timings for:
+Create an error matrix for:
 
-Vehicle YOLO
-Plate YOLO
-Image preprocessing
-Tesseract
-EasyOCR
-Validation
-Temporal tracker
-Total processing
+B/8
+O/0
+D/0
+I/1
+T/1
+S/5
+Z/2
 
-Example diagnostics:
+Use CRNN top-K/beam candidates plus positional legality.
 
-Vehicle Detection: 850ms
-Plate Detection: 700ms
-Enhancement: 40ms
-Tesseract: 900ms
-EasyOCR: 1400ms
-Validation: 5ms
+Do not blindly replace characters.
 
-TOTAL: 3895ms
+Mine incorrectly recognized REAL crops and add them only to the
+training dataset.
 
-Do not optimize blindly.
+Never train using benchmark/test images.
 
-Identify the actual bottleneck.
+==================================================
+TASK 5 — RE-BENCHMARK LIVE PIPELINE
+==================================================
 
-Then investigate CPU-friendly optimization.
+After changes run another >=180-frame live benchmark.
 
-Evaluate:
+Report BEFORE vs AFTER:
 
-ONNX Runtime
+Vehicle detection conversion
+Plate candidate conversion
+Geometry pass rate
+OCR syntax pass rate
+Final confirmation rate
 
-for the YOLO models if compatible.
+Median E2E latency
+P95 E2E latency
+Worst-case E2E latency
 
-Potential path:
+CRNN-only %
+Fallback OCR %
+Fallback timeout %
 
-PyTorch YOLO
-→ ONNX export
-→ ONNX Runtime
-→ CPU optimized inference
-
-Investigate appropriate:
-
-FP32
-FP16 where hardware supports it
-INT8 quantization
-
-DO NOT permanently replace PyTorch inference until ONNX output has been compared against the existing model.
-
-Benchmark:
-
-Detection accuracy
+Full-plate exact-match accuracy
 False positives
-Inference latency
-Memory usage
+Incorrect confirmations
 
-If ONNX improves speed without meaningful accuracy loss, introduce it behind a configurable backend:
+Do not report only best-case latency.
 
-inference_backend:
-`pytorch`
-or
-`onnx`
+The goal is not simply higher detection count.
 
-DO NOT hardcode ONNX as the only option.
+The goal is:
 
-GPU support should remain possible later.
+MORE CORRECT PLATES
++
+HIGHER EXACT MATCH
++
+LOWER TYPICAL/WORST LATENCY
++
+NO MATERIAL INCREASE IN FALSE POSITIVES.
 
-==================================================
-PHASE 4 — OCR PERFORMANCE OPTIMIZATION
-======================================
-
-The current system uses:
-
-Tesseract primary
-EasyOCR fallback.
-
-Do NOT run expensive OCR variants unnecessarily.
-
-Create staged OCR execution.
-
-Example:
-
-Plate Crop
-↓
-Tesseract
-↓
-Valid Indian plate + strong confidence?
-YES → STOP
-NO
-↓
-Alternative preprocessing / PSM
-↓
-Valid?
-YES → STOP
-NO
-↓
-EasyOCR fallback
-
-EasyOCR should primarily operate as fallback unless benchmarks prove otherwise.
-
-Cache OCR engine initialization.
-
-Never reload OCR models for every frame.
-
-Profile all OCR modes.
-
-Reduce unnecessary preprocessing combinations.
-
-Preserve accuracy.
-
-==================================================
-PHASE 5 — SCREEN DISPLAY ROBUSTNESS
-===================================
-
-Screen-display testing is NOT the primary real-world benchmark.
-
-However, improve it where practical because it is useful during development and demonstrations.
-
-Problems include:
-
-LCD moiré
-glare
-contrast washout
-subpixel patterns
-screen reflections.
-
-Experiment with:
-
-adaptive unsharp masking
-moderate denoising
-CLAHE
-local contrast enhancement
-appropriate resizing
-anti-moiré filtering where practical
-
-Do NOT aggressively sharpen every image.
-
-Detect whether sharpening actually improves OCR.
-
-Keep preprocessing adaptive.
-
-Never optimize the entire ANPR system solely for laptop-screen photographs.
-
-Priority remains physical vehicles and real camera footage.
-
-==================================================
-PHASE 6 — MULTI-CAMERA CONCURRENCY
-==================================
-
-ANPR processing for one camera must NOT block another camera.
-
-Architecture should behave approximately like:
-
-CAM-01 → Frame Queue → ANPR Worker
-CAM-02 → Frame Queue → ANPR Worker
-CAM-03 → Frame Queue → ANPR Worker
-CAM-04 → Frame Queue → ANPR Worker
-
-BUT:
-
-Do not create unlimited workers on CPU.
-
-Implement bounded queues and sensible concurrency.
-
-VERY IMPORTANT:
-
-If ANPR cannot keep up, DROP OLD FRAMES.
-
-For real-time surveillance:
-
-latest useful frame
-is more valuable than
-processing a frame from 20 seconds ago.
-
-Therefore:
-
-DO NOT create an ever-growing inference queue.
-
-Suggested behavior:
-
-Camera produces frames
-↓
-latest-frame buffer
-↓
-ANPR busy?
-YES → replace stale pending frame
-NO → process newest suitable frame
-
-Add metrics:
-
-queue depth
-frames received
-frames sampled
-frames processed
-frames dropped
-average inference latency
-camera-specific processing rate
-
-==================================================
-PHASE 7 — TEMPORAL ANPR IMPROVEMENT
-===================================
-
-Preserve existing multi-frame confirmation.
-
-Improve only if necessary.
-
-Example:
-
-Frame 1:
-TN45A81234 — 72%
-
-Frame 2:
-TN45AB1234 — 91%
-
-Frame 3:
-TN45AB1234 — 94%
-
-Frame 4:
-TN45AB1234 — 96%
-
-Final:
-TN45AB1234
-
-Use confidence-weighted temporal voting.
-
-Combine:
-
-OCR confidence
-plate detector confidence
-syntax validity
-string similarity
-number of sightings
-
-Do NOT allow one random high-confidence OCR frame to automatically override several consistent readings without justification.
-
-Keep current approximate similarity logic where useful.
-
-==================================================
-PHASE 8 — FALSE POSITIVE PROTECTION
-===================================
-
-Do NOT weaken the current false-positive protection merely to increase detection rate.
-
-A confirmed ANPR event should require appropriate evidence from:
-
-Vehicle detection
-Plate detection
-Geometry
-OCR
-Indian registration validation
-Temporal confirmation
-
-Critical test:
-
-Scene contains no vehicle and no plate.
-
-EXPECTED:
-
-ZERO CONFIRMED ANPR EVENTS.
-
-Test:
-
-Vehicle visible but plate unreadable.
-
-EXPECTED:
-
-Vehicle detected.
-
-NO confirmed plate unless evidence is sufficient.
-
-Test:
-
-Clear vehicle + clear plate.
-
-EXPECTED:
-
-Vehicle
-→ Plate
-→ OCR
-→ Validation
-→ Confirmation.
-
-==================================================
-PHASE 9 — ONE-CLICK SYSTEM STARTUP
-==================================
-
-Currently the project requires separate processes:
-
-Node:
-`node server.js`
-
-Python:
-`python scripts/anpr_server.py`
-
-Create:
-
-`start_system.bat`
-
-and preferably:
-
-`start_system.ps1`
-
-The startup system should:
-
-1. Verify required environment.
-2. Check required ports.
-3. Start Python ANPR server.
-4. Wait/check until port 5001 is healthy.
-5. Start Node.js server.
-6. Check port 3000.
-7. Display LAN access address.
-8. Clearly report failures.
-9. Avoid spawning duplicate services accidentally.
-
-Also create a clean shutdown mechanism if practical.
-
-Do not introduce Docker solely for this unless there is a strong reason.
-
-The SIH demonstration should ideally start with one action.
-
-==================================================
-PHASE 10 — REAL-WORLD BENCHMARKING
-==================================
-
-Create a repeatable benchmark tool.
-
-Test approximately 20–50+ representative plates initially.
-
-Include:
-
-Cars
-Motorcycles
-Front plates
-Rear plates
-Two-row plates
-BH plates where available
-Different states
-Daylight
-Shade
-Low light
-Moderate angle
-Heavy angle
-Blur
-Distance
-Partial obstruction
-No-plate images
-Road signs
-Billboards
-Random backgrounds
-
-Record:
-
-Total test images
-Ground-truth plate
-Plate detected?
-OCR result
-Exact match?
-Character accuracy
-Detector confidence
-OCR confidence
-False positive?
-Inference time
-
-Calculate:
-
-Plate Detection Precision
-Plate Detection Recall
-OCR Exact Match Accuracy
-Character Accuracy
-False Positive Rate
-Average Inference Time
-
-DO NOT invent benchmark results.
-
-Generate them only from actual tests.
-
-Save results to something like:
-
-`benchmark_results.json`
-and/or
-`benchmark_results.csv`
-
-==================================================
-PHASE 11 — DETERMINE WHETHER FINE-TUNING IS NEEDED
-==================================================
-
-ONLY after benchmarking decide whether to retrain.
-
-If:
-
-Plate localization is good
-but
-OCR is poor
-
-DO NOT retrain the plate detector.
-
-Improve OCR/preprocessing.
-
-If:
-
-Plate detector frequently misses real Indian plates
-
-THEN investigate fine-tuning.
-
-If:
-
-Plate detector frequently detects non-plates
-
-THEN evaluate:
-
-dataset quality
-negative samples
-confidence calibration
-fine-tuning.
-
-Do NOT simply increase epochs.
-
-If fine-tuning becomes necessary:
-
-Use proper train/validation/test separation.
-
-Track:
-
-precision
-recall
-mAP50
-mAP50-95
-false positives
-
-Use early stopping.
-
-Save and compare:
-
-current model
-vs
-fine-tuned model.
-
-Only deploy the new model if it actually performs better on unseen data.
-
-==================================================
-PHASE 12 — TRAJECTORY & GIS VERIFICATION
-========================================
-
-After ANPR reliability is improved, verify the existing trajectory pipeline.
-
-Demo example:
-
-TN45AB1234
-
-CAM-01
-10:15
-↓
-CAM-02
-10:27
-↓
-CAM-04
-10:41
-
-Verify:
-
-chronological ordering
-camera location
-travel time
-GIS markers
-route visualization
-trajectory history.
-
-Do not rewrite working trajectory code unnecessarily.
-
-==================================================
-PHASE 13 — ANALYTICS VERIFICATION
-=================================
-
-Ensure analytics use actual confirmed ANPR detections.
-
-Verify:
-
-total detections
-unique vehicles
-vehicles/minute
-camera traffic
-busiest camera
-peak period
-common routes
-camera-to-camera movement
-travel time
-traffic density
-
-Do NOT generate random/fake analytics.
-
-==================================================
-PHASE 14 — WATCHLIST VERIFICATION
-=================================
-
-Test:
-
-Add:
-TN45AB1234
-
-Reason:
-Test Watchlist Vehicle
-
-Then expose that plate to a camera.
-
-Expected:
-
-ANPR CONFIRMED
-↓
-WATCHLIST MATCH
-↓
-REAL-TIME ALERT
-
-Alert should contain:
-
-Plate
-Camera
-Location
-Timestamp
-Confidence
-Reason
-
-Verify audio/visual dashboard notification.
-
-==================================================
-PHASE 15 — VEHICLE RE-IDENTIFICATION
-====================================
-
-DO NOT IMPLEMENT THIS YET.
-
-Treat visual Vehicle Re-ID as an advanced/future phase.
-
-Potential future architecture:
-
-Vehicle Crop
-↓
-Visual Re-ID Model
-↓
-Feature Embedding
-↓
-Cross-Camera Similarity
-↓
-Probable Vehicle Match
-
-Possible future technologies:
-
-OSNet
-FastReID
-other suitable vehicle Re-ID models.
-
-This feature should eventually help when:
-
-plate is dirty
-plate is blocked
-plate is unreadable
-plate is missing.
-
-But do not allow this feature to delay or destabilize the core SIH ANPR demonstration.
-
-==================================================
-SIH DEMO RELIABILITY MODE
-=========================
-
-Create an optional DEMO MODE.
-
-This should NOT fake results.
-
-It should allow us to use known prerecorded test footage/images through the SAME real ANPR pipeline if live outdoor vehicle access is unavailable during judging.
-
-Demo pipeline:
-
-Known traffic footage
-↓
-Actual ANPR model
-↓
-Actual detection
-↓
-Actual OCR
-↓
-Actual backend event
-↓
-Actual trajectory
-↓
-Actual analytics/watchlist.
-
-The detection results must still come from the real system.
-
-==================================================
-FINAL TARGET
-============
-
-The completed demonstration should work like this:
-
-CAM-01
-↓
-Vehicle appears
-↓
-Vehicle detected
-↓
-Plate detected
-↓
-Perspective corrected if necessary
-↓
-OCR
-↓
-Indian validation
-↓
-Temporal confirmation
-↓
-Detection stored
-
-Then same vehicle appears:
-
-CAM-02
-↓
-Recognized again
-
-Then:
-
-CAM-04
-↓
-Recognized again
-
-Operator searches:
-
-TN45AB1234
-
-System displays:
-
-CAM-01
-↓
-CAM-02
-↓
-CAM-04
-
-with:
-
-timestamps
-locations
-travel times
-GIS trajectory.
-
-At the same time:
-
-Traffic analytics update.
-
-If the vehicle is watchlisted:
-
-Real-time alert appears.
-
-==================================================
-DEVELOPMENT RULES
-=================
-
-1. DO NOT rebuild the project.
-2. DO NOT break working WebRTC streaming.
-3. DO NOT redesign unrelated UI.
-4. DO NOT blindly retrain models.
-5. DO NOT blindly copy GitHub projects.
-6. DO NOT introduce unnecessary frameworks.
-7. DO NOT create unlimited inference queues.
-8. DO NOT fake analytics.
-9. DO NOT fake accuracy numbers.
-10. DO NOT remove false-positive safeguards merely to improve apparent recall.
-11. Keep thresholds configurable.
-12. Keep changes modular.
-13. Preserve debugging instrumentation.
-14. Benchmark before and after major optimization.
-15. Keep a list of every modified/created file.
-16. Test after every phase.
-17. Commit stable checkpoints before risky modifications.
-18. If an attempted optimization reduces accuracy, revert it.
-19. Prioritize a reliable SIH demonstration over unnecessary complexity.
-20. Never claim city-scale performance from the four-camera prototype.
-
-==================================================
-START WORK NOW
-==============
-
-First inspect the current repository and relevant files, especially:
-
-`server.js`
-
-`scripts/anpr_server.py`
-
-`scripts/diagnose_pipeline.py`
-
-`public/js/anpr-engine.js`
-
-`public/dashboard.html`
-
-and existing configuration/model files.
-
-Before changing anything, report:
-
-1. Current bottleneck analysis
-2. Exact current ANPR execution path
-3. Where perspective correction should be inserted
-4. Current frame-sampling mechanism
-5. Current inference queue/concurrency behavior
-6. Estimated performance bottlenecks
-7. Files that need modification
-8. Proposed implementation order
-
-Then begin ONLY with:
-
-### PHASE 1 — Perspective Correction
-
-Implement it.
-
-Run existing diagnostic tests.
-
-Compare BEFORE vs AFTER.
-
-If the tests remain stable or improve, continue to:
-
-### PHASE 2 — Intelligent Keyframe Selection
-
-Continue phase-by-phase.
-
-Do not attempt all phases in one uncontrolled change.
-
-After each phase report:
-
-* What changed
-* Files modified
-* Tests performed
-* Before/after result
-* Any regression
-* Next recommended phase
-
-The final objective is not to add the largest number of features.
-
-The objective is to produce a FAST, RELIABLE, LOW-FALSE-POSITIVE, DEMONSTRABLE multi-camera Indian ANPR traffic intelligence prototype suitable for SIH judging.
+Make one change at a time and benchmark it before moving to the next.

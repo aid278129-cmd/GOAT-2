@@ -265,6 +265,25 @@ def extract_plate_prediction(resp):
     return pred_plate, raw_ocr, plate_conf, ocr_conf, all_plates
 
 
+def extract_stage_timings(resp):
+    """Extracts fine-grained per-stage millisecond latencies from microservice telemetry."""
+    dbg = resp.get("debug", {})
+    timing = dbg.get("timing", {})
+    return {
+        "stage_vehicle_ms": float(timing.get("vehicleDetectionMs", 0.0)),
+        "stage_plate_ms": float(timing.get("plateDetectionMs", 0.0)),
+        "stage_perspective_ms": float(timing.get("perspectiveMs", 0.0)),
+        "stage_enhancement_ms": float(timing.get("enhancementMs", 0.0)),
+        "stage_crnn_ms": float(timing.get("crnnMs", 0.0)),
+        "stage_tesseract_tier1_ms": float(timing.get("tesseractTier1Ms", 0.0)),
+        "stage_tesseract_tier2_ms": float(timing.get("tesseractTier2Ms", 0.0)),
+        "stage_easyocr_ms": float(timing.get("easyOcrMs", 0.0)),
+        "stage_validation_ms": float(timing.get("validationMs", 0.0)),
+        "stage_temporal_ms": float(timing.get("temporalTrackerMs", 0.0)),
+        "stage_total_ms": float(timing.get("totalProcessingMs", resp.get("round_trip_ms", 0.0)))
+    }
+
+
 def check_server_health():
     """Verifies that the ANPR microservice is running and accessible."""
     try:
@@ -398,6 +417,7 @@ def run_benchmark(max_samples=50):
             "failure_stage": failure_stage,
             "latency_ms": round(resp.get("round_trip_ms", 0.0), 1)
         }
+        rec.update(extract_stage_timings(resp))
         benchmark_records.append(rec)
         print(f"  [{category:<14}] {img_name:<38} -> Plate: {pred_plate or '[None]':<12} | Exact: {str(best_exact):<5} | CharAcc: {best_char_acc*100:5.1f}% | Latency: {rec['latency_ms']}ms")
 
@@ -480,6 +500,7 @@ def run_benchmark(max_samples=50):
             "failure_stage": failure_stage,
             "latency_ms": round(resp.get("round_trip_ms", 0.0), 1)
         }
+        rec.update(extract_stage_timings(resp))
         benchmark_records.append(rec)
         print(f"  [{'Challenge':<14}] {s_name:<38} -> Plate: {pred_plate or '[None]':<12} | Confirmed: {str(det):<5} | Status: {status:<24} | Latency: {rec['latency_ms']}ms")
 
@@ -526,6 +547,7 @@ def run_benchmark(max_samples=50):
             "failure_stage": failure_stage,
             "latency_ms": round(resp.get("round_trip_ms", 0.0), 1)
         }
+        rec.update(extract_stage_timings(resp))
         benchmark_records.append(rec)
         fp_str = "FALSE_POSITIVE" if is_fp else "PASS (Zero FP)"
         print(f"  [{'Negative':<14}] {neg_name:<38} -> Status: {status:<24} | Result: {fp_str} | Latency: {rec['latency_ms']}ms")
@@ -585,6 +607,35 @@ def run_benchmark(max_samples=50):
             "avg_latency_ms": round(float(np.mean([r["latency_ms"] for r in cat_recs])), 1)
         }
 
+    # Fine-Grained 10-Stage Latency Profiling
+    stage_keys = [
+        ("vehicle_detection", "Vehicle Detection", "stage_vehicle_ms"),
+        ("plate_detection", "Plate Localization", "stage_plate_ms"),
+        ("perspective_correction", "Perspective Correction", "stage_perspective_ms"),
+        ("image_enhancement", "Image Enhancement", "stage_enhancement_ms"),
+        ("crnn_ocr", "CRNN Plate OCR (Tier 0)", "stage_crnn_ms"),
+        ("tesseract_tier1", "Tesseract Tier 1 (Fast)", "stage_tesseract_tier1_ms"),
+        ("tesseract_tier2", "Tesseract Tier 2 (Adaptive)", "stage_tesseract_tier2_ms"),
+        ("easyocr", "EasyOCR Fallback", "stage_easyocr_ms"),
+        ("validation", "Syntax Validation", "stage_validation_ms"),
+        ("temporal_voting", "Temporal Voting", "stage_temporal_ms"),
+        ("total_processing", "Total Processing", "stage_total_ms"),
+    ]
+    stage_profile = {}
+    pos_recs = [r for r in benchmark_records if r["collection"] != "Negative_Controls"]
+    for skey, sname, scol in stage_keys:
+        vals = [r.get(scol, 0.0) for r in pos_recs]
+        m_val = float(np.mean(vals)) if vals else 0.0
+        med_val = float(np.median(vals)) if vals else 0.0
+        p95_val = float(np.percentile(vals, 95)) if vals else 0.0
+        stage_profile[skey] = {
+            "name": sname,
+            "mean_ms": round(m_val, 1),
+            "median_ms": round(med_val, 1),
+            "p95_ms": round(p95_val, 1),
+            "pct_of_total": round((m_val / max(0.1, avg_latency)) * 100.0, 1) if skey != "total_processing" else 100.0
+        }
+
     summary_metrics = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "total_test_images": total_samples,
@@ -600,6 +651,7 @@ def run_benchmark(max_samples=50):
             "median": round(median_latency, 1),
             "p95": round(p95_latency, 1)
         },
+        "stage_latency_profile": stage_profile,
         "category_breakdown": category_summary
     }
 
@@ -620,7 +672,10 @@ def run_benchmark(max_samples=50):
         "ground_truth_plates", "vehicle_detected", "plate_candidate_found",
         "anpr_confirmed", "detected_plate", "detector_confidence",
         "ocr_confidence", "ocr_exact_match", "character_accuracy",
-        "false_positive", "status", "failure_stage", "latency_ms"
+        "false_positive", "status", "failure_stage", "latency_ms",
+        "stage_vehicle_ms", "stage_plate_ms", "stage_perspective_ms",
+        "stage_enhancement_ms", "stage_crnn_ms", "stage_tesseract_tier1_ms", "stage_tesseract_tier2_ms",
+        "stage_easyocr_ms", "stage_validation_ms", "stage_temporal_ms", "stage_total_ms"
     ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=csv_fields)
@@ -650,6 +705,13 @@ def run_benchmark(max_samples=50):
     print("-" * 80)
     for cat, cdata in category_summary.items():
         print(f"{cat:<18} | {cdata['total']:<6} | {cdata['detection_rate']:>5.1f}%    | {cdata['exact_matches']:>2} / {cdata['total']:<9} | {cdata['mean_char_acc']:>5.1f}%        | {cdata['avg_latency_ms']:>6.1f}ms")
+    print("-" * 80)
+    print("               FINE-GRAINED STAGE LATENCY PROFILING REPORT")
+    print("-" * 80)
+    print(f"{'Stage Name':<28} | {'Mean (ms)':<10} | {'Median (ms)':<12} | {'p95 (ms)':<10} | {'% of Total'}")
+    print("-" * 80)
+    for skey, sdata in stage_profile.items():
+        print(f"{sdata['name']:<28} | {sdata['mean_ms']:>8.1f}ms | {sdata['median_ms']:>10.1f}ms | {sdata['p95_ms']:>8.1f}ms | {sdata['pct_of_total']:>6.1f}%")
     print("=" * 80)
     print("Phase 10 ANPR Benchmark Complete.\n")
 
