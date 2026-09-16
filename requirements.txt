@@ -1,14 +1,12 @@
 # ==============================================================================
 # Multi-Camera ANPR Traffic Intelligence Platform (SIH-26127 / BEL)
-# Python Dependencies for ANPR Inference Service & Vision Pipeline
+# Python Dependencies for ANPR V2 Inference Service & Vision Pipeline
 # ==============================================================================
 # Usage:
 #   pip install -r requirements.txt
 #
 # System Prerequisites:
-#   - Python 3.10+
-#   - Tesseract OCR v5+ (Windows: C:\Program Files\Tesseract-OCR\tesseract.exe
-#                        Linux: sudo apt-get install tesseract-ocr)
+#   - Python 3.10+ (Fully compatible with Python 3.10 through 3.14)
 #   - Node.js 18+ (For frontend/WebRTC streaming server: run `npm install`)
 # ==============================================================================
 
@@ -21,7 +19,14 @@ numpy>=1.23.0
 pillow>=9.5.0
 onnxruntime>=1.15.0
 
-# Optical Character Recognition (OCR) Engines
+# Direct License Plate Detection (RF-DETR Small & YOLO Baseline)
+rfdetr>=1.10.0
+supervision>=0.30.0
+
+# ANPR V2 Primary OCR: PaddleOCR PP-OCRv4 (via ONNX Runtime)
+rapidocr_onnxruntime>=1.2.0
+
+# Benchmark Baseline OCR Engines (Kept strictly for baseline comparative testing)
 pytesseract>=0.3.10
 easyocr>=1.7.0
 

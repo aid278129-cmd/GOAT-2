@@ -1,0 +1,7 @@
+Metric,Old_CRNN,ANPR_V2_PPOCR,Difference
+Exact_Match_Pct,0.0,32.02,32.02
+Char_Accuracy_Pct,0.0,67.94,67.94
+Catastrophic_3plus_Pct,100.0,42.98,-57.02
+Wrong_State_Pct,0.0,43.86,43.86
+Median_Latency_Ms,0.6,411.3,410.7
+P95_Latency_Ms,5.5,1732.5,-1727.0

@@ -46,7 +46,14 @@ from typing import Optional, List, Dict, Any
 import uvicorn
 import requests
 import easyocr
+import sys
 import urllib3
+_scripts_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.abspath(os.path.join(_scripts_dir, ".."))
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
 from crnn_ocr import decode_positional_syntax, get_crnn_recognizer
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -92,6 +99,9 @@ else:
 # Centralized, Configurable Settings (Runtime Configurable)
 # ──────────────────────────────────────────────────────────────────
 ANPR_CONFIG = {
+    # Pipeline Version
+    "anpr_version": "v2",
+
     # Stage 1: Vehicle Detection
     "vehicle_detection_enabled": True,
     "vehicle_classes": [2, 3, 5, 7],         # COCO classes: 2=car, 3=motorcycle, 5=bus, 7=truck
@@ -1242,6 +1252,7 @@ def health():
     pm = get_plate_model()
     return {
         "status": "ok",
+        "anpr_version": ANPR_CONFIG.get("anpr_version", "v2"),
         "vehicle_detector_ready": vm is not None,
         "plate_detector_ready": pm is not None,
         "tesseract_ready": os.path.exists(pytesseract.pytesseract.tesseract_cmd),
@@ -1415,6 +1426,43 @@ def sync_detect_plate_core(req: Base64DetectRequest):
         mean_brightness = float(np.mean(gray))
         min_sharpness = float(ANPR_CONFIG.get("minimum_sharpness", 60.0))
         is_blurry = laplacian_var < min_sharpness
+
+        # ── Phase 17: ANPR V2 Unified Execution Path ──
+        if str(ANPR_CONFIG.get("anpr_version", "v2")).lower() == "v2":
+            from anpr_v2.pipeline import get_pipeline
+            pipeline_v2 = get_pipeline()
+            extra_telemetry = {
+                "frameCapturedAt": req.frameCapturedAt,
+                "keyframeSelectedAt": req.keyframeSelectedAt,
+                "requestQueuedAt": req.requestQueuedAt,
+                "workerDispatchedAt": req.workerDispatchedAt,
+                "queueWaitMs": req.queueWaitMs
+            }
+            v2_result = pipeline_v2.process_frame(
+                frame_bgr=img,
+                camera_id=req.cameraId,
+                camera_name=req.cameraName,
+                manual_scan=req.manualScan,
+                extra_telemetry=extra_telemetry
+            )
+            confirmed_detection = v2_result.get("detection")
+            if req.forwardToDashboard and confirmed_detection and confirmed_detection.get("plate"):
+                try:
+                    requests.post(
+                        NODE_SERVER_URL,
+                        json={
+                            "plate": confirmed_detection["plate"],
+                            "cameraId": req.cameraId,
+                            "confidence": confirmed_detection["confidence"],
+                            "vehicleType": "car",
+                            "manualScan": bool(req.manualScan),
+                        },
+                        timeout=1.5,
+                        verify=False,
+                    )
+                except Exception as e:
+                    print(f"Forward to dashboard failed: {e}")
+            return v2_result
 
         v_model = get_vehicle_model()
         p_model = get_plate_model()

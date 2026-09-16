@@ -1,0 +1,1636 @@
+[
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_auto_image_000024_fqvRhfiO6i.jpg",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_bus_image_000033_XUH0eV452t.jpg",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_bus_image_000039_9NispLHmAo.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_0RBAQHKIXQMDFYZD.jpg",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_0RRPJCID3RRLSFTI.jpg",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_2D9KWCA7PLD0NW31.jpg",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_2DZ4YT4ZJ9XJZSO0.jpg",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_3GKHBM5PWHYXHMTE.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_3HE1J0YIRGRDENVO.jpg",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_7K9NEIDD2KK46L6F.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_7L53OMODJOLUGUOE.jpg",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_VTPRN3NAPF8MUGNF.jpg",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_VYA8KOAVKLW6PJYK.jpg",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_VZUYOAPZ8633ZQTN.jpg",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_license_plates_W1W3000C6IAY3F1X.jpg",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_tempo_van__image_000489_73h4cMU8Z1.jpg",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_tempo_van__image_000490_CF9bwJsyoX.jpg",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_truck_image_001561_IEhCyPTs.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset",
+    "original_image": "dc_truck_image_001564_RZeQ1TZR.jpg",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (1).jpg",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (101).jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (11).jpg",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (16).jpg",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (18).jpg",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (4).jpg",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection",
+    "original_image": "Datacluster_number_plates (5).jpg",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492231910_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492234498_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492235502_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492238497_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492252501_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence",
+    "original_image": "crop_cam1_1789492259500_cand0.jpg",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_blur.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_dim.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_contrast.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_jpeg.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_rot.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_blur.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_dim.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_contrast.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_jpeg.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_rot.jpg",
+    "ground_truth": "KL34A465",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_blur.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_dim.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_contrast.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_jpeg.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_rot.jpg",
+    "ground_truth": "KL34F",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_blur.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_dim.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_contrast.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_jpeg.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_rot.jpg",
+    "ground_truth": "KL35F4337",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_blur.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_dim.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_contrast.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_jpeg.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_rot.jpg",
+    "ground_truth": "KL35H5834",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_blur.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_dim.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_contrast.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_jpeg.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_rot.jpg",
+    "ground_truth": "KL03S6894",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_blur.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_dim.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_contrast.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_jpeg.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_rot.jpg",
+    "ground_truth": "UP84AE9889",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_blur.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_dim.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_contrast.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_jpeg.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_rot.jpg",
+    "ground_truth": "GJ01DY6855",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "GJ"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_blur.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_dim.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_contrast.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_jpeg.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_rot.jpg",
+    "ground_truth": "KL498262",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_blur.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_dim.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_contrast.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_jpeg.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_rot.jpg",
+    "ground_truth": "WB42AX7446",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "WB"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_blur.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_dim.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_contrast.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_jpeg.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_rot.jpg",
+    "ground_truth": "MP07L7524",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_blur.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_dim.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_contrast.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_jpeg.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_rot.jpg",
+    "ground_truth": "MP04PA0434",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_blur.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_dim.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_contrast.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_jpeg.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_rot.jpg",
+    "ground_truth": "RJ11GB1829",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_blur.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_dim.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_contrast.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_jpeg.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_rot.jpg",
+    "ground_truth": "KL41L7001",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_blur.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_dim.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_contrast.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_jpeg.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_rot.jpg",
+    "ground_truth": "TN58D5353",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_blur.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_dim.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_contrast.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_jpeg.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_rot.jpg",
+    "ground_truth": "KL07BX7197",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_blur.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_dim.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_contrast.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_jpeg.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_rot.jpg",
+    "ground_truth": "UP84AE6664",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "UP"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_blur.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_dim.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_contrast.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_jpeg.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_rot.jpg",
+    "ground_truth": "KL10AG7249",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_blur.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_dim.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_contrast.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_jpeg.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_rot.jpg",
+    "ground_truth": "TN58AP5280",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "TN"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_blur.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_dim.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_contrast.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_jpeg.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_rot.jpg",
+    "ground_truth": "DL3CD1210",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_blur.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_dim.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_contrast.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_jpeg.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_rot.jpg",
+    "ground_truth": "RJ11GB8850",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "RJ"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_blur.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_dim.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_contrast.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_jpeg.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_rot.jpg",
+    "ground_truth": "MP13GA9462",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "MP"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_blur.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_dim.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_contrast.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_jpeg.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_rot.jpg",
+    "ground_truth": "KA09C2763",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_blur.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_dim.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_contrast.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_jpeg.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_rot.jpg",
+    "ground_truth": "MH18AA1002",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_blur.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset_MildBlur",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_dim.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset_LowLight",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_contrast.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset_Contrast",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_jpeg.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset_JPEGCompression",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_rot.jpg",
+    "ground_truth": "KA01AJ7533",
+    "source": "VOC_OCR_Dataset_SkewAngle",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0_aug_blur.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0_aug_dim.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0_aug_contrast.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0_aug_jpeg.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (1)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (1)_obj0_aug_rot.jpg",
+    "ground_truth": "AP29AN0074",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0_aug_blur.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0_aug_dim.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0_aug_contrast.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0_aug_jpeg.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (101)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (101)_obj0_aug_rot.jpg",
+    "ground_truth": "MH24MPL4282",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0_aug_blur.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0_aug_dim.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0_aug_contrast.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0_aug_jpeg.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (11)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (11)_obj0_aug_rot.jpg",
+    "ground_truth": "DL3CBL1234",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0_aug_blur.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0_aug_dim.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0_aug_contrast.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0_aug_jpeg.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (16)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (16)_obj0_aug_rot.jpg",
+    "ground_truth": "AP09BN8123",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "AP"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0_aug_blur.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0_aug_dim.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0_aug_contrast.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0_aug_jpeg.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (18)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (18)_obj0_aug_rot.jpg",
+    "ground_truth": "DL1YB6543",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "DL"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0_aug_blur.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0_aug_dim.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0_aug_contrast.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0_aug_jpeg.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (4)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (4)_obj0_aug_rot.jpg",
+    "ground_truth": "HR26BC7890",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "HR"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0_aug_blur.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection_MildBlur",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0_aug_dim.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection_LowLight",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0_aug_contrast.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection_Contrast",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0_aug_jpeg.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection_JPEGCompression",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "challenge_Datacluster_number_plates (5)_obj0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\challenge_Datacluster_number_plates (5)_obj0_aug_rot.jpg",
+    "ground_truth": "KA04MH2345",
+    "source": "Challenge_Collection_SkewAngle",
+    "state_code": "KA"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492231910_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492231910_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492234498_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492234498_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492235502_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492235502_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492238497_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492238497_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492252501_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492252501_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0_aug_blur.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0_aug_blur.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_MildBlur",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0_aug_dim.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0_aug_dim.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_LowLight",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0_aug_contrast.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0_aug_contrast.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_Contrast",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0_aug_jpeg.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0_aug_jpeg.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_JPEGCompression",
+    "state_code": "MH"
+  },
+  {
+    "crop_file": "live_crop_cam1_1789492259500_cand0_aug_rot.jpg",
+    "crop_path": "D:\\college work\\Hackaton projects\\new zyn\\benchmarks\\anpr_v2\\crops\\live_crop_cam1_1789492259500_cand0_aug_rot.jpg",
+    "ground_truth": "MH01AV8866",
+    "source": "Live_Surveillance_Sequence_SkewAngle",
+    "state_code": "MH"
+  }
+]

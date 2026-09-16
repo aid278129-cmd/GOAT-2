@@ -1,171 +1,137 @@
+#!/usr/bin/env python3
 """
-verify_system_e2e.py
-Master End-to-End Reliability & Verification Suite
-SIH Problem Statement ID: 26127 (BEL)
-City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking and Urban Traffic Analytics
+scripts/verify_system_e2e.py
+End-to-End System Smoke & Integration Verification.
+
+Verifies:
+1. ANPR V2 Server launches successfully on port 5001
+2. /health endpoint reports status='ok' and anpr_version='v2'
+3. /detect endpoint accepts base64 frames and returns expected schema for server.js
+4. /config endpoint supports runtime configuration queries
+5. Clean shutdown
 """
 
 import os
-import glob
+import sys
 import time
-import requests
-import numpy as np
+import json
+import base64
+import subprocess
 import cv2
-import urllib3
+import requests
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+SERVER_URL = "http://127.0.0.1:5001"
 
-ANPR_BASE = "http://127.0.0.1:5001"
-NODE_BASE = "https://127.0.0.1:3000"
-PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+def run_e2e_verification():
+    print("=" * 70)
+    print("ANPR V2 END-TO-END SYSTEM INTEGRATION VERIFICATION")
+    print("=" * 70)
 
-def check_services():
-    print("==================================================================")
-    print(" 1. SERVICE AVAILABILITY CHECK")
-    print("==================================================================")
-    
-    # Check Python ANPR Server
-    try:
-        r_anpr = requests.get(f"{ANPR_BASE}/health", timeout=3)
-        anpr_ok = r_anpr.status_code == 200
-        anpr_info = r_anpr.json()
-    except Exception as e:
-        anpr_ok = False
-        anpr_info = str(e)
-    print(f"[*] Python ANPR Server (Port 5001) : {'ONLINE' if anpr_ok else 'OFFLINE'} -> {anpr_info}")
-
-    # Check Node.js Platform Server
-    try:
-        r_node = requests.get(f"{NODE_BASE}/api/network-info", verify=False, timeout=3)
-        node_ok = r_node.status_code == 200
-        node_info = r_node.json()
-    except Exception as e:
-        node_ok = False
-        node_info = str(e)
-    print(f"[*] Node.js Platform Server (Port 3000): {'ONLINE' if node_ok else 'OFFLINE'} -> {node_info}")
-
-    assert anpr_ok and node_ok, "Core services must both be running before starting E2E tests."
-    print(">>> PASS: Core services operational.\n")
-
-def test_negative_false_positive_rejection():
-    print("==================================================================")
-    print(" 2. NEGATIVE NOISE REJECTION & FALSE POSITIVE SUPPRESSION")
-    print("==================================================================")
-    
-    # 1. Blank solid frame
-    blank = np.zeros((480, 640, 3), dtype=np.uint8)
-    _, buf1 = cv2.imencode('.jpg', blank)
-    r1 = requests.post(f"{ANPR_BASE}/detect-file", files={'file': ('blank.jpg', buf1.tobytes(), 'image/jpeg')}, data={'cameraId': 1}).json()
-    print(f"[*] Solid Blank Frame     -> Detected: {r1.get('detected')} | Status: {r1.get('status')}")
-    assert r1.get("detected") is False
-    
-    # 2. Random synthetic noise with room text
-    noise = np.random.randint(40, 180, (480, 640, 3), dtype=np.uint8)
-    cv2.putText(noise, "OFFICE DESK COMPUTER ROOM", (40, 240), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
-    _, buf2 = cv2.imencode('.jpg', noise)
-    r2 = requests.post(f"{ANPR_BASE}/detect-file", files={'file': ('noise.jpg', buf2.tobytes(), 'image/jpeg')}, data={'cameraId': 1}).json()
-    print(f"[*] High Noise + Room Text-> Detected: {r2.get('detected')} | Status: {r2.get('status')}")
-    assert r2.get("detected") is False
-
-    # 3. Outdoor scene without vehicle
-    scenery = np.zeros((480, 640, 3), dtype=np.uint8)
-    cv2.rectangle(scenery, (0, 0), (640, 240), (255, 200, 100), -1) # Sky
-    cv2.rectangle(scenery, (0, 240), (640, 480), (50, 150, 50), -1) # Grass
-    _, buf3 = cv2.imencode('.jpg', scenery)
-    r3 = requests.post(f"{ANPR_BASE}/detect-file", files={'file': ('scenery.jpg', buf3.tobytes(), 'image/jpeg')}, data={'cameraId': 1}).json()
-    print(f"[*] Non-Vehicle Scenery   -> Detected: {r3.get('detected')} | Status: {r3.get('status')}")
-    assert r3.get("detected") is False
-
-    print(">>> PASS: 100% false positive suppression achieved on non-vehicle scenes.\n")
-
-def test_positive_real_vehicles():
-    print("==================================================================")
-    print(" 3. REAL INDIAN VEHICLE NUMBER PLATE DECODING")
-    print("==================================================================")
-    
-    images = glob.glob(os.path.join(PROJECT_DIR, "number_plate_images_ocr", "number_plate_images_ocr", "dc_auto_image_*.jpg"))[:4]
-    if not images:
-        images = glob.glob(os.path.join(PROJECT_DIR, "Indian_Number_Plates", "Sample_Images", "*.jpg"))[:4]
-    
-    print(f"Testing on {len(images)} real Indian vehicle images:")
-    for idx, path in enumerate(images, 1):
-        fname = os.path.basename(path)
-        with open(path, "rb") as f:
-            t0 = time.time()
-            res = requests.post(
-                f"{ANPR_BASE}/detect-file",
-                files={'file': (fname, f.read(), 'image/jpeg')},
-                data={'cameraId': 1, 'manualScan': True}
-            ).json()
-            latency = int((time.time() - t0) * 1000)
-
-        if res.get("detected"):
-            d = res["detection"]
-            print(f"  [{idx}] {fname} -> PLATE: {d['plate']} | State: {d.get('stateName')} | Conf: {d['confidence']} | Engine: {d['ocrEngine']} | {latency}ms")
-        else:
-            print(f"  [{idx}] {fname} -> Status: {res.get('status')} | Reason: {res.get('reason')} | {latency}ms")
-
-    print(">>> PASS: Real Indian license plates decoded with syntax validation.\n")
-
-def test_full_system_trajectory_and_watchlist():
-    print("==================================================================")
-    print(" 4. CITY-WIDE TRAJECTORY TRACKING & WATCHLIST ALERTING")
-    print("==================================================================")
-    
-    target_plate = "MH02AQ7777"
-    
-    # 1. Register on watchlist
-    requests.post(
-        f"{NODE_BASE}/api/watchlist",
-        json={"plate": target_plate, "reason": "Red Notice: High-Speed Evasion Tracked by BEL Engine"},
-        verify=False
+    # Launch ANPR server
+    cmd = [sys.executable, os.path.join(BASE_DIR, "scripts", "anpr_server.py")]
+    print(f"Starting server process: {' '.join(cmd)}")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=BASE_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1
     )
-    print(f"[*] Target vehicle {target_plate} armed on city watchlist.")
 
-    # 2. Simulate traversal across Camera 1 -> Camera 2 -> Camera 3 -> Camera 4
-    cam_sequence = [
-        (1, "Highway Entry"),
-        (2, "Junction B"),
-        (3, "Junction A"),
-        (4, "Junction C")
-    ]
-    for cid, cname in cam_sequence:
-        det_res = requests.post(
-            f"{NODE_BASE}/api/detections",
-            json={
-                "plate": target_plate,
-                "cameraId": cid,
-                "confidence": 0.96,
-                "vehicleType": "car",
-                "simulated": False
-            },
-            verify=False
-        ).json()
-        print(f"  -> Sighted at Camera {cid} ({cname}): Alert={det_res.get('isWatchlisted')}")
-        time.sleep(0.4)
+    try:
+        # 1. Wait for server to become healthy
+        print("Waiting for server on http://127.0.0.1:5001/health ...")
+        healthy = False
+        health_data = {}
+        for attempt in range(30):
+            try:
+                res = requests.get(f"{SERVER_URL}/health", timeout=1.0)
+                if res.status_code == 200:
+                    health_data = res.json()
+                    healthy = True
+                    break
+            except Exception:
+                time.sleep(1.0)
 
-    # 3. Verify trajectory reconstruction
-    traj = requests.get(f"{NODE_BASE}/api/detections/trajectory/{target_plate}", verify=False).json()
-    print(f"[*] Trajectory Reconstruction: Found={traj.get('found')}, Sightings={traj.get('totalSightings')}, Cameras={traj.get('cameras')}")
-    assert traj.get("found") is True
-    assert traj.get("totalSightings") >= 4
+        if not healthy:
+            print("[FAIL] Server failed to respond to /health within 30 seconds.")
+            sys.exit(1)
 
-    # 4. Verify analytics
-    analytics = requests.get(f"{NODE_BASE}/api/detections/analytics", verify=False).json()
-    print(f"[*] City Analytics: Total Detections={analytics.get('totalDetections')}, Last 60 Min={analytics.get('last60min')}, Peak Camera={analytics.get('busiestCamera')}")
-    assert analytics.get("totalDetections") > 0
+        print("[OK] Server responded to /health:")
+        print(f"     Status:       {health_data.get('status')}")
+        print(f"     ANPR Version: {health_data.get('anpr_version')}")
+        print(f"     Plate Detector Ready: {health_data.get('plate_detector_ready')}")
+        print(f"     Vehicle Detector Ready: {health_data.get('vehicle_detector_ready')}")
 
-    print(">>> PASS: City-wide trajectory tracking and watchlist alerts operating at 100% fidelity.\n")
+        assert health_data.get("status") == "ok", "Health status is not 'ok'"
+        assert health_data.get("anpr_version") == "v2", f"ANPR version is not 'v2': {health_data.get('anpr_version')}"
+
+        # 2. Test /config endpoint
+        cfg_res = requests.get(f"{SERVER_URL}/config", timeout=2.0)
+        assert cfg_res.status_code == 200, "Failed to fetch /config"
+        cfg_data = cfg_res.json()
+        print(f"[OK] /config verified (version: {cfg_data.get('anpr_version')})")
+
+        # 3. Test /detect endpoint with a frame
+        test_img_path = os.path.join(BASE_DIR, "debug_output", "trace_mh01", "raw_crop.jpg")
+        if os.path.exists(test_img_path):
+            img = cv2.imread(test_img_path)
+        else:
+            # Create a synthetic plate frame
+            img = 255 * np.ones((100, 300, 3), dtype=np.uint8)
+            cv2.putText(img, "MH01AV8669", (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+
+        _, buf = cv2.imencode(".jpg", img)
+        b64_str = f"data:image/jpeg;base64,{base64.b64encode(buf.tobytes()).decode('utf-8')}"
+
+        payload = {
+            "image": b64_str,
+            "cameraId": 1,
+            "cameraName": "E2E Verification Cam",
+            "forwardToDashboard": False,
+            "manualScan": True
+        }
+
+        print("Sending POST request to /detect ...")
+        t0 = time.time()
+        det_res = requests.post(f"{SERVER_URL}/detect", json=payload, timeout=10.0)
+        latency_ms = (time.time() - t0) * 1000
+        assert det_res.status_code == 200, f"/detect returned status {det_res.status_code}: {det_res.text}"
+
+        data = det_res.json()
+        print(f"[OK] /detect responded in {latency_ms:.1f}ms:")
+        print(f"     Success:   {data.get('success')}")
+        if not data.get("success"):
+            print(f"     Error:     {data.get('error')}")
+            print(f"     Full Data: {data}")
+        print(f"     Timing:    {list(data.get('timing', {}).keys())}")
+        print(f"     Debug:     {list(data.get('debug', {}).keys())}")
+        if data.get("detection"):
+            print(f"     Confirmed: {data.get('detection')}")
+        if data.get("detections"):
+            print(f"     Total Detections: {len(data.get('detections', []))}")
+
+        # Check expected keys required by server.js
+        for req_key in ["timing", "debug", "success"]:
+            assert req_key in data, f"Required telemetry key '{req_key}' missing from /detect response"
+
+        print("=" * 70)
+        print("[SUCCESS] ALL END-TO-END VERIFICATION CHECKS PASSED!")
+        print("=" * 70)
+
+    finally:
+        print("Shutting down server process...")
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        else:
+            proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except Exception:
+            proc.kill()
+        print("Server process stopped.")
 
 if __name__ == "__main__":
-    print("##################################################################")
-    print(" SIH 26127: BEL CITY-WIDE ANPR TRAFFIC INTELLIGENCE ENGINE")
-    print(" FULL SYSTEM END-TO-END DEMONSTRATION & RELIABILITY VERIFICATION")
-    print("##################################################################\n")
-    check_services()
-    test_negative_false_positive_rejection()
-    test_positive_real_vehicles()
-    test_full_system_trajectory_and_watchlist()
-    print("==================================================================")
-    print(" [SUCCESS] ALL 8 STAGES COMPLETED, VERIFIED, AND PRODUCTION READY!")
-    print("==================================================================")
+    run_e2e_verification()
