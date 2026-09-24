@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>window.location.replace('/dashboard.html#watchlist');</script>
+  <title>Watchlist — ANPR Intelligence Platform</title>
+  <link rel="stylesheet" href="style-pages.css" />
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-brand"><div class="nav-logo"></div><span class="nav-title">ANPR Intelligence</span></div>
+  <div class="nav-links">
+    <a href="/dashboard.html"  class="nav-link"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="/tracking.html"   class="nav-link"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="/analytics.html"  class="nav-link"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="/network.html"    class="nav-link"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="/watchlist.html"  class="nav-link active"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+  </div>
+  <div class="nav-meta">
+    <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
+    <span class="nav-clock" id="navClock">--:--:--</span>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚠️ Watchlist Management</div>
+      <div class="page-subtitle">MONITORED VEHICLES · REAL-TIME ALERTS · AUTHORIZED ACCESS ONLY</div>
+    </div>
+  </div>
+
+  <!-- Watchlist Stats -->
+  <div class="stats-grid" id="wlStats" style="margin-bottom:20px">
+    <div class="stat-card"><div class="stat-label">Watchlisted</div><div class="stat-value" id="statWl">—</div></div>
+    <div class="stat-card red"><div class="stat-label">Total Alerts</div><div class="stat-value red" id="statAlerts">—</div></div>
+    <div class="stat-card amber"><div class="stat-label">Last Alert</div><div class="stat-value" style="font-size:18px" id="statLastAlert">—</div></div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+    <!-- Add to Watchlist Form -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">➕ Add Vehicle to Watchlist</span></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:14px">
+        <div class="form-group">
+          <label class="form-label">Registration Number</label>
+          <input type="text" class="form-input" id="wlPlateInput"
+            placeholder="e.g. TN45AB1234" maxlength="12"
+            oninput="this.value=this.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase()" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason / Note</label>
+          <input type="text" class="form-input" id="wlReasonInput"
+            placeholder="e.g. Suspected stolen vehicle"
+            style="text-transform:none" />
+        </div>
+        <button class="btn danger" onclick="addToWatchlist()" style="width:100%;justify-content:center;padding:12px">
+          🚨 Add to Watchlist
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Alerts Feed -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">🚨 Live Alert Feed</span>
+        <span id="alertFeedCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--red)">0 alerts</span>
+      </div>
+      <div style="max-height:280px;overflow-y:auto" id="liveAlertFeed">
+        <div class="empty-state" style="padding:30px">
+          <div class="empty-icon">🔔</div>
+          <div>No alerts yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active Watchlist Table -->
+  <div class="card" style="margin-top:20px">
+    <div class="card-header">
+      <span class="card-title">📋 Active Watchlist</span>
+      <span id="wlTableCount" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">0 entries</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" id="wlTable">
+        <thead>
+          <tr><th>Plate</th><th>Reason</th><th>Added</th><th>Total Alerts</th><th>Action</th></tr>
+        </thead>
+        <tbody id="wlTableBody">
+          <tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Watchlist is empty</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Alert History Table -->
+  <div class="card" style="margin-top:20px">
+    <div class="card-header">
+      <span class="card-title">📜 Alert History</span>
+      <button class="btn" onclick="loadAlertHistory()">↻ Reload</button>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table">
+        <thead>
+          <tr><th>Plate</th><th>Camera</th><th>Location</th><th>Alert Time</th><th>Conf</th><th>Reason</th></tr>
+        </thead>
+        <tbody id="alertHistoryBody">
+          <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:24px">No alerts recorded</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+'use strict';
+
+function tick() { document.getElementById('navClock').textContent = new Date().toTimeString().slice(0,8); }
+setInterval(tick, 1000); tick();
+
+const socket = io({ secure: true, rejectUnauthorized: false });
+
+socket.on('connect', () => {
+  socket.emit('dashboard:register');
+});
+
+socket.on('anpr:alert', (alert) => {
+  addLiveAlert(alert);
+  loadWatchlist(); // refresh alert counts
+});
+
+async function addToWatchlist() {
+  const plate  = document.getElementById('wlPlateInput').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const reason = document.getElementById('wlReasonInput').value.trim();
+  if (!plate) { alert('Please enter a registration number'); return; }
+  try {
+    const res = await fetch('/api/watchlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plate, reason: reason || 'Watchlisted' }),
+    });
+    const data = await res.json();
+    document.getElementById('wlPlateInput').value  = '';
+    document.getElementById('wlReasonInput').value = '';
+    loadWatchlist();
+  } catch(e) { alert('Failed to add to watchlist'); }
+}
+
+async function removeFromWatchlist(plate) {
+  if (!confirm(`Remove ${plate} from watchlist?`)) return;
+  try {
+    await fetch(`/api/watchlist/${plate}`, { method: 'DELETE' });
+    loadWatchlist();
+  } catch(e) { alert('Failed to remove'); }
+}
+
+async function loadWatchlist() {
+  try {
+    const wl = await fetch('/api/watchlist').then(r => r.json());
+    document.getElementById('statWl').textContent = wl.length;
+    document.getElementById('wlTableCount').textContent = `${wl.length} entries`;
+
+    const tbody = document.getElementById('wlTableBody');
+    if (!wl.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:30px">Watchlist is empty</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = wl.map(entry => {
+      const added = new Date(entry.addedAt).toLocaleString('en-IN', {hour12:false});
+      return `
+        <tr>
+          <td><span class="plate-tag">${entry.plate}</span></td>
+          <td style="color:var(--text-dim)">${entry.reason || '—'}</td>
+          <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${added}</td>
+          <td style="font-family:'Share Tech Mono',monospace">
+            <span style="color:var(--red)">${entry.alertCount || 0}</span>
+          </td>
+          <td>
+            <button class="btn danger" onclick="removeFromWatchlist('${entry.plate}')" style="padding:4px 10px;font-size:10px">
+              Remove
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch(e) { console.error('Watchlist fetch failed:', e); }
+}
+
+async function loadAlertHistory() {
+  try {
+    const alerts = await fetch('/api/alerts?limit=50').then(r => r.json());
+    document.getElementById('statAlerts').textContent = alerts.length;
+
+    if (alerts.length > 0) {
+      const last = alerts[0];
+      document.getElementById('statLastAlert').textContent = new Date(last.alertTime || last.timestamp).toTimeString().slice(0,8);
+    }
+
+    const tbody = document.getElementById('alertHistoryBody');
+    if (!alerts.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:24px">No alerts recorded</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = alerts.map(a => {
+      const time = new Date(a.alertTime || a.timestamp).toLocaleString('en-IN', {hour12:false});
+      const conf = Math.round(a.confidence * 100);
+      return `
+        <tr>
+          <td><span class="plate-tag">${a.plate}</span></td>
+          <td><span class="badge blue">${a.cameraName}</span></td>
+          <td style="color:var(--text-dim)">${a.location}</td>
+          <td style="font-family:'Share Tech Mono',monospace;font-size:10px">${time}</td>
+          <td>${conf}%</td>
+          <td style="color:var(--text-dim)">${a.reason || '—'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    document.getElementById('alertFeedCount').textContent = `${alerts.length} alerts`;
+  } catch(e) { console.error('Alert history fetch failed:', e); }
+}
+
+function addLiveAlert(alert) {
+  const feed = document.getElementById('liveAlertFeed');
+  const empty = feed.querySelector('.empty-state');
+  if (empty) empty.remove();
+
+  const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0,8);
+  const el   = document.createElement('div');
+  el.className = 'alert-card';
+  el.style.margin = '10px';
+  el.innerHTML = `
+    <div class="alert-header">
+      <span class="alert-icon">🚨</span>
+      <span class="alert-title">${alert.plate}</span>
+      <span style="margin-left:auto;font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${time}</span>
+    </div>
+    <div class="alert-body">
+      <div class="alert-field"><div class="alert-field-label">Camera</div><div class="alert-field-value">${alert.cameraName}</div></div>
+      <div class="alert-field"><div class="alert-field-label">Location</div><div class="alert-field-value">${alert.location || '—'}</div></div>
+      <div class="alert-field"><div class="alert-field-label">Reason</div><div class="alert-field-value">${alert.reason || '—'}</div></div>
+      <div class="alert-field"><div class="alert-field-label">Confidence</div><div class="alert-field-value">${Math.round(alert.confidence*100)}%</div></div>
+    </div>
+  `;
+  feed.insertBefore(el, feed.firstChild);
+
+  // Update nav badge
+  const badge = document.getElementById('navAlertBadge');
+  badge.classList.remove('hidden');
+  document.getElementById('navAlertCount').textContent = parseInt(document.getElementById('navAlertCount').textContent||'0') + 1;
+}
+
+// Init
+loadWatchlist();
+loadAlertHistory();
+setInterval(loadAlertHistory, 15000);
+</script>
+</body>
+</html>

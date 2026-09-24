@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# YOLO training runs & intermediate checkpoints
+runs/
+yolov8n.pt
+dataset/images/
+*.cache
+*.log
+
+# Temporary Tesseract training scratch directory
+tess_training/
+debug_output/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Environment
+.vscode/
+.idea/
+.env
+scratch/
+
+# Large files and datasets
+models/
+datasets/
+dataset/
+benchmarks/**/crops/
+data/

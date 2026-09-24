@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>window.location.replace('/dashboard.html#analytics');</script>
+  <title>Traffic Analytics — ANPR Intelligence Platform</title>
+  <link rel="stylesheet" href="style-pages.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-brand"><div class="nav-logo"></div><span class="nav-title">ANPR Intelligence</span></div>
+  <div class="nav-links">
+    <a href="/dashboard.html"  class="nav-link"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="/tracking.html"   class="nav-link"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="/analytics.html"  class="nav-link active"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="/network.html"    class="nav-link"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="/watchlist.html"  class="nav-link"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+  </div>
+  <div class="nav-meta">
+    <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
+    <span class="nav-clock" id="navClock">--:--:--</span>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📊 Traffic Analytics</div>
+      <div class="page-subtitle">REAL-TIME DETECTION METRICS · AUTO-REFRESHES EVERY 10 SECONDS</div>
+    </div>
+    <button class="btn primary" onclick="loadAnalytics()">↻ Refresh</button>
+  </div>
+
+  <!-- Summary Stats -->
+  <div class="stats-grid" id="summaryStats">
+    <div class="stat-card"><div class="stat-label">Loading…</div><div class="stat-value">—</div></div>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div class="chart-grid">
+    <div class="chart-card" style="grid-column:1/-1">
+      <div class="chart-card-title">📈 Detections Over Time (last 24 hours)</div>
+      <div class="chart-wrap" style="height:200px"><canvas id="timelineChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-title">📷 Detections Per Camera</div>
+      <div class="chart-wrap"><canvas id="perCamChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">🛣 Top Routes (Camera-to-Camera)</div>
+      <div class="chart-wrap"><canvas id="routeChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-title">🚗 Vehicle Type Distribution</div>
+      <div class="chart-wrap"><canvas id="typeChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- GIS Heatmap -->
+  <div class="card" style="margin-top:0">
+    <div class="card-header">
+      <span class="card-title">🗺 Camera Network Activity Map</span>
+      <span style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">Node size = detection volume</span>
+    </div>
+    <div id="analyticsMap" style="height:340px;border-radius:0 0 10px 10px"></div>
+  </div>
+
+</div>
+
+<script src="/js/camera-config.js"></script>
+<script>
+'use strict';
+
+function tick() { document.getElementById('navClock').textContent = new Date().toTimeString().slice(0,8); }
+setInterval(tick, 1000); tick();
+
+// Chart.js global config
+Chart.defaults.color = '#4a5570';
+Chart.defaults.borderColor = '#1a1d2e';
+Chart.defaults.font.family = "'Share Tech Mono', monospace";
+
+const GREEN = '#00ff41';
+const BLUE  = '#00b4ff';
+const AMBER = '#ffb400';
+const RED   = '#ff3b30';
+const PURPLE= '#9b5de5';
+
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  animation: { duration: 400 },
+};
+
+let charts = {};
+let analyticsMap = null;
+let bubbleLayers = [];
+
+function initMap() {
+  if (analyticsMap) return;
+  analyticsMap = L.map('analyticsMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(analyticsMap);
+  document.querySelector('#analyticsMap .leaflet-tile-pane').style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+}
+
+function renderBubbleMap(perCamera) {
+  // Remove old bubbles
+  bubbleLayers.forEach(l => analyticsMap.removeLayer(l));
+  bubbleLayers = [];
+
+  const maxCount = Math.max(...perCamera.map(c => c.count), 1);
+
+  perCamera.forEach(cam => {
+    const node = CAMERA_NODES.find(n => n.name === cam.name);
+    if (!node) return;
+    const radius = 10 + (cam.count / maxCount) * 40;
+    const circle = L.circleMarker([node.lat, node.lng], {
+      radius,
+      color: GREEN,
+      fillColor: GREEN,
+      fillOpacity: 0.2,
+      weight: 2,
+    });
+    circle.addTo(analyticsMap)
+      .bindPopup(`<div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:#dde2ec">
+        <b style="color:${GREEN}">${cam.name}</b><br>${cam.count} detections (last 60m)
+      </div>`);
+
+    // Label
+    const label = L.marker([node.lat, node.lng], {
+      icon: L.divIcon({
+        html: `<div style="background:rgba(0,0,0,0.75);border:1px solid rgba(0,255,65,0.3);border-radius:3px;padding:2px 6px;font-family:'Share Tech Mono',monospace;font-size:10px;color:#00ff41;white-space:nowrap;margin-left:${Math.round(radius)+4}px">${cam.name}<br><span style="color:#4a5570">${cam.count}</span></div>`,
+        className: '',
+      }),
+    });
+    label.addTo(analyticsMap);
+    bubbleLayers.push(circle, label);
+  });
+}
+
+function makeChart(id, type, labels, datasets, options = {}) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id), {
+    type,
+    data: { labels, datasets },
+    options: { ...chartDefaults, ...options },
+  });
+}
+
+async function loadAnalytics() {
+  try {
+    const data = await fetch('/api/detections/analytics').then(r => r.json());
+    renderStats(data);
+    renderTimelineChart(data.hourlyTimeline);
+    renderPerCamChart(data.perCamera);
+    renderRouteChart(data.topRoutes);
+    renderTypeChart();
+    initMap();
+    renderBubbleMap(data.perCamera);
+  } catch(e) {
+    console.error('Analytics fetch failed:', e);
+  }
+
+  // Also get vehicle type breakdown
+  try {
+    const dets = await fetch('/api/detections?limit=500').then(r => r.json());
+    const typeCounts = {};
+    dets.forEach(d => { typeCounts[d.vehicleType] = (typeCounts[d.vehicleType]||0)+1; });
+    renderTypeChart(typeCounts);
+  } catch(e) {}
+}
+
+function renderStats(data) {
+  const el = document.getElementById('summaryStats');
+  el.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">Total Detections</div>
+      <div class="stat-value green">${data.totalDetections.toLocaleString()}</div>
+      <div class="stat-meta">All time</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Last 60 Minutes</div>
+      <div class="stat-value blue">${data.last60min}</div>
+    </div>
+    <div class="stat-card amber">
+      <div class="stat-label">Vehicles / Min</div>
+      <div class="stat-value amber">${data.vehiclesPerMin}</div>
+      <div class="stat-meta">Current rate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Busiest Junction</div>
+      <div class="stat-value" style="font-size:18px">${data.busiestCamera}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Unique Plates</div>
+      <div class="stat-value">${data.uniquePlates}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Peak Hour</div>
+      <div class="stat-value" style="font-size:18px">${data.peakHour}</div>
+      <div class="stat-meta">${data.peakHourCount} detections</div>
+    </div>
+  `;
+}
+
+function renderTimelineChart(hourly) {
+  if (!hourly || !hourly.length) return;
+  makeChart('timelineChart', 'line',
+    hourly.map(h => h.hour),
+    [{
+      data: hourly.map(h => h.count),
+      borderColor: GREEN,
+      backgroundColor: 'rgba(0,255,65,0.08)',
+      fill: true,
+      tension: 0.4,
+      pointRadius: 3,
+      pointBackgroundColor: GREEN,
+    }],
+    {
+      scales: {
+        x: { grid: { color: '#1a1d2e' }, ticks: { font: { size: 9 } } },
+        y: { grid: { color: '#1a1d2e' }, ticks: { font: { size: 9 } }, beginAtZero: true },
+      },
+    }
+  );
+}
+
+function renderPerCamChart(perCamera) {
+  if (!perCamera) return;
+  const colors = [GREEN, BLUE, AMBER, RED];
+  makeChart('perCamChart', 'bar',
+    perCamera.map(c => c.name),
+    [{
+      data: perCamera.map(c => c.count),
+      backgroundColor: perCamera.map((_, i) => colors[i % colors.length] + '55'),
+      borderColor: perCamera.map((_, i) => colors[i % colors.length]),
+      borderWidth: 1,
+      borderRadius: 4,
+    }],
+    {
+      scales: {
+        x: { grid: { color: '#1a1d2e' }, ticks: { font: { size: 9 } } },
+        y: { grid: { color: '#1a1d2e' }, ticks: { font: { size: 9 } }, beginAtZero: true },
+      },
+    }
+  );
+}
+
+function renderRouteChart(routes) {
+  if (!routes || !routes.length) {
+    // Show placeholder
+    document.getElementById('routeChart').getContext('2d').clearRect(0,0,99999,99999);
+    return;
+  }
+  makeChart('routeChart', 'bar',
+    routes.map(r => r.route),
+    [{
+      data: routes.map(r => r.count),
+      backgroundColor: BLUE + '44',
+      borderColor: BLUE,
+      borderWidth: 1,
+      borderRadius: 4,
+    }],
+    {
+      indexAxis: 'y',
+      scales: {
+        x: { grid: { color: '#1a1d2e' }, ticks: { font: { size: 9 } }, beginAtZero: true },
+        y: { grid: { display: false }, ticks: { font: { size: 9 } } },
+      },
+    }
+  );
+}
+
+function renderTypeChart(typeCounts = {}) {
+  const labels = ['car', 'truck', 'bus', 'motorcycle', 'unknown'];
+  const counts  = labels.map(l => typeCounts[l] || 0);
+  const total   = counts.reduce((a,b) => a+b, 0) || 1;
+
+  makeChart('typeChart', 'doughnut',
+    labels.map((l, i) => `${l} (${Math.round(counts[i]/total*100)}%)`),
+    [{
+      data: counts,
+      backgroundColor: [GREEN+'99', BLUE+'99', AMBER+'99', RED+'99', '#4a5570'],
+      borderColor: [GREEN, BLUE, AMBER, RED, '#4a5570'],
+      borderWidth: 1,
+    }],
+    {
+      plugins: { legend: { display: true, position: 'right', labels: { font: { size: 10 }, boxWidth: 12, padding: 12, color: '#4a5570' } } },
+      cutout: '65%',
+    }
+  );
+}
+
+// Load on init and every 10s
+loadAnalytics();
+setInterval(loadAnalytics, 10000);
+</script>
+</body>
+</html>

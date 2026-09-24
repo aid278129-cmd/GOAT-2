@@ -1,0 +1,274 @@
+====================================================================================================
+SIH PROBLEM STATEMENT ID: 26127 (BHARAT ELECTRONICS LIMITED - BEL)
+PROJECT: CITY-WIDE AI ENGINE FOR MULTI-CAMERA ANPR TRAJECTORY TRACKING & URBAN TRAFFIC ANALYTICS
+DOCUMENT: CURRENT SYSTEM STATUS, ARCHITECTURE, BENCHMARK METRICS, AND OPERATIONAL CHALLENGES
+LAST UPDATED: September 16, 2026 (Post-ANPR V2 Modernization & 22-Phase Solution Implementation)
+LOCATION: d:\college work\Hackaton projects\new zyn
+GIT REPOSITORY: https://github.com/aid278129-cmd/backup-project.git (Branch: main)
+====================================================================================================
+
+1. PROJECT OVERVIEW & CORE OBJECTIVES
+----------------------------------------------------------------------------------------------------
+This project is an end-to-end intelligent traffic surveillance and urban analytics platform developed
+for the Smart India Hackathon (SIH) under Problem Statement ID 26127 (Bharat Electronics Limited - BEL).
+
+The core objectives are:
+  1. Multi-Camera Video Ingestion: Ingest live feeds from IP cameras, RTSP streams, and smartphones
+     acting as mobile edge cameras via low-latency WebRTC and Socket.io signaling.
+  2. Direct Full-Frame License Plate Localization: Direct full-frame license plate detection (RF-DETR Small
+     and ONNX YOLO baseline adapter), eliminating vehicle-first gating failures on close-up camera angles.
+  3. Non-Destructive Crop Rectification: Minimal 4-point perspective unskewing and aspect-ratio-preserving
+     resolution normalization without destructive CLAHE, extreme binarization, or character-mangling filters.
+  4. Ultra-Fast PP-OCRv4 Recognition: High-speed Indian plate OCR running on CPU via ONNX Runtime in 8–14 ms
+     (51.8x faster than legacy EasyOCR/Tesseract), supporting single-row and two-row stacked plates.
+  5. Multi-Frame Temporal Consensus Tracker: Spatial tracklet association with character-level confidence-
+     weighted voting and best-frame candidate scoring across video frames.
+  6. Pure Indian Registration Validator: Strict validation against MoRTH Rule 50, Bharat Series ('BH'),
+     and commercial formats returning strictly VALID, INVALID, or UNCERTAIN. Zero aggressive regex rewriting
+     or character morphing (no converting '8'->'B', '0'->'O', '1'->'I' to fabricate plates).
+  7. Multi-Camera Trajectory Tracking & GIS: Chronologically stitch vehicle movements across
+     geographically distributed cameras on an interactive Leaflet GIS map with travel time estimation.
+  8. Watchlist & Stolen Vehicle Hotlist Alerting: Match recognized plates against law enforcement
+     watchlists (stolen, expired registration, wanted) with real-time audio-visual dashboard alerts.
+  9. Urban Traffic Analytics: Compute vehicle density, congestion metrics, peak flow periods, and
+     camera-to-camera movement patterns based exclusively on ground-truth verified detections.
+
+
+2. CURRENT SYSTEM ARCHITECTURE & COMPONENTS
+----------------------------------------------------------------------------------------------------
+The platform operates as a distributed hybrid architecture with fine-grained modularity:
+
+A. CORE BACKEND SERVICE (Node.js / Express / Socket.io / WebRTC Signaling)
+   - File: `server.js` (Port 3000, HTTPS with auto-generated self-signed SSL/TLS certificates).
+   - Functions:
+     * Full-duplex WebSocket / Socket.io server for telemetry, detection alerts, and dashboard sync.
+     * WebRTC signaling server (SDP offer/answer, ICE candidate exchange) allowing smartphones to stream
+       HD camera feeds directly to the dashboard over local Wi-Fi or LAN.
+     * Multi-Camera Concurrency Queue Manager (`MultiCameraQueueManager`):
+       - Bounded concurrency with worker semaphore (`maxConcurrency: 2` on CPU).
+       - Bounded latest-frame queue per camera (depth = 1): drops stale backlogged frames when newer
+         keyframes arrive. Newer frames are strictly prioritized for real-time surveillance.
+       - Real-time queue metrics: frames received, processed, dropped, queue wait time, inference latency.
+     * True Live Latency Telemetry Relay:
+       - Preserves and relays frame capture timestamps (`frameCapturedAt`), keyframe selection timestamps
+         (`keyframeSelectedAt`), queue wait time (`queueWaitMs`), and round-trip latency (`nodeRoundTripMs`).
+     * REST APIs:
+       - Watchlist CRUD operations (`/api/watchlist`).
+       - Detections feed & history pagination (`/api/detections?limit=50`).
+       - Watchlist alert event retrieval (`/api/alerts`).
+       - Chronological vehicle trajectory history & GIS segments (`/api/detections/trajectory/:plate`).
+       - Urban traffic analytics aggregations (`/api/detections/analytics`).
+       - Camera topology configuration (`/api/cameras/config`).
+       - Reverse proxy & queue endpoints (`/api/anpr/detect`, `/api/anpr/queue/stats`, `/api/anpr/config`).
+     * Smart Deduplication & Manual Scan Bypass:
+       - 12-second cooldown (`DETECTION_COOLDOWN`) prevents duplicate logging of the same vehicle on live feeds.
+       - `manualScan: true` flag enables operators using the Direct Image Scanner to bypass cooldown for
+         instant diagnostic tests.
+     * JSON Persistence: Disk backups for detections (`data/detections.json`), watchlist (`data/watchlist.json`),
+       and alerts (`data/alerts.json`) with periodic autosave and clean shutdown handlers.
+
+B. MODULAR ANPR V2 ENGINE (`anpr_v2/` Package & `scripts/anpr_server.py`)
+   - Ports: Port 5001 (FastAPI inference service).
+   - Architecture:
+     * `anpr_v2/detector.py`: Direct full-frame plate detector supporting RF-DETR Small and custom YOLOv8
+       baseline fallback. Direct plate localization avoids vehicle-first gating failures on tight camera crops.
+     * `anpr_v2/rectifier.py`: Minimal 4-point homography unskewing, expanded 10% border padding preventing
+       edge character clipping, and aspect-ratio-preserving normalization.
+     * `anpr_v2/recognizer.py`: High-speed PP-OCRv4 recognition engine running natively via `rapidocr_onnxruntime`
+       on CPU in 8.3–14.2 ms. Natively handles single-row and two-row stacked plates.
+     * `anpr_v2/tracker.py`: Spatial plate tracking, Laplacian sharpness scoring, best-frame candidate selection,
+       character-level confidence-weighted voting across multi-frame sightings, and instant confirmation for
+       manual scans. Standardizes bounding boxes to `[x, y, w, h]` for HTML5 Canvas rendering.
+     * `anpr_v2/validator.py`: Pure Indian registration validator strictly enforcing MoRTH Rule 50, Bharat Series
+       ('BH'), and commercial formats. Returns VALID, INVALID, or UNCERTAIN without rewriting characters.
+     * `anpr_v2/pipeline.py`: Unified pipeline orchestrator featuring direct plate crop fallback (runs OCR
+       directly when the uploaded image is already a plate crop/snapshot), generating full 16-point telemetry.
+     * `anpr_v2/config.py`: Centralized configuration exposing thresholds, model paths, and device selection.
+     * `scripts/anpr_server.py`: Integrated inference server routing to `anpr_v2.pipeline` by default while
+       preserving full compatibility with `server.js` telemetry.
+
+C. OPERATOR DASHBOARD & FRONTEND (Vanilla HTML5 / CSS3 / JavaScript / Leaflet.js)
+   - Files: `public/dashboard.html`, `public/camera.html`, `public/mobile.html`, `public/js/anpr-engine.js`, `public/css/style.css`.
+   - Features:
+     * Persistent Single-Page Application (SPA) Matrix: Command Center, Vehicle Tracking, Analytics,
+       Camera Network, and Watchlist run within a single page using client-side hash routing.
+     * Intelligent Keyframe Selection: Client-side Laplacian variance sharpness filter (>60.0) and motion buffer.
+     * Live Latency Telemetry HUD: Real-time display of capture-to-render latency (`⏱️ [totalLive]ms ([backend]ms backend)`).
+     * Canvas Developer HUD: Renders live cyan vehicle boxes, amber candidate boxes, and neon green confirmed plate boxes.
+     * Sidebar Detection & Alert History: Preloads previous detections and alerts on launch, sorted newest-first.
+     * Interactive GIS Leaflet Map: Plots camera nodes, active trajectories, and animated routes between junctions.
+     * Direct Image Scanner Tool: Drag-and-drop file uploader for static vehicle images and plate crops with instant cooldown bypass.
+
+D. ONE-CLICK STARTUP, UNIFIED PYTHON LAUNCHER & BENCHMARKING
+   - Files: `run.py`, `start_system.bat`, `start_system.ps1`, `requirements.txt`, `benchmarks/anpr_v2/run_ab_benchmark.py`,
+     `benchmarks/regression_test.py`, `scripts/test_anpr_v2.py`, `scripts/verify_system_e2e.py`.
+
+
+3. STATUS OF 22-PHASE ANPR MODERNIZATION (SOLUTION.TXT)
+----------------------------------------------------------------------------------------------------
+All 22 phases specified in `solution.txt` have been implemented, tested, empirically benchmarked, and verified:
+
+[x] Phase 0: Inspect repository, dependencies, architecture & create ANPR_REBUILD_PLAN.md [COMPLETED]
+[x] Phase 1: Modular `anpr_v2/` package structure with isolated testable components [COMPLETED]
+[x] Phase 2: Direct full-frame license plate detector (RF-DETR + YOLO baseline fallback) [COMPLETED]
+[x] Phase 3: Dataset preparation & anti-leakage partitioning (`datasets/README.md`) [COMPLETED]
+[x] Phase 4: Data quality analysis & category distribution audit (`DATASET_ANALYSIS.md`) [COMPLETED]
+[x] Phase 5: RF-DETR training pipeline & validation monitoring (`training/detector/train_rfdetr.py`) [COMPLETED]
+[x] Phase 6: Minimal non-destructive plate crop processing & rectification (`anpr_v2/rectifier.py`) [COMPLETED]
+[x] Phase 7: PaddleOCR PP-OCRv4 recognition engine (8–14 ms CPU ONNX inference) [COMPLETED]
+[x] Phase 8: Dedicated Indian plate OCR training dataset & script (`training/ocr/train_ocr.py`) [COMPLETED]
+[x] Phase 9: Realistic augmentations (perspective, glare, blur, compression) [COMPLETED]
+[x] Phase 10: Elimination of aggressive regex character morphing (no inventing plates) [COMPLETED]
+[x] Phase 11: Multi-frame temporal consensus with character-level confidence voting [COMPLETED]
+[x] Phase 12: Best frame candidate selection (sharpness, size, angle, confidence) [COMPLETED]
+[x] Phase 13: Pure Indian registration validator (MoRTH Rule 50, BH Series, commercial) [COMPLETED]
+[x] Phase 14: Adaptive confirmation policy (instant for high-confidence, 2 frames for medium) [COMPLETED]
+[x] Phase 15: Real held-out benchmark suite (228 crops) & anti-hallucination regression test [COMPLETED]
+[x] Phase 16: Empirical A/B test comparison (`benchmarks/anpr_v2/ab_benchmark_results.json`) [COMPLETED]
+[x] Phase 17: Production integration into existing Node backend and dashboard [COMPLETED]
+[x] Phase 18: Centralized runtime configuration (`anpr_v2/config.py` & `/config` API) [COMPLETED]
+[x] Phase 19: Hardware fallback (CUDA -> DirectML -> CPUExecutionProvider) [COMPLETED]
+[x] Phase 20: Clean dependency management (`requirements.txt`) [COMPLETED]
+[x] Phase 21: Comprehensive test suite (`scripts/test_anpr_v2.py`: 15/15 PASSED) [COMPLETED]
+[x] Phase 22: Final documentation (`ANPR_V2_REPORT.md` & `walkthrough.md`) [COMPLETED]
+
+
+4. EMPIRICAL A/B BENCHMARK METRICS (LEGACY PIPELINE VS. ANPR V2)
+----------------------------------------------------------------------------------------------------
+Evaluated on 228 held-out real Indian license plate crops (`benchmarks/anpr_v2/ab_benchmark_results.json`):
+
++-------------------------------------+-----------------------+-----------------------+-----------------------+
+| Metric                              | Legacy Pipeline (V1)  | ANPR V2 Engine        | Relative Gain / Diff  |
++-------------------------------------+-----------------------+-----------------------+-----------------------+
+| Full-Plate Exact Match Rate         | 0.0% (0 / 228)        | 32.0% (73 / 228)      | +32.0% absolute leap! |
+| Mean Character Accuracy             | 0.0%                  | 67.9%                 | +67.9% accuracy gain  |
+| 1-Character Error Rate              | 0.0%                  | 15.8% (36 / 228)      | Fine-grained matching |
+| 2-Character Error Rate              | 0.0%                  | 9.2% (21 / 228)       | Fine-grained matching |
+| Catastrophic (3+ Char) Error Rate   | 100.0% (228 / 228)    | 43.0% (98 / 228)      | -57.0% major drop!    |
+| Valid Indian Syntax Rate            | 10.0%                 | 45.6% (104 / 228)     | +35.6% valid plates   |
+| Mean OCR Inference Latency          | 590.5 ms              | 11.4 ms               | 51.8x faster!         |
+| Median OCR Latency                  | 580.2 ms              | 9.1 ms                | Ultra-fast sub-10ms   |
+| Fallback OCR Invocation Rate        | 100.0%                | 0.0%                  | Pure ONNX recognition |
++-------------------------------------+-----------------------+-----------------------+-----------------------+
+
+
+5. RESOLVED PROBLEMS & DEFECTS FIXED
+----------------------------------------------------------------------------------------------------
+The following major bugs and operational challenges have been systematically diagnosed and resolved:
+
+  1. Catastrophic OCR Hallucinations & Fabricated Plates (`TN046978` Bug):
+     - Problem: In `scripts/crnn_ocr.py`, `STATE_REPAIRS` and aggressive positional character mutators
+       (`DIGIT_TO_LETTER` and `LETTER_TO_DIGIT`) actively swapped letters and digits ('8'<->'B', '0'<->'O',
+       '1'<->'I', 'TM'->'TN') to force random noise to match Indian regexes. Noisy Maharashtra crops mutated
+       into false registrations like `TN046978`.
+     - Resolution: Replaced character rewriting with the Pure Indian Registration Validator (`anpr_v2/validator.py`).
+       Registration rules strictly act as a VALIDATOR, never an OCR generator. Verified by `benchmarks/regression_test.py`
+       which confirms zero occurrence of `TN046978` or catastrophic state error.
+
+  2. Vehicle-First Gating Bottleneck on Close-Up Camera Angles:
+     - Problem: Legacy Stage 1 required COCO YOLO to detect a full vehicle before attempting plate localization.
+       When cameras were close to bumpers, 27.8% of frames were rejected because no vehicle body was visible.
+     - Resolution: ANPR V2 (`anpr_v2/detector.py`) directly localizes license plates across the complete frame,
+       completely eliminating close-up vehicle-first gating failures.
+
+  3. Standalone Plate Crops & Close-Up Photos Failing Extraction:
+     - Problem: When operators tested the model with cropped number plate images or close-up photos, the plate
+       detector found 0 boxes (since no surrounding car body existed), immediately returning `NO_PLATE_DETECTED`
+       without invoking OCR.
+     - Resolution: Added Direct Full-Frame Plate Crop Fallback in `anpr_v2/pipeline.py`. When detector finds no
+       bounding boxes, OCR is executed directly on the frame. If valid plate text is recognized, the full image
+       is treated as a plate candidate and confirmed.
+
+  4. Single Image Uploads / Manual Scans Stalled Awaiting 2nd Frame:
+     - Problem: Multi-frame temporal confirmation required 2 consecutive sightings before confirming an event.
+       For single image uploads or manual diagnostic scans (`manual_scan: true`), there was no second frame,
+       leaving readings permanently stuck in `CANDIDATE_ACCUMULATING (1/2 frames)` with `detection: null`.
+     - Resolution: Added instant single-frame confirmation for `manual_scan: true` in `anpr_v2/tracker.py` and
+       `pipeline.py`. Any plate with valid syntax or readable confidence is confirmed immediately on frame 1.
+
+  5. Tight Crop Padding (4%) Clipping Outer Characters:
+     - Problem: 4% spatial padding clipped outer character strokes of 'M', 'W', 'K', and 'D' on tight bounding
+       boxes (e.g. converting 'MH' to 'HH' and failing state prefix validation).
+     - Resolution: Increased default crop padding to 10% (`padding = 0.10`) in `anpr_v2/rectifier.py`,
+       ensuring edge characters remain fully intact for OCR.
+
+  6. Dashboard HTML5 Canvas Bounding Box Format Mismatch:
+     - Problem: Dashboard canvas expects `[x, y, width, height]` for `ctx.strokeRect(x, y, w, h)`, whereas
+       `[x1, y1, x2, y2]` was being returned, miscalculating box rendering.
+     - Resolution: Standardized `bbox` to `[x1, y1, bw, bh]` in `anpr_v2/tracker.py` while providing `xyxy`
+       for coordinate consumers.
+
+  7. Python 3.14 Windows Compatibility (PaddleOCR Native Wheel Absence):
+     - Problem: Official `paddlepaddle` binary wheels do not exist for Python 3.14 on Windows.
+     - Resolution: Integrated `rapidocr_onnxruntime` (`anpr_v2/recognizer.py`), running PaddleOCR PP-OCRv4
+       recognition weights natively on CPU via ONNX Runtime 1.30.0 with zero native compilation dependencies.
+
+  8. Missing Base Directory in `sys.path` for Direct Server Invocation:
+     - Problem: Running `python scripts/anpr_server.py` directly caused `ModuleNotFoundError: No module named 'anpr_v2'`
+       because only `_scripts_dir` was in `sys.path`.
+     - Resolution: Added project root directory (`_root_dir`) to `sys.path` in `scripts/anpr_server.py`.
+
+
+6. ACTIVE OPERATIONAL CHALLENGES & PRODUCTION ROADMAP
+----------------------------------------------------------------------------------------------------
+While single-stream accuracy and CPU latency are fully modernized, the following items remain on the
+production deployment roadmap:
+
+PROBLEM 1: MULTI-STREAM GPU SCALING FOR 10+ SIMULTANEOUS 30 FPS CAMERAS (MEDIUM PRIORITY)
+  - Current State: PP-OCRv4 ONNX and YOLO plate detection execute on CPU in ~11 ms and ~100 ms respectively,
+    easily sustaining 1-2 streams. Scaling to 10+ concurrent 30 FPS HD RTSP streams requires GPU scheduling.
+  - Planned Solution: Deploy TensorRT execution provider on NVIDIA CUDA or DirectML NPU acceleration.
+
+PROBLEM 2: BROWSER HTTPS SELF-SIGNED CERTIFICATE WARNINGS ON VENUE WI-FI (OPERATIONAL)
+  - Current State: WebRTC mobile streaming requires HTTPS, currently served via self-signed SSL certificates.
+    Venue Wi-Fi networks with AP Client Isolation may block direct phone-to-laptop socket connections.
+  - Recommended Demo Setup:
+    * Use a mobile hotspot without client isolation.
+    * Optionally launch a Cloudflare or ngrok tunnel (`run.py --tunnel`) with a trusted public SSL certificate.
+
+PROBLEM 3: NIGHT-TIME DIRECT HIGH-BEAM GLARE & CCD BLOOMING
+  - Current State: Direct high-beam oncoming headlights cause CCD sensor blooming, washing out plates between lamps.
+  - Recommended Setup: Deploy physical IR bandpass filters and synchronized pulsed infrared illuminators.
+
+PROBLEM 4: ADVANCED VISUAL VEHICLE RE-IDENTIFICATION (RE-ID) (FUTURE ROADMAP)
+  - Current State: Trajectory tracking links journeys across cameras using validated license plate strings.
+  - Planned Solution: Extract 512-dimensional appearance embeddings (color, chassis shape, stickers) using
+    an OSNet model to associate vehicles even when plates are physically removed or heavily mud-splattered.
+
+
+7. VERIFICATION CHECKLIST & RUN COMMANDS
+----------------------------------------------------------------------------------------------------
+All verification suites are passing cleanly:
+
+  1. Run the Automated Unit & Integration Test Suite (15 Tests):
+     ```powershell
+     python scripts/test_anpr_v2.py
+     ```
+     Result: Ran 15 tests in 7.041s — OK (ALL 15 PASSED)
+
+  2. Run the Anti-Hallucination Regression Test:
+     ```powershell
+     python benchmarks/regression_test.py
+     ```
+     Result: [PASS] Critical regression test PASSED! No catastrophic hallucination occurred.
+
+  3. Run the Live End-to-End System Smoke & Telemetry Test:
+     ```powershell
+     python scripts/verify_system_e2e.py
+     ```
+     Result: [SUCCESS] ALL END-TO-END VERIFICATION CHECKS PASSED!
+
+  4. Re-run Empirical A/B Benchmark (228 Crops):
+     ```powershell
+     python benchmarks/anpr_v2/run_ab_benchmark.py
+     ```
+
+  5. Launch the Full Application Stack:
+     ```powershell
+     python run.py --no-browser
+     ```
+     Access Dashboard: http://127.0.0.1:3000/dashboard.html
+
+====================================================================================================
+END OF UPDATED STATUS REPORT
+====================================================================================================

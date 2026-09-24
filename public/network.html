@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script>window.location.replace('/dashboard.html#network');</script>
+  <title>Camera Network — ANPR Intelligence Platform</title>
+  <link rel="stylesheet" href="style-pages.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+
+<nav class="top-nav">
+  <div class="nav-brand"><div class="nav-logo"></div><span class="nav-title">ANPR Intelligence</span></div>
+  <div class="nav-links">
+    <a href="/dashboard.html"  class="nav-link"><span class="nav-icon">🎥</span><span class="nav-label">Command Center</span></a>
+    <a href="/tracking.html"   class="nav-link"><span class="nav-icon">🚗</span><span class="nav-label">Vehicle Tracking</span></a>
+    <a href="/analytics.html"  class="nav-link"><span class="nav-icon">📊</span><span class="nav-label">Analytics</span></a>
+    <a href="/network.html"    class="nav-link active"><span class="nav-icon">📡</span><span class="nav-label">Camera Network</span></a>
+    <a href="/watchlist.html"  class="nav-link"><span class="nav-icon">⚠️</span><span class="nav-label">Watchlist</span></a>
+  </div>
+  <div class="nav-meta">
+    <div class="nav-alert-badge hidden" id="navAlertBadge"><span id="navAlertCount">0</span> ALERT</div>
+    <span class="nav-clock" id="navClock">--:--:--</span>
+  </div>
+</nav>
+
+<div class="page-container">
+  <div class="page-header">
+    <div>
+      <div class="page-title">📡 Camera Network Status</div>
+      <div class="page-subtitle">LIVE HEALTH MONITOR · NODE STATUS · DETECTION THROUGHPUT</div>
+    </div>
+    <button class="btn primary" onclick="loadNetwork()">↻ Refresh</button>
+  </div>
+
+  <!-- Summary -->
+  <div class="stats-grid" id="networkStats">
+    <div class="stat-card"><div class="stat-label">Loading…</div><div class="stat-value">—</div></div>
+  </div>
+
+  <!-- Map + Table -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div class="card">
+      <div class="card-header"><span class="card-title">🗺 Network Map</span></div>
+      <div id="networkMap" style="height:420px;border-radius:0 0 10px 10px"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">📋 Node Status Table</span>
+        <span id="networkUpdateTime" style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr><th>ID</th><th>Name</th><th>Location</th><th>Zone</th><th>Status</th><th>Detections</th><th>Coords</th></tr>
+          </thead>
+          <tbody id="networkTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent per-camera detections -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:16px" id="camCards"></div>
+
+</div>
+
+<script src="/js/camera-config.js"></script>
+<script>
+'use strict';
+
+function tick() { document.getElementById('navClock').textContent = new Date().toTimeString().slice(0,8); }
+setInterval(tick, 1000); tick();
+
+let netMap = null;
+const markerRefs = {};
+
+function initMap() {
+  if (netMap) return;
+  netMap = L.map('networkMap', { zoomControl: true, attributionControl: false }).setView([13.07, 80.26], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(netMap);
+  document.querySelector('#networkMap .leaflet-tile-pane').style.filter = 'invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9)';
+}
+
+function updateMap(cameraNodes) {
+  cameraNodes.forEach(cam => {
+    const color = cam.online ? '#00ff41' : '#ff3b30';
+    const icon  = L.divIcon({
+      html: `<div style="position:relative">
+        <div style="width:20px;height:20px;border-radius:50%;background:${color};border:3px solid #050508;box-shadow:0 0 14px ${color};"></div>
+        <div style="position:absolute;left:24px;top:-2px;background:rgba(0,0,0,0.8);border:1px solid ${color}33;border-radius:3px;padding:2px 7px;font-family:'Share Tech Mono',monospace;font-size:10px;color:${color};white-space:nowrap">${cam.name}</div>
+      </div>`,
+      className: '', iconAnchor: [10, 10],
+    });
+
+    if (markerRefs[cam.id]) netMap.removeLayer(markerRefs[cam.id]);
+    markerRefs[cam.id] = L.marker([cam.lat, cam.lng], { icon })
+      .addTo(netMap)
+      .bindPopup(`
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+          <div style="color:${color};font-size:13px;font-weight:bold;margin-bottom:4px">CAM-0${cam.id}: ${cam.name}</div>
+          <div style="color:#dde2ec">${cam.location} · ${cam.zone} Zone</div>
+          <div style="color:#4a5570;margin-top:6px">Status: <span style="color:${color}">${cam.online ? 'ONLINE' : 'OFFLINE'}</span></div>
+          <div style="color:#4a5570">Detections: ${cam.detectionCount}</div>
+          <div style="color:#4a5570">${cam.lat.toFixed(4)}°N, ${cam.lng.toFixed(4)}°E</div>
+        </div>
+      `);
+  });
+
+  // Draw connecting lines
+  const coords = cameraNodes.map(c => [c.lat, c.lng]);
+  if (coords.length > 1) {
+    if (netMap._networkLine) netMap.removeLayer(netMap._networkLine);
+    netMap._networkLine = L.polyline(coords, {
+      color: '#1a1d2e', weight: 1.5, dashArray: '5 5',
+    }).addTo(netMap);
+  }
+}
+
+async function loadNetwork() {
+  try {
+    const cams = await fetch('/api/cameras/config').then(r => r.json());
+    const dets = await fetch('/api/detections?limit=50').then(r => r.json());
+
+    const online  = cams.filter(c => c.online).length;
+    const offline = cams.length - online;
+    const total   = cams.reduce((a, c) => a + c.detectionCount, 0);
+
+    // Summary stats
+    document.getElementById('networkStats').innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Total Cameras</div>
+        <div class="stat-value">${cams.length}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Online</div>
+        <div class="stat-value green">${online}</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-label">Offline</div>
+        <div class="stat-value ${offline > 0 ? 'red' : ''}">${offline}</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-label">Total Detections</div>
+        <div class="stat-value blue">${total.toLocaleString()}</div>
+      </div>
+    `;
+
+    // Table
+    const tbody = document.getElementById('networkTableBody');
+    tbody.innerHTML = '';
+    cams.forEach(cam => {
+      const statusBadge = cam.online
+        ? '<span class="badge green"><span class="cam-status-dot online" style="margin-right:4px"></span>ONLINE</span>'
+        : '<span class="badge red">OFFLINE</span>';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="font-family:'Share Tech Mono',monospace">0${cam.id}</td>
+        <td style="font-weight:600">${cam.name}</td>
+        <td style="color:var(--text-dim)">${cam.location}</td>
+        <td><span class="badge dim">${cam.zone}</span></td>
+        <td>${statusBadge}</td>
+        <td style="font-family:'Share Tech Mono',monospace;color:var(--green)">${cam.detectionCount}</td>
+        <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${cam.lat.toFixed(4)}°N ${cam.lng.toFixed(4)}°E</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // Camera mini-cards
+    const camCards = document.getElementById('camCards');
+    camCards.innerHTML = cams.map(cam => {
+      const recentForCam = dets.filter(d => d.cameraId === cam.id).slice(0, 5);
+      const lastDetect   = recentForCam[0];
+      const statusColor  = cam.online ? 'var(--green)' : 'var(--red)';
+      return `
+        <div class="card">
+          <div class="card-header" style="padding:10px 14px">
+            <span style="font-family:'Share Tech Mono',monospace;font-size:11px;color:${statusColor}">CAM-0${cam.id}</span>
+            <span class="cam-status-dot ${cam.online ? 'online' : 'offline'}"></span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-weight:700;font-size:15px;margin-bottom:4px">${cam.name}</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">${cam.location}</div>
+            <div style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim);margin-bottom:6px">
+              ${cam.detectionCount} total detections
+            </div>
+            ${lastDetect ? `
+              <div style="background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.15);border-radius:4px;padding:6px 8px">
+                <div style="font-family:'Share Tech Mono',monospace;font-size:11px;color:var(--green)">${lastDetect.plate}</div>
+                <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim)">${new Date(lastDetect.timestamp).toTimeString().slice(0,8)}</div>
+              </div>
+            ` : `<div style="font-size:10px;color:var(--text-muted);font-family:'Share Tech Mono',monospace">No recent detections</div>`}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Map
+    initMap();
+    updateMap(cams);
+    document.getElementById('networkUpdateTime').textContent = `Updated: ${new Date().toTimeString().slice(0,8)}`;
+
+  } catch(e) {
+    console.error('Network fetch failed:', e);
+  }
+}
+
+loadNetwork();
+setInterval(loadNetwork, 15000);
+</script>
+</body>
+</html>

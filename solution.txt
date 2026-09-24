@@ -1,0 +1,1055 @@
+You are acting as the senior Computer Vision / ML engineer for my existing
+Smart India Hackathon project.
+
+PROJECT:
+City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking and
+Urban Traffic Analytics.
+
+IMPORTANT:
+This is an EXISTING working project.
+
+DO NOT rebuild the entire application.
+DO NOT redesign the frontend.
+DO NOT remove working WebRTC, multi-camera, GIS, analytics, watchlist,
+trajectory tracking, persistence, or dashboard functionality.
+
+Your task is to REPLACE ONLY the unreliable ANPR/OCR recognition pipeline
+with a clean, modern, maintainable implementation.
+
+============================================================
+PRIMARY OBJECTIVE
+============================================================
+
+Build a reliable Indian Automatic Number Plate Recognition pipeline:
+
+CAMERA / IMAGE
+       ↓
+LICENSE PLATE DETECTION
+       ↓
+BEST PLATE CROP
+       ↓
+PERSPECTIVE RECTIFICATION
+       ↓
+PP-OCR RECOGNITION
+       ↓
+MULTI-FRAME OCR CONSENSUS
+       ↓
+INDIAN REGISTRATION FORMAT VALIDATION
+       ↓
+CONFIRMED PLATE
+       ↓
+EXISTING TRAJECTORY / GIS / WATCHLIST / ANALYTICS
+
+Target example:
+
+VISIBLE PLATE:
+MH01AV8669
+
+SYSTEM OUTPUT:
+MH01AV8669
+
+Do not consider outputs such as:
+
+TN046978
+
+acceptable simply because they happen to match a valid-looking
+registration format.
+
+Correctness has priority over aggressively guessing a registration.
+
+============================================================
+PHASE 0 — INSPECT THE EXISTING PROJECT FIRST
+============================================================
+
+Before modifying anything:
+
+1. Inspect the entire repository.
+2. Understand the existing architecture.
+3. Locate:
+   - Python ANPR service
+   - Node.js backend
+   - WebRTC pipeline
+   - camera frame dispatch
+   - dashboard
+   - existing YOLO models
+   - existing CRNN
+   - Tesseract/EasyOCR code
+   - temporal tracker
+   - plate validation
+   - GIS
+   - trajectory tracking
+   - watchlist
+   - analytics
+   - benchmark scripts
+   - training scripts
+   - datasets
+   - model weights
+   - requirements
+   - startup scripts
+
+4. Identify exactly which files implement the existing OCR/ANPR pipeline.
+
+5. Create:
+
+ANPR_REBUILD_PLAN.md
+
+Document:
+
+CURRENT PIPELINE
+NEW PIPELINE
+FILES TO MODIFY
+FILES TO KEEP
+FILES TO DEPRECATE
+MODEL REQUIREMENTS
+DATASET REQUIREMENTS
+BENCHMARK STRATEGY
+
+Do not begin destructive changes until this analysis is complete.
+
+============================================================
+PHASE 1 — CREATE A CLEAN MODULAR ANPR V2
+============================================================
+
+Do NOT immediately delete the existing implementation.
+
+Create the new implementation as:
+
+anpr_v2/
+
+Suggested structure:
+
+anpr_v2/
+    detector.py
+    rectifier.py
+    recognizer.py
+    tracker.py
+    validator.py
+    pipeline.py
+    config.py
+
+training/
+    detector/
+    ocr/
+
+benchmarks/
+    anpr_v2/
+
+datasets/
+    README.md
+
+Keep modules independent and testable.
+
+The old pipeline must remain available temporarily for A/B comparison.
+
+============================================================
+PHASE 2 — LICENSE PLATE DETECTOR
+============================================================
+
+PRIMARY DETECTOR:
+
+RF-DETR Small
+
+Fine-tune RF-DETR specifically for:
+
+license_plate
+
+Do NOT use a general vehicle detector as a mandatory prerequisite for
+plate detection.
+
+The detector should directly locate license plates in the complete frame.
+
+INPUT:
+
+full camera frame
+
+OUTPUT:
+
+[
+  {
+    bbox: [x1,y1,x2,y2],
+    confidence: 0.xx
+  }
+]
+
+Support:
+
+cars
+motorcycles
+buses
+trucks
+autos
+commercial vehicles
+
+Support:
+
+front plates
+rear plates
+rectangular plates
+two-line plates
+HSRP plates
+yellow commercial plates
+
+Keep the existing YOLO plate detector available as a BASELINE.
+
+Benchmark:
+
+RF-DETR
+vs
+existing YOLO plate detector
+
+using exactly the same held-out images.
+
+Compare:
+
+precision
+recall
+mAP50
+mAP50-95
+false positives
+CPU latency
+GPU latency if available.
+
+Do not automatically assume RF-DETR is better.
+
+Select it only if the benchmark supports the decision.
+
+============================================================
+PHASE 3 — DATASET PREPARATION FOR DETECTOR
+============================================================
+
+Prepare a proper Indian license-plate detection dataset.
+
+Use available legally usable public Indian number-plate datasets.
+
+DO NOT silently download datasets with unclear licensing.
+
+Document:
+
+dataset name
+source
+license
+image count
+annotation type
+
+Merge compatible datasets into a unified dataset.
+
+Detection annotation:
+
+IMAGE
++
+LICENSE PLATE BOUNDING BOX
+
+Create:
+
+train
+validation
+test
+
+Suggested starting split:
+
+80% train
+10% validation
+10% test
+
+IMPORTANT:
+
+Images from the same video/vehicle must not leak between train and test.
+
+If multiple frames show the same vehicle, keep that vehicle within the
+same split.
+
+Prevent dataset leakage.
+
+============================================================
+PHASE 4 — DATA QUALITY CHECK
+============================================================
+
+Before training, analyze dataset distribution.
+
+Report counts for:
+
+cars
+motorcycles
+commercial vehicles
+trucks/buses
+
+day
+night
+
+front
+rear
+
+straight
+angled
+
+near
+medium
+far
+
+white plate
+yellow plate
+
+single-row
+two-row
+
+blurred
+clear
+
+Create:
+
+DATASET_ANALYSIS.md
+
+If important categories are severely underrepresented, report the issue
+before training.
+
+============================================================
+PHASE 5 — TRAIN RF-DETR
+============================================================
+
+Fine-tune RF-DETR Small.
+
+Do NOT blindly use huge epoch counts.
+
+Use:
+
+validation monitoring
+early stopping
+best checkpoint saving
+learning-rate scheduling
+
+Save:
+
+models/rfdetr_plate_best.*
+
+Model selection metric should prioritize detection quality on the
+held-out validation set.
+
+Never evaluate final performance using training images.
+
+============================================================
+PHASE 6 — PLATE CROP PROCESSING
+============================================================
+
+Once RF-DETR detects the plate:
+
+extract the plate crop.
+
+Keep preprocessing MINIMAL.
+
+Required:
+
+1. crop
+2. optional perspective rectification
+3. resolution normalization
+
+Avoid stacking unnecessary filters.
+
+Do NOT automatically apply:
+
+heavy sharpening
+aggressive thresholding
+multiple CLAHE passes
+destructive HSRP masking
+
+unless benchmark evidence shows improvement.
+
+OCR should receive a crop that visually resembles the original plate.
+
+For debugging allow saving:
+
+debug_output/
+
+raw_frame.jpg
+detected_crop.jpg
+rectified_crop.jpg
+ocr_input.jpg
+
+============================================================
+PHASE 7 — OCR MODEL
+============================================================
+
+PRIMARY OCR:
+
+PaddleOCR PP-OCRv6 recognition model.
+
+Use PaddleOCR recognition for plate text.
+
+Do NOT use Tesseract or EasyOCR in the primary production path.
+
+They may remain available ONLY as benchmark baselines.
+
+Initial OCR pipeline:
+
+PLATE CROP
+      ↓
+PP-OCR
+      ↓
+RAW TEXT
+      ↓
+CONFIDENCE
+
+Example:
+
+crop:
+[ MH01AV8669 ]
+
+output:
+
+text = "MH01AV8669"
+confidence = 0.xx
+
+============================================================
+PHASE 8 — FINE-TUNE OCR FOR INDIAN PLATES
+============================================================
+
+Create a dedicated recognition dataset.
+
+FORMAT:
+
+plate_image -> exact registration string
+
+Example:
+
+plate_00001.jpg -> MH01AV8669
+plate_00002.jpg -> TN45AB1234
+plate_00003.jpg -> KA03MN8821
+
+Use real Indian plate crops wherever legally available.
+
+Include:
+
+MH
+TN
+KA
+KL
+DL
+UP
+MP
+RJ
+GJ
+WB
+AP
+TS
+etc.
+
+Include difficult character pairs:
+
+B / 8
+O / 0
+D / 0
+I / 1
+T / 1
+S / 5
+Z / 2
+G / 6
+A / 4
+
+Include:
+
+HSRP
+yellow plates
+two-row plates
+motorcycles
+commercial vehicles
+blur
+motion
+compression
+distance
+perspective
+glare
+low light.
+
+============================================================
+VERY IMPORTANT — DATASET LEAKAGE
+============================================================
+
+Do not put the same registration number/video sequence into both
+training and testing where avoidable.
+
+The final TEST dataset must remain untouched.
+
+Never train on failed benchmark examples just to make benchmark scores
+increase.
+
+Maintain:
+
+TRAIN
+VALIDATION
+TEST
+
+separately.
+
+============================================================
+PHASE 9 — AUGMENTATION
+============================================================
+
+Use realistic augmentation only.
+
+Allowed examples:
+
+small perspective changes
+brightness variation
+contrast variation
+JPEG compression
+mild blur
+motion blur
+small rotations
+small scaling
+low-light simulation
+mild glare
+
+Do NOT create unrealistic plate distortions.
+
+Characters must remain readable.
+
+============================================================
+PHASE 10 — REMOVE AGGRESSIVE OCR CORRECTION
+============================================================
+
+THIS IS CRITICAL.
+
+Do NOT implement logic that invents registration numbers.
+
+Do NOT automatically convert:
+
+8 -> B
+0 -> O
+1 -> I
+
+simply because the resulting string matches an Indian registration
+pattern.
+
+Indian registration rules are a VALIDATOR.
+
+They are NOT an OCR generator.
+
+Correct:
+
+OCR:
+MH01AV8669
+
+Validator:
+VALID
+
+Accept.
+
+Also acceptable:
+
+OCR:
+XH01AV8669
+
+Validator:
+INVALID / UNCERTAIN
+
+Request another frame.
+
+NOT acceptable:
+
+OCR:
+TN046978
+
+Decoder:
+"Maybe MH01AV8669"
+
+Never fabricate the expected plate.
+
+============================================================
+PHASE 11 — TEMPORAL OCR CONSENSUS
+============================================================
+
+For live video, do not trust one uncertain OCR result.
+
+Track the same plate across several nearby frames.
+
+Example:
+
+Frame 1:
+MH01AV8669
+
+Frame 2:
+MH01AV8668
+
+Frame 3:
+MH01AV8669
+
+Determine consensus:
+
+MH01AV8669
+
+Implement character-level confidence-weighted temporal voting.
+
+Prefer:
+
+VISUAL EVIDENCE FROM MULTIPLE FRAMES
+
+over:
+
+FORMAT-BASED CHARACTER CORRECTION.
+
+High-confidence identical readings across multiple frames should be
+confirmed rapidly.
+
+============================================================
+PHASE 12 — BEST FRAME SELECTION
+============================================================
+
+Do not OCR every frame.
+
+For each tracked plate collect several candidate crops.
+
+Score them using:
+
+plate detector confidence
+sharpness
+plate size
+motion blur
+viewing angle
+
+OCR only the strongest candidate(s).
+
+Example:
+
+Frame A sharpness 42
+Frame B sharpness 91
+Frame C sharpness 67
+
+Prefer Frame B.
+
+This should improve OCR while reducing CPU usage.
+
+============================================================
+PHASE 13 — INDIAN REGISTRATION VALIDATOR
+============================================================
+
+Implement a validator supporting common Indian registration structures.
+
+Examples:
+
+MH01AV8669
+TN45AB1234
+KA03MN8821
+
+BH Series:
+
+22BH1234AA
+
+Support valid variations where applicable.
+
+The validator returns:
+
+VALID
+INVALID
+UNCERTAIN
+
+It must NOT rewrite the OCR string.
+
+============================================================
+PHASE 14 — CONFIRMATION POLICY
+============================================================
+
+Suggested behavior:
+
+VERY HIGH OCR CONFIDENCE
++
+VALID FORMAT
++
+strong plate crop
++
+same result repeated
+
+=> CONFIRM
+
+MEDIUM CONFIDENCE
+
+=> wait for another frame
+
+LOW CONFIDENCE
+
+=> reject/request another crop.
+
+Avoid confidently publishing unrelated registrations.
+
+============================================================
+PHASE 15 — BUILD A REAL BENCHMARK
+============================================================
+
+Create a manually verified held-out Indian plate benchmark.
+
+Minimum initial goal:
+
+200+ REAL plate crops.
+
+Preferably expand toward:
+
+500–1000+
+
+Include difficult conditions.
+
+Every image must have:
+
+ground_truth_plate
+
+Measure:
+
+DETECTION:
+
+precision
+recall
+mAP
+
+OCR:
+
+character accuracy
+
+FULL PLATE EXACT MATCH
+
+1-character error rate
+
+2-character error rate
+
+3+ character error rate
+
+wrong-state-code rate
+
+invalid-output rate
+
+LIVE SYSTEM:
+
+median confirmation latency
+P95 confirmation latency
+worst-case latency
+false-positive rate
+incorrect-confirmation rate
+
+PRIMARY OCR METRIC:
+
+FULL PLATE EXACT MATCH.
+
+============================================================
+CRITICAL REGRESSION CASE
+============================================================
+
+Add this known test case:
+
+GROUND TRUTH:
+
+MH01AV8669
+
+This is a REGRESSION TEST ONLY.
+
+Do NOT train specifically on this test image.
+
+The system should ultimately return:
+
+MH01AV8669
+
+A result such as:
+
+TN046978
+
+must count as a CATASTROPHIC OCR FAILURE.
+
+Define:
+
+catastrophic OCR error =
+Levenshtein distance >= 3
+OR
+wrong state prefix combined with additional character errors.
+
+Track catastrophic error rate.
+
+============================================================
+PHASE 16 — A/B TEST
+============================================================
+
+Before replacing production ANPR, compare:
+
+CURRENT SYSTEM
+vs
+ANPR V2
+
+on exactly the same test dataset.
+
+Report:
+
+                         OLD       V2
+
+Plate Recall
+Plate Precision
+Character Accuracy
+Exact Match
+1-char Error
+2-char Error
+3+ Error
+Wrong State
+False Positive
+Median Latency
+P95 Latency
+
+Do NOT replace the old system unless ANPR V2 clearly improves real
+full-plate recognition.
+
+============================================================
+PHASE 17 — INTEGRATE INTO EXISTING APPLICATION
+============================================================
+
+Only after V2 passes benchmarking:
+
+connect:
+
+ANPR V2
+   ↓
+existing Node backend
+   ↓
+existing detection events
+   ↓
+trajectory tracking
+   ↓
+GIS
+   ↓
+watchlist
+   ↓
+analytics
+   ↓
+dashboard
+
+Preserve the API response format expected by the existing application
+where possible.
+
+Do not rewrite unrelated application code.
+
+============================================================
+PHASE 18 — CONFIGURATION
+============================================================
+
+Expose ANPR settings in a centralized configuration.
+
+Example:
+
+ANPR_VERSION=v2
+
+DETECTOR=rfdetr
+OCR=paddleocr
+
+DEVICE=auto
+
+TEMPORAL_CONSENSUS=true
+
+SAVE_DEBUG_CROPS=false
+
+Do not scatter thresholds throughout source files.
+
+============================================================
+PHASE 19 — HARDWARE FALLBACK
+============================================================
+
+The project must run without a dedicated GPU.
+
+Preferred runtime order:
+
+CUDA GPU if available
+↓
+supported hardware acceleration
+↓
+CPU
+
+Do not make CUDA mandatory.
+
+The SIH demo must remain functional on CPU.
+
+============================================================
+PHASE 20 — DEPENDENCIES
+============================================================
+
+Update project dependencies cleanly.
+
+Pin compatible versions.
+
+Do not leave conflicting abandoned ML libraries.
+
+Document installation.
+
+The project should still launch through the existing startup mechanism
+where practical.
+
+============================================================
+PHASE 21 — TESTING
+============================================================
+
+Add automated tests for:
+
+detector loading
+OCR loading
+plate crop extraction
+rectification
+validator
+temporal consensus
+API integration
+empty frame
+no plate
+multiple plates
+two-row plate
+yellow plate
+motorcycle plate
+invalid text
+low-confidence OCR
+
+Also create:
+
+python scripts/test_anpr_v2.py
+
+============================================================
+PHASE 22 — FINAL DOCUMENTATION
+============================================================
+
+Create:
+
+ANPR_V2_REPORT.md
+
+Include:
+
+1. architecture
+2. models used
+3. model/checkpoint licenses
+4. datasets used
+5. dataset licenses
+6. training procedure
+7. preprocessing
+8. detector benchmark
+9. OCR benchmark
+10. live benchmark
+11. old vs new comparison
+12. known limitations
+13. hardware requirements
+14. reproduction instructions
+
+Do not fabricate metrics.
+
+Every reported number must come from an actual benchmark.
+
+============================================================
+EXECUTION RULES
+============================================================
+
+IMPORTANT:
+
+Do not try to complete everything in one uncontrolled edit.
+
+Execute incrementally:
+
+STEP 1
+Repository inspection
+
+STEP 2
+ANPR_REBUILD_PLAN.md
+
+STEP 3
+Dataset preparation
+
+STEP 4
+Detector baseline
+
+STEP 5
+RF-DETR fine-tuning
+
+STEP 6
+PP-OCR baseline
+
+STEP 7
+PP-OCR fine-tuning
+
+STEP 8
+Temporal consensus
+
+STEP 9
+Real benchmark
+
+STEP 10
+A/B comparison
+
+STEP 11
+Production integration
+
+After every major step:
+
+RUN TESTS.
+
+If something fails:
+
+STOP
+DIAGNOSE
+FIX
+RETEST
+
+Do not continue stacking changes on a broken stage.
+
+============================================================
+ABSOLUTE RULES
+============================================================
+
+DO NOT:
+
+- hardcode license plates
+- hardcode benchmark answers
+- train using test images
+- invent benchmark results
+- automatically rewrite OCR into plausible registrations
+- add dozens of regex corrections
+- rebuild the frontend
+- remove working project functionality
+- add Vehicle Re-ID yet
+- optimize only for latency
+- optimize only for number of detections
+
+PRIORITY ORDER:
+
+1. FULL-PLATE EXACT-MATCH ACCURACY
+2. LOW CATASTROPHIC ERROR RATE
+3. PLATE DETECTION RECALL
+4. FALSE-POSITIVE CONTROL
+5. LIVE RELIABILITY
+6. LATENCY
+
+============================================================
+FIRST ACTION
+============================================================
+
+Start NOW with repository inspection.
+
+Do NOT immediately modify the ANPR implementation.
+
+First produce:
+
+ANPR_REBUILD_PLAN.md
+
+Then show me:
+
+1. existing files/components that will be reused
+2. existing ANPR components that will be replaced
+3. proposed ANPR V2 file structure
+4. model download/training requirements
+5. dataset requirements
+6. dependency changes
+7. implementation sequence
+
+After the plan is created, proceed incrementally with implementation
+unless you encounter a decision that genuinely requires user input.
+
+The final goal is a SIMPLE and RELIABLE system:
+
+FRAME
+ ↓
+RF-DETR PLATE DETECTION
+ ↓
+CLEAN PLATE CROP
+ ↓
+PP-OCR
+ ↓
+MULTI-FRAME VISUAL CONSENSUS
+ ↓
+FORMAT VALIDATION
+ ↓
+CONFIRMED EXACT REGISTRATION
+
+Do not reintroduce unnecessary complexity unless benchmark evidence
+demonstrates that it improves FULL-PLATE EXACT-MATCH accuracy.

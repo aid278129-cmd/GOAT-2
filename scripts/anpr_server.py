@@ -1,0 +1,2261 @@
+"""
+anpr_server.py
+High-Performance Local ANPR Inference Service for Indian License Plates
+SIH Problem Statement ID: 26127 (BEL)
+
+Layered Vision Pipeline with Comprehensive 16-Point Per-Frame Diagnostics:
+  1. Vehicle-First Detection (YOLOv8 COCO: car, motorcycle, bus, truck)
+  2. Vehicle ROI Extraction & Spatial Verification
+  3. License Plate Candidate Detection inside Vehicle ROI (Trained Indian Plate YOLOv8)
+  4. Geometric & Aspect Ratio Filtering
+  5. Optimized OCR (Tesseract v5.4.0 with CLAHE/Dual-Otsu + EasyOCR fallback)
+  6. Indian Registration Syntax Scoring & Positional Disambiguation
+  7. Multi-Frame Temporal Confirmation Tracker (Rejects isolated single-frame noise)
+  8. Confirmed ANPR Event Forwarding to Node.js Backend
+  9. Full Frame & Plate Crop Archival + Real-time 16-point Diagnostics Telemetry
+
+Phase 8 — 6-Stage False-Positive Evidence Chain Gating:
+  Stage 1: Vehicle Detection (COCO YOLOv8) — must detect a vehicle class above threshold
+  Stage 2: Plate Localization — plate detector must find candidate boxes in vehicle ROI
+  Stage 3: Geometric Validation — candidate must pass AR, size, area-ratio and vertical pos checks
+  Stage 4: OCR / Syntax Validation — OCR output must yield a valid Indian state prefix + MoRTH pattern
+  Stage 5: Multi-Frame Temporal Window — candidate must be seen across >= min_consecutive_sightings frames
+  Stage 6: Event Confirmation — only a Stage-5 confirmed event is forwarded to the Node.js backend
+
+False-Positive Policy: A frame that fails at any stage is unconditionally rejected at that stage.
+No plate detection is attempted when Stage 1 fails (allow_fullframe_fallback = False by default).
+"""
+
+import os
+import io
+import re
+import time
+import asyncio
+import base64
+import difflib
+from collections import defaultdict
+import numpy as np
+from PIL import Image
+import cv2
+import pytesseract
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+import uvicorn
+import requests
+import easyocr
+import sys
+import urllib3
+_scripts_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.abspath(os.path.join(_scripts_dir, ".."))
+if _scripts_dir not in sys.path:
+    sys.path.insert(0, _scripts_dir)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+from crnn_ocr import decode_positional_syntax, get_crnn_recognizer
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+app = FastAPI(title="City-Wide Indian ANPR Intelligence Server (BEL SIH)")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+PLATE_MODEL_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.pt")
+FALLBACK_PLATE_MODEL_PATH = PLATE_MODEL_PATH
+VEHICLE_MODEL_PATH = os.path.join(BASE_DIR, "models", "yolov8n.pt") if os.path.exists(os.path.join(BASE_DIR, "models", "yolov8n.pt")) else os.path.join(BASE_DIR, "yolov8n.pt")
+PLATE_ONNX_PATH = os.path.join(BASE_DIR, "models", "indian_plate_best.onnx")
+VEHICLE_ONNX_PATH = os.path.join(BASE_DIR, "models", "yolov8n.onnx")
+NODE_SERVER_URL = "https://127.0.0.1:3000/api/detections"
+
+# Debug output directories
+DEBUG_DIR = os.path.join(BASE_DIR, "debug_output")
+DEBUG_FRAMES_DIR = os.path.join(DEBUG_DIR, "frames")
+DEBUG_CROPS_DIR = os.path.join(DEBUG_DIR, "crops")
+
+os.makedirs(DEBUG_FRAMES_DIR, exist_ok=True)
+os.makedirs(DEBUG_CROPS_DIR, exist_ok=True)
+
+# Mount debug static directory so client/browser can inspect saved frames and crops
+app.mount("/debug_output", StaticFiles(directory=DEBUG_DIR), name="debug_output")
+
+# Set Tesseract binary path
+TESSERACT_DEFAULT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+if os.path.exists(TESSERACT_DEFAULT_PATH):
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_DEFAULT_PATH
+    print(f"Configured Tesseract OCR binary: {TESSERACT_DEFAULT_PATH}")
+else:
+    print("Using system default tesseract command")
+
+# ──────────────────────────────────────────────────────────────────
+# Centralized, Configurable Settings (Runtime Configurable)
+# ──────────────────────────────────────────────────────────────────
+ANPR_CONFIG = {
+    # Pipeline Version
+    "anpr_version": "v2",
+
+    # Stage 1: Vehicle Detection
+    "vehicle_detection_enabled": True,
+    "vehicle_classes": [2, 3, 5, 7],         # COCO classes: 2=car, 3=motorcycle, 5=bus, 7=truck
+    "vehicle_conf_threshold": 0.22,           # Lowered for partial bumper framing
+    "vehicle_roi_padding": 0.05,             # 5% padding around vehicle crop
+
+    # Stage 2: License Plate Candidate Detection
+    "plate_conf_threshold": 0.40,             # Min plate candidate confidence
+    "closeup_plate_conf_threshold": 0.45,     # Threshold if searching full frame
+    # Phase 8: False-positive protection — full-frame fallback DISABLED by default.
+    # Setting this True opens a bypass around Stage 1 vehicle gating (for close-up plate feeds only).
+    "allow_fullframe_fallback": False,        # Phase 8: Strict — no plate detection without vehicle evidence
+
+    # Stage 3: Geometric & Spatial Validation
+    "min_plate_aspect_ratio": 1.1,           # Width / Height (1.1 allows MoRTH Rule 50 square/two-row plates)
+    "max_plate_aspect_ratio": 6.2,           # Standard rectangular plates
+    "min_plate_width": 20,                   # Pixels
+    "min_plate_height": 8,                   # Pixels
+    "max_plate_to_vehicle_area": 0.35,       # Plate cannot be >35% of full vehicle area
+    "plate_vertical_pos_min": 0.15,          # Plate must not be at the very top roof of vehicle
+
+    # Stage 4: OCR & Indian Plate Syntax
+    "min_ocr_conf": 0.45,
+    "min_plate_chars": 6,
+    "max_plate_chars": 11,
+    "strict_indian_state_required": True,
+
+    # Stage 5: Multi-Frame Temporal Confirmation & Confidence-Weighted Voting (Phase 7 & solution.txt Steps 2 & 3)
+    "temporal_window_sec": 25.0,             # Sliding window duration (legacy compatibility)
+    "active_confirmation_timeout_sec": 6.0,   # Step 3: Shortened active confirmation window (5-8s)
+    "historical_window_sec": 25.0,           # Step 3: Historical aggregation window for trajectory
+    "min_consecutive_sightings": 2,          # Minimum frames for medium confidence
+    "temporal_similarity_threshold": 0.75,  # String similarity ratio for candidate clustering
+    "temporal_voting_mode": "confidence_weighted", # "confidence_weighted", "simple_majority", "legacy_highest_conf"
+    "adaptive_temporal_confirmation": True,  # Step 2: Adaptive 1/2/3 frame confirmation
+    "adaptive_high_det_conf": 0.65,          # High-confidence detector threshold for immediate confirmation
+    "adaptive_high_crnn_conf": 0.75,         # High-confidence CRNN threshold for immediate confirmation
+
+    # Diagnostics & Storage
+    "save_debug_frames": True,               # Save exact incoming WebRTC frame to disk
+    "save_debug_crops": True,                # Save pre-OCR plate crops to disk
+    "max_saved_frames": 200,                 # Frame cache limit
+
+    # Phase 2: Intelligent Keyframe Selection & Sharpness Filtering
+    "keyframe_selection": True,              # Select sharpest frame in temporal window
+    "minimum_sharpness": 60.0,               # Minimum Laplacian variance to reject blurry frames
+    "keyframe_window_ms": 1000,              # Candidate evaluation rolling window (ms)
+    "anpr_sampling_interval": 1000,          # Interval between ANPR inference dispatches (ms)
+
+    # Phase 3: CPU Performance Optimization & Configurable Inference Backend
+    "inference_backend": "onnx",              # "onnx" or "pytorch"
+    "enable_stage_profiling": True,          # Record fine-grained ms timings for all stages
+
+    # Phase 4: Staged OCR Execution & Early-Exit Optimization (solution.txt Step 4)
+    "ocr_backend": "crnn",                   # Selectable: "crnn" (with early exit), "tesseract", "easyocr"
+    "ocr_staged_execution": True,            # 3-tier early-stopping OCR pipeline
+    "ocr_target_height_single_row": 80,      # Target height in px for single-row plates
+    "ocr_target_height_two_row": 130,        # Target height in px for two-row plates
+    "ocr_early_exit_conf": 0.75,             # Exit immediately if Tier 1 yields valid MoRTH plate with >= conf
+    "ocr_router_crnn_exit_conf": 0.75,       # Step 4: Stop immediately if CRNN + decoder confirms valid plate
+
+    # Phase 5: Screen Display Robustness
+    "screen_robustness_mode": "auto",        # "auto", "enabled", "disabled"
+    "screen_unsharp_strength": 1.2,          # Adaptive unsharp masking strength (0.0 to disable)
+    "screen_anti_moire": True,               # Edge-preserving bilateral filter against subpixel grids
+    "screen_glare_compensation": True,       # LAB-space CLAHE local contrast & reflection normalization
+
+    # Phase 6: Multi-Camera Concurrency & Defense-in-Depth Worker Limits
+    "max_python_workers": 2,                 # Maximum simultaneous CPU vision inference tasks
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Concurrency State & Worker Semaphore (Phase 6)
+# ──────────────────────────────────────────────────────────────────
+active_inferences = 0
+peak_inferences = 0
+_worker_semaphore = None
+
+def get_worker_semaphore():
+    global _worker_semaphore
+    if _worker_semaphore is None:
+        _worker_semaphore = asyncio.Semaphore(ANPR_CONFIG.get("max_python_workers", 2))
+    return _worker_semaphore
+
+
+# ──────────────────────────────────────────────────────────────────
+# Diagnostic Memory Store
+# ──────────────────────────────────────────────────────────────────
+RECENT_DEBUG_LOGS: List[Dict[str, Any]] = []
+LATEST_DEBUG_PER_CAM: Dict[int, Dict[str, Any]] = {}
+DEBUG_STATS = {
+    "total_frames_processed": 0,
+    "vehicle_detected_count": 0,
+    "plate_attempted_count": 0,
+    "plate_candidates_found_count": 0,
+    "ocr_attempted_count": 0,
+    "syntax_valid_count": 0,
+    "confirmed_count": 0,
+    "rejection_reasons_breakdown": {}
+}
+
+def record_rejection_stat(reason_code: str):
+    prefix = reason_code.split(":")[0].strip() if ":" in reason_code else reason_code
+    DEBUG_STATS["rejection_reasons_breakdown"][prefix] = (
+        DEBUG_STATS["rejection_reasons_breakdown"].get(prefix, 0) + 1
+    )
+
+# ──────────────────────────────────────────────────────────────────
+# Model Holders & Dynamic Backend Loaders (Phase 3)
+# ──────────────────────────────────────────────────────────────────
+vehicle_model = None
+plate_model = None
+easyocr_reader = None
+active_vehicle_backend = "pytorch"
+active_plate_backend = "pytorch"
+
+def get_vehicle_model():
+    global vehicle_model, active_vehicle_backend
+    requested_backend = str(ANPR_CONFIG.get("inference_backend", "onnx")).lower()
+    if vehicle_model is not None and active_vehicle_backend == requested_backend:
+        return vehicle_model
+
+    from ultralytics import YOLO
+    if requested_backend == "onnx" and os.path.exists(VEHICLE_ONNX_PATH):
+        try:
+            print(f"[Phase 3] Loading Vehicle YOLO via ONNX Runtime: {VEHICLE_ONNX_PATH}")
+            vehicle_model = YOLO(VEHICLE_ONNX_PATH, task="detect")
+            active_vehicle_backend = "onnx"
+            return vehicle_model
+        except Exception as e:
+            print(f"[Phase 3 Warning] Failed to load ONNX vehicle detector ({e}). Falling back to PyTorch.")
+
+    print(f"Loading Vehicle YOLO via PyTorch: {VEHICLE_MODEL_PATH}")
+    vehicle_model = YOLO(VEHICLE_MODEL_PATH if os.path.exists(VEHICLE_MODEL_PATH) else "yolov8n.pt")
+    active_vehicle_backend = "pytorch"
+    return vehicle_model
+
+def get_plate_model():
+    global plate_model, active_plate_backend
+    requested_backend = str(ANPR_CONFIG.get("inference_backend", "onnx")).lower()
+    if plate_model is not None and active_plate_backend == requested_backend:
+        return plate_model
+
+    from ultralytics import YOLO
+    if requested_backend == "onnx" and os.path.exists(PLATE_ONNX_PATH):
+        try:
+            print(f"[Phase 3] Loading Indian Plate YOLO via ONNX Runtime: {PLATE_ONNX_PATH}")
+            plate_model = YOLO(PLATE_ONNX_PATH, task="detect")
+            active_plate_backend = "onnx"
+            return plate_model
+        except Exception as e:
+            print(f"[Phase 3 Warning] Failed to load ONNX plate detector ({e}). Falling back to PyTorch.")
+
+    chosen_pt = PLATE_MODEL_PATH if os.path.exists(PLATE_MODEL_PATH) else ("yolov8n.pt")
+    print(f"Loading Indian Plate YOLO via PyTorch: {chosen_pt}")
+    plate_model = YOLO(chosen_pt)
+    active_plate_backend = "pytorch"
+    return plate_model
+
+def get_easyocr_fallback():
+    global easyocr_reader
+    if easyocr_reader is None:
+        print("Initializing EasyOCR fallback reader...")
+        easyocr_reader = easyocr.Reader(['en'], gpu=False)
+    return easyocr_reader
+
+# ──────────────────────────────────────────────────────────────────
+# Indian State & Union Territory Standards
+# ──────────────────────────────────────────────────────────────────
+INDIAN_STATES = {
+    'AN', 'AP', 'AR', 'AS', 'BR', 'CG', 'CH', 'DD', 'DL', 'DN', 'GA', 'GJ',
+    'HP', 'HR', 'JH', 'JK', 'KA', 'KL', 'LA', 'LD', 'MH', 'ML', 'MN', 'MP',
+    'MZ', 'NL', 'OD', 'OR', 'PB', 'PY', 'RJ', 'SK', 'TN', 'TR', 'TS', 'UK',
+    'UA', 'UP', 'WB', 'BH'
+}
+
+INDIAN_STATE_NAMES = {
+    'AN': 'Andaman and Nicobar', 'AP': 'Andhra Pradesh', 'AR': 'Arunachal Pradesh',
+    'AS': 'Assam', 'BR': 'Bihar', 'CG': 'Chhattisgarh', 'CH': 'Chandigarh',
+    'DD': 'Daman and Diu', 'DL': 'Delhi', 'DN': 'Dadra and Nagar Haveli',
+    'GA': 'Goa', 'GJ': 'Gujarat', 'HP': 'Himachal Pradesh', 'HR': 'Haryana',
+    'JH': 'Jharkhand', 'JK': 'Jammu and Kashmir', 'KA': 'Karnataka', 'KL': 'Kerala',
+    'LA': 'Ladakh', 'LD': 'Lakshadweep', 'MH': 'Maharashtra', 'ML': 'Meghalaya',
+    'MN': 'Manipur', 'MP': 'Madhya Pradesh', 'MZ': 'Mizoram', 'NL': 'Nagaland',
+    'OD': 'Odisha', 'OR': 'Odisha', 'PB': 'Punjab', 'PY': 'Puducherry',
+    'RJ': 'Rajasthan', 'SK': 'Sikkim', 'TN': 'Tamil Nadu', 'TR': 'Tripura',
+    'TS': 'Telangana', 'UK': 'Uttarakhand', 'UA': 'Uttarakhand', 'UP': 'Uttar Pradesh',
+    'WB': 'West Bengal', 'BH': 'Bharat Series (All-India)'
+}
+
+# ──────────────────────────────────────────────────────────────────
+# Indian Registration Syntax Validation & Repair
+# ──────────────────────────────────────────────────────────────────
+STATE_REPAIRS = {
+    'MG': 'MH', 'MN': 'MH', 'NH': 'MH',
+    'OL': 'DL', 'D1': 'DL', 'DI': 'DL',
+    'K1': 'KL', 'KI': 'KL',
+    'TM': 'TN', 'TI': 'TN', 'TF': 'TN', 'TH': 'TN',
+    'HR': 'HR', 'HA': 'HR',
+    'GJ': 'GJ', 'CJ': 'GJ',
+    'VP': 'UP', 'UF': 'UP',
+    'AP': 'AP', 'AF': 'AP',
+    'TS': 'TS', 'T5': 'TS',
+    'WB': 'WB', 'WE': 'WB',
+    'PB': 'PB', 'P8': 'PB',
+    'RJ': 'RJ', 'R1': 'RJ',
+    'KH': 'KA',
+}
+
+def repair_inverted_two_row(text):
+    """
+    On Indian square / 2-row plates (Rule 50 MoRTH), OCR frequently reads the bottom row 
+    (registration number) before the top row (State + District RTO code).
+    E.g. '0074AHAP29' -> 'AP29AH0074'.
+    """
+    if len(text) < 7:
+        return text
+    # If text already begins with a valid Indian state or repaired state, do not invert
+    if text[:2] in INDIAN_STATES or STATE_REPAIRS.get(text[:2], '') in INDIAN_STATES:
+        return text
+    # Check if a valid Indian state prefix is embedded inside or at the end
+    for i in range(1, len(text) - 1):
+        st = text[i:i+2]
+        repaired_st = STATE_REPAIRS.get(st, st)
+        if repaired_st in INDIAN_STATES:
+            rto_match = re.match(r"^([A-Z]{2}\d{1,2})", repaired_st + text[i+2:])
+            if rto_match:
+                state_rto = rto_match.group(1)
+                rem = text[:i] + text[i+len(state_rto):]
+                rem_letters = re.findall(r"[A-Z]+", rem)
+                rem_digits = re.findall(r"\d+", rem)
+                return f"{state_rto}{''.join(rem_letters)}{''.join(rem_digits)}"
+    return text
+
+def clean_plate_text(raw_text):
+    """
+    Step 3 (solution.txt): Position-Aware Indian Plate Decoder.
+    Contextually disambiguates characters (B↔8, O/D↔0, I/T↔1, S↔5, Z↔2, HSRP 'IND')
+    based strictly on structural syntax position in standard MoRTH and BH series.
+    """
+    return decode_positional_syntax(raw_text)
+
+def validate_indian_plate_syntax(text):
+    """
+    Validate normalized plate string against Indian registration standards.
+    Returns: (is_valid, score, state_code, state_name, match_type)
+    """
+    if not text or len(text) < ANPR_CONFIG["min_plate_chars"] or len(text) > ANPR_CONFIG["max_plate_chars"]:
+        return False, 0.0, "", "Unknown", f"REJECTED_LENGTH (got {len(text)} chars, expected {ANPR_CONFIG['min_plate_chars']}-{ANPR_CONFIG['max_plate_chars']})"
+
+    state_code = text[:2]
+    is_state_valid = state_code in INDIAN_STATES
+    is_bh = bool(re.match(r"^\d{2}BH", text))
+
+    if ANPR_CONFIG["strict_indian_state_required"] and not is_state_valid and not is_bh:
+        return False, 0.0, state_code, "Invalid State Prefix", f"REJECTED_INVALID_STATE (prefix '{state_code}' not a recognised Indian State/UT code)"
+
+    # Tier 1: Standard MoRTH format (e.g., TN45AB1234, DL3CD1210)
+    if re.match(r"^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$", text):
+        state_name = INDIAN_STATE_NAMES.get(state_code, "Indian Registered Vehicle")
+        return True, 1.0, state_code, state_name, "STANDARD_MORTH"
+
+    # Tier 1: Bharat Series (e.g., 22BH1234AA)
+    if re.match(r"^\d{2}BH\d{4}[A-Z]{1,2}$", text):
+        return True, 1.0, "BH", "Bharat Series (All-India)", "BHARAT_SERIES"
+
+    # Tier 2: Flexible Commercial / Older formats (e.g., KL498262)
+    if re.match(r"^[A-Z]{2}\d{1,4}[A-Z]{0,2}\d{1,4}$", text):
+        state_name = INDIAN_STATE_NAMES.get(state_code, "Indian Registered Vehicle")
+        return True, 0.85, state_code, state_name, "VALID_HISTORICAL"
+
+    return False, 0.0, state_code, "Unrecognized Syntax", "REJECTED_SYNTAX (Pattern mismatch against MoRTH/BH series)"
+
+# ──────────────────────────────────────────────────────────────────
+# HSRP / IND Region Suppression (Step 2)
+# ──────────────────────────────────────────────────────────────────
+def mask_hsrp_badge(crop_bgr):
+    """
+    Step 2 (solution.txt): Masks the blue IND strip / hologram on the left margin
+    with the plate background color. Preserves exact plate dimensions, aspect ratio,
+    and character positions without distorting the bounding box.
+    Returns: (has_hsrp: bool, masked_crop: np.ndarray, split_x: int)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return False, crop_bgr, 0
+
+    h, w = crop_bgr.shape[:2]
+    if w < 30 or h < 10:
+        return False, crop_bgr, 0
+
+    max_search_w = int(w * 0.14)
+    left_roi = crop_bgr[:, :max_search_w]
+    hsv = cv2.cvtColor(left_roi, cv2.COLOR_BGR2HSV)
+    # Blue mask: H in [95, 135], S > 50, V > 40
+    blue_mask = cv2.inRange(hsv, np.array([95, 50, 40]), np.array([135, 255, 255]))
+    blue_pixel_count = np.count_nonzero(blue_mask)
+    blue_ratio = blue_pixel_count / float(left_roi.shape[0] * left_roi.shape[1])
+    col_blue = np.sum(blue_mask > 0, axis=0)
+
+    if blue_ratio > 0.08 and np.max(col_blue) > int(h * 0.3):
+        active_cols = np.where(col_blue > int(h * 0.15))[0]
+        if len(active_cols) > 0:
+            split_x = min(max_search_w, int(active_cols[-1]) + 2)
+            bg_sample = crop_bgr[:, split_x:min(w, split_x + 15)]
+            median_bg = np.median(bg_sample, axis=(0, 1)).astype(np.uint8)
+            masked = crop_bgr.copy()
+            masked[:, :split_x] = median_bg
+            return True, masked, split_x
+
+    return False, crop_bgr, 0
+
+# ──────────────────────────────────────────────────────────────────
+# Perspective & Skew Correction (Phase 1)
+# ──────────────────────────────────────────────────────────────────
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]   # top-left
+    rect[2] = pts[np.argmax(s)]   # bottom-right
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]  # top-right
+    rect[3] = pts[np.argmax(diff)]  # bottom-left
+    return rect
+
+def rectify_plate_perspective(crop_bgr):
+    """
+    Detect plate boundary or line orientation and apply 4-point perspective
+    transformation or rotation to rectify skewed / angled license plates.
+    Returns: (rectified_crop, skew_degrees, status_str)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr, 0.0, "SKIPPED_EMPTY"
+
+    h, w = crop_bgr.shape[:2]
+    if h < 10 or w < 20:
+        return crop_bgr, 0.0, "SKIPPED_TOO_SMALL"
+
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Method 1: Quadrilateral Contour Detection (4-point Homography)
+    try:
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edged = cv2.Canny(blurred, 40, 160)
+        contours, _ = cv2.findContours(edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)[:8]
+
+        for c in contours:
+            area = cv2.contourArea(c)
+            if area < 0.20 * (w * h):
+                continue
+            peri = cv2.arcLength(c, True)
+            approx = cv2.approxPolyDP(c, 0.035 * peri, True)
+
+            if len(approx) == 4 and cv2.isContourConvex(approx):
+                pts = approx.reshape(4, 2).astype("float32")
+                rect = order_points(pts)
+                (tl, tr, br, bl) = rect
+
+                widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+                widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+                maxWidth = max(int(widthA), int(widthB))
+
+                heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+                heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+                maxHeight = max(int(heightA), int(heightB))
+
+                if maxWidth < 25 or maxHeight < 10:
+                    continue
+
+                ar = maxWidth / float(max(1, maxHeight))
+                if ar < 1.0 or ar > 7.0:
+                    continue
+
+                dx = tr[0] - tl[0]
+                dy = tr[1] - tl[1]
+                skew_deg = float(np.degrees(np.arctan2(dy, dx)))
+
+                if abs(skew_deg) < 1.5:
+                    return crop_bgr, float(round(skew_deg, 2)), "SKIPPED_NEGLIGIBLE_SKEW"
+
+                dst = np.array([
+                    [0, 0],
+                    [maxWidth - 1, 0],
+                    [maxWidth - 1, maxHeight - 1],
+                    [0, maxHeight - 1]
+                ], dtype="float32")
+
+                M = cv2.getPerspectiveTransform(rect, dst)
+                rectified = cv2.warpPerspective(crop_bgr, M, (maxWidth, maxHeight), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rectified, float(round(skew_deg, 2)), "APPLIED_4PT_HOMOGRAPHY"
+    except Exception:
+        pass
+
+    # Method 2: Hough Line Skew Analysis (Detect plate borders & text baseline)
+    try:
+        edged = cv2.Canny(gray, 40, 160)
+        min_len = max(20, int(w * 0.25))
+        lines = cv2.HoughLinesP(edged, 1, np.pi / 180, threshold=40, minLineLength=min_len, maxLineGap=15)
+        weighted_angles = []
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line.ravel()
+                dx = float(x2 - x1)
+                dy = float(y2 - y1)
+                deg = float(np.degrees(np.arctan2(dy, dx)))
+                length = np.sqrt(dx * dx + dy * dy)
+                if abs(deg) <= 20.0:
+                    weighted_angles.append((deg, length))
+
+        if len(weighted_angles) >= 2:
+            weighted_angles.sort(key=lambda x: x[1], reverse=True)
+            top_angles = [a[0] for a in weighted_angles[:10]]
+            median_skew = float(np.median(top_angles))
+            if abs(median_skew) >= 1.5:
+                center = (w // 2, h // 2)
+                M = cv2.getRotationMatrix2D(center, median_skew, 1.0)
+                cos = np.abs(M[0, 0])
+                sin = np.abs(M[0, 1])
+                new_w = int((h * sin) + (w * cos))
+                new_h = int((h * cos) + (w * sin))
+                M[0, 2] += (new_w / 2) - center[0]
+                M[1, 2] += (new_h / 2) - center[1]
+                rectified = cv2.warpAffine(crop_bgr, M, (new_w, new_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                return rectified, float(round(median_skew, 2)), "APPLIED_HOUGH_ROTATION"
+            else:
+                return crop_bgr, float(round(median_skew, 2)), "SKIPPED_NEGLIGIBLE_SKEW"
+    except Exception:
+        pass
+
+    return crop_bgr, 0.0, "SKIPPED_NO_SIGNIFICANT_SKEW"
+
+# ──────────────────────────────────────────────────────────────────
+# Tesseract OCR & Image Enhancement (Phase 4 Staged Pipeline)
+# ──────────────────────────────────────────────────────────────────
+def normalize_plate_crop(crop_bgr, target_height=None):
+    """
+    Intelligently normalize plate crop resolution for optimal OCR accuracy & speed.
+    Tesseract and CRNN OCR models operate best with character heights ~30-45px.
+    - Single-row plates (AR >= 2.0): Target height ~75-85px
+    - Two-row plates (AR < 2.0): Target height ~120-140px
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr
+    h, w = crop_bgr.shape[:2]
+    ar = w / float(max(1, h))
+    if target_height is None:
+        target_height = int(ANPR_CONFIG.get("ocr_target_height_single_row", 80)) if ar >= 2.0 else int(ANPR_CONFIG.get("ocr_target_height_two_row", 130))
+    if abs(h - target_height) <= 15:
+        return crop_bgr
+    scale = float(target_height) / float(h)
+    target_width = max(30, int(w * scale))
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_CUBIC
+    return cv2.resize(crop_bgr, (target_width, target_height), interpolation=interp)
+
+def analyze_plate_quality(crop_bgr):
+    """
+    Phase 5: Analyze optical characteristics of plate crop to detect screen display degradation:
+      - Contrast score: standard deviation of luminance (sigma < 42 indicates washed-out display)
+      - Glare ratio: percentage of saturated highlight pixels (> 235) in non-uniform spatial clusters
+      - Moiré index: ratio of high-frequency Laplacian variance to median-filtered variance
+    Returns: (is_screen_degraded, quality_metrics)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return False, {"contrast": 0.0, "glare_ratio": 0.0, "moire_index": 0.0, "is_screen_degraded": False}
+
+    gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY) if len(crop_bgr.shape) == 3 else crop_bgr
+    contrast = float(np.std(gray))
+    glare_ratio = float(np.mean(gray > 235))
+    
+    lap_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    med = cv2.medianBlur(gray, 3)
+    med_lap_var = float(cv2.Laplacian(med, cv2.CV_64F).var())
+    moire_index = float(lap_var / max(1.0, med_lap_var))
+
+    mode = str(ANPR_CONFIG.get("screen_robustness_mode", "auto")).lower()
+    if mode == "disabled":
+        is_degraded = False
+    elif mode == "enabled":
+        is_degraded = True
+    else:  # "auto"
+        is_degraded = (contrast < 42.0) or (glare_ratio > 0.06) or (moire_index > 2.0 and lap_var > 120.0)
+
+    metrics = {
+        "contrast": float(round(contrast, 1)),
+        "glare_ratio": float(round(glare_ratio, 3)),
+        "moire_index": float(round(moire_index, 2)),
+        "is_screen_degraded": bool(is_degraded)
+    }
+    return is_degraded, metrics
+
+def enhance_screen_display_crop(crop_bgr, target_height=None):
+    """
+    Phase 5: Screen Display Robustness Preprocessor.
+    Applied when image displays screen moiré, glare, or contrast washout:
+      1. Resolution normalization to standard target height (80-130px)
+      2. Anti-moiré bilateral filtering (d=5, sigmaColor=25, sigmaSpace=25) to suppress subpixel grids
+      3. Local contrast & glare compensation via LAB-space CLAHE
+      4. Adaptive thresholded unsharp masking (sharpen strokes without amplifying flat noise)
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return crop_bgr
+
+    # Step 1: Normalize resolution first so spatial filter kernels have consistent physical scale
+    norm = normalize_plate_crop(crop_bgr, target_height=target_height)
+    
+    # Step 2: Edge-preserving anti-moiré bilateral filter
+    if ANPR_CONFIG.get("screen_anti_moire", True):
+        filtered = cv2.bilateralFilter(norm, 5, 25, 25)
+    else:
+        filtered = norm
+
+    # Step 3: LAB-space CLAHE for local contrast and glare compensation
+    if ANPR_CONFIG.get("screen_glare_compensation", True):
+        lab = cv2.cvtColor(filtered, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(6, 6))
+        l_clahe = clahe.apply(l)
+        enhanced_lab = cv2.merge((l_clahe, a, b))
+        enhanced_bgr = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+    else:
+        enhanced_bgr = filtered
+
+    # Step 4: Adaptive Thresholded Unsharp Masking
+    unsharp_strength = float(ANPR_CONFIG.get("screen_unsharp_strength", 1.2))
+    if unsharp_strength > 0:
+        gaussian = cv2.GaussianBlur(enhanced_bgr, (0, 0), 1.0)
+        diff = cv2.subtract(enhanced_bgr, gaussian)
+        mask = (np.max(np.abs(enhanced_bgr.astype(np.int16) - gaussian.astype(np.int16)), axis=2) > 2)[:, :, np.newaxis]
+        sharpened = enhanced_bgr.astype(np.float32) + (diff.astype(np.float32) * unsharp_strength * mask)
+        enhanced_bgr = np.clip(sharpened, 0, 255).astype(np.uint8)
+
+    return enhanced_bgr
+
+def preprocess_for_tesseract(crop_bgr, full_variants=False, screen_enhance=False):
+    """
+    Generate targeted binary & contrast-enhanced images specifically for Tesseract OCR.
+    When full_variants=False (Tier 1 fast pass):
+      Returns [('otsu', otsu)] (or inverted if plate background is dark).
+    When full_variants=True (Tier 2 adaptive pass):
+      Returns targeted candidates [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive)].
+    When screen_enhance=True:
+      Includes ('screen_enh', sc_otsu) with anti-moiré and unsharp masking applied.
+    """
+    if crop_bgr is None or crop_bgr.size == 0:
+        return []
+    
+    norm_crop = normalize_plate_crop(crop_bgr)
+    gray = cv2.cvtColor(norm_crop, cv2.COLOR_BGR2GRAY) if len(norm_crop.shape) == 3 else norm_crop
+    smoothed = cv2.bilateralFilter(gray, 7, 50, 50)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8)).apply(smoothed)
+    _, otsu = cv2.threshold(clahe, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    border = np.concatenate([otsu[0, :], otsu[-1, :], otsu[:, 0], otsu[:, -1]])
+    is_dark_bg = np.mean(border) < 127
+
+    if not full_variants and not screen_enhance:
+        if is_dark_bg:
+            otsu_inv = cv2.bitwise_not(otsu)
+            return [('otsu_inv', otsu_inv), ('otsu', otsu)]
+        return [('otsu', otsu)]
+
+    otsu_inv = cv2.bitwise_not(otsu)
+    adaptive = cv2.adaptiveThreshold(clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    candidates = [('otsu', otsu), ('otsu_inv', otsu_inv), ('adaptive', adaptive), ('clahe', clahe)]
+
+    if screen_enhance or full_variants:
+        try:
+            sc_bgr = enhance_screen_display_crop(norm_crop)
+            sc_gray = cv2.cvtColor(sc_bgr, cv2.COLOR_BGR2GRAY) if len(sc_bgr.shape) == 3 else sc_bgr
+            sc_cl = cv2.createCLAHE(clipLimit=2.8, tileGridSize=(6, 6)).apply(sc_gray)
+            _, sc_otsu = cv2.threshold(sc_cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            candidates.append(('screen_enh', sc_otsu))
+        except Exception:
+            pass
+
+    return candidates
+
+def extract_plate_ocr(crop_bgr, return_timing=False):
+    """
+    Recognize Indian vehicle registration plate text using a Multi-Tier Staged OCR Architecture:
+      - HSRP Suppression: Conditionally masks blue IND badge on left margin.
+      - Tier 0: Dedicated CRNN License Plate OCR (Fast inference & strict early exit).
+      - Tier 1: Fast Single-Pass Primary Tesseract (PSM 7 / Two-Row Sliced) with Early Exit.
+      - Tier 2: Selective Normalized EasyOCR (runs if Tier 1 did not achieve valid MoRTH format).
+      - Tier 3: Adaptive Secondary Tesseract (Adaptive + Inverted Otsu, PSM 7 & 8, Screen-Enhanced).
+    Returns: (cleaned_text, raw_text, ocr_conf, ocr_engine, [timing_dict])
+    """
+    timing = {
+        "enhancement_ms": 0.0,
+        "crnn_ms": 0.0,
+        "tesseract_tier1_ms": 0.0,
+        "tesseract_tier2_ms": 0.0,
+        "tesseract_ms": 0.0,
+        "easyocr_ms": 0.0,
+        "total_ocr_ms": 0.0,
+        "ocr_tier": "NONE",
+        "early_exit": False,
+        "fallback_ocr_triggered": False,
+        "ocr_router_decision": "NONE",
+        "unresolved_ambiguity": False,
+        "crnn_candidates": [],
+        "screen_degraded": False,
+        "screen_enhanced": False,
+        "screen_quality": {}
+    }
+    if crop_bgr is None or crop_bgr.size == 0:
+        if return_timing:
+            return "", "", 0.0, "None", timing
+        return "", "", 0.0, "None"
+
+    t0_ocr = time.perf_counter()
+    whitelist = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    
+    t0_enh = time.perf_counter()
+    # Step 2: HSRP Suppression (Mask left blue strip if present)
+    has_hsrp, masked_crop, _ = mask_hsrp_badge(crop_bgr)
+    use_crop = masked_crop if has_hsrp else crop_bgr
+
+    norm_crop = normalize_plate_crop(use_crop)
+    h_n, w_n = norm_crop.shape[:2]
+    crop_ar = w_n / float(max(1, h_n))
+
+    # Phase 5: Optical Screen Display Quality Analysis
+    is_screen_degraded, quality_metrics = analyze_plate_quality(norm_crop)
+    timing["screen_quality"] = quality_metrics
+    timing["screen_degraded"] = is_screen_degraded
+    timing["enhancement_ms"] += (time.perf_counter() - t0_enh) * 1000.0
+
+    best_text = ""
+    best_raw = ""
+    best_conf = 0.0
+    best_engine = "None"
+
+    backend = str(ANPR_CONFIG.get("ocr_backend", "crnn")).lower()
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 0: Dedicated CRNN Plate Recognizer & OCR Decision Router (solution.txt Step 4)
+    # ─────────────────────────────────────────────────────────────
+    if backend == "crnn":
+        t0_crnn = time.perf_counter()
+        try:
+            crnn = get_crnn_recognizer()
+            c_clean, c_raw, c_conf, has_unresolved, candidates = crnn.predict(use_crop, return_details=True)
+            timing["unresolved_ambiguity"] = has_unresolved
+            timing["crnn_candidates"] = candidates
+            is_c_val, c_syn, _, _, match_type = validate_indian_plate_syntax(c_clean)
+            c_score = c_conf + (c_syn * 0.35 if is_c_val else 0.0)
+
+            if c_clean:
+                best_text = c_clean
+                best_raw = c_raw
+                best_conf = c_score
+                best_engine = "CRNN (Dedicated Plate OCR)"
+                timing["ocr_tier"] = "TIER_0_CRNN"
+
+            call_ms = (time.perf_counter() - t0_crnn) * 1000.0
+            timing["crnn_ms"] += call_ms
+
+            # Step 4 (solution.txt): OCR Decision Router
+            # If primary OCR produces a syntactically valid plate with confidence >= threshold
+            # and no unresolved ambiguity, accept it immediately and skip fallback OCR.
+            exit_conf_thresh = float(ANPR_CONFIG.get("ocr_router_crnn_exit_conf", 0.75))
+            if is_c_val and not has_unresolved and (c_conf >= exit_conf_thresh or (c_conf >= 0.65 and match_type in ["STANDARD_MORTH", "BH_SERIES"])):
+                timing["total_ocr_ms"] = (time.perf_counter() - t0_ocr) * 1000.0
+                timing["ocr_tier"] = "TIER_0_CRNN_ROUTER"
+                timing["early_exit"] = True
+                timing["fallback_ocr_triggered"] = False
+                timing["ocr_router_decision"] = "ACCEPTED_CRNN"
+                if return_timing:
+                    return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+                return best_text, best_raw, min(0.99, best_conf), best_engine
+            else:
+                timing["fallback_ocr_triggered"] = True
+                timing["ocr_router_decision"] = f"INVOKED_FALLBACK (syntax={is_c_val}, conf={c_conf:.2f}, unresolved={has_unresolved})"
+        except Exception as e:
+            timing["crnn_ms"] += (time.perf_counter() - t0_crnn) * 1000.0
+            timing["fallback_ocr_triggered"] = True
+            timing["ocr_router_decision"] = f"INVOKED_FALLBACK_EXCEPTION ({str(e)[:40]})"
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 1: Fast Single-Pass Primary Tesseract (Early Exit)
+    # ─────────────────────────────────────────────────────────────
+    if crop_ar >= 2.0:
+        t0_pre = time.perf_counter()
+        fast_vars = preprocess_for_tesseract(norm_crop, full_variants=False, screen_enhance=False)
+        timing["enhancement_ms"] += (time.perf_counter() - t0_pre) * 1000.0
+        for vname, vimg in fast_vars:
+            try:
+                t0_call = time.perf_counter()
+                data = pytesseract.image_to_data(vimg, config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                call_ms = (time.perf_counter() - t0_call) * 1000.0
+                timing["tesseract_tier1_ms"] += call_ms
+                timing["tesseract_ms"] += call_ms
+                tokens = [data['text'][i] for i in range(len(data['text'])) if data['text'][i].strip()]
+                if tokens:
+                    raw_str = "".join(tokens)
+                    confs = [float(data['conf'][i]) for i in range(len(data['conf'])) if str(data['conf'][i]) != '-1']
+                    avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.5
+                    clean_str = clean_plate_text(raw_str)
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(clean_str)
+                    score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                    if score > best_conf:
+                        best_conf = score
+                        best_text = clean_str
+                        best_raw = raw_str
+                        best_engine = f"Tesseract (Tier 1 Fast, {vname})"
+                    if is_valid and score >= ANPR_CONFIG.get("ocr_early_exit_conf", 0.75):
+                        t_end = time.perf_counter()
+                        timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                        timing["ocr_tier"] = "TIER_1_TESS_FAST"
+                        timing["early_exit"] = True
+                        if return_timing:
+                            return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+                        return best_text, best_raw, min(0.99, best_conf), best_engine
+            except Exception:
+                pass
+    else:
+        # Two-row sliced fast pass
+        try:
+            t0_pre = time.perf_counter()
+            top_half = norm_crop[:int(h_n * 0.55), :]
+            bot_half = norm_crop[int(h_n * 0.45):, :]
+            top_vars = preprocess_for_tesseract(top_half, full_variants=False, screen_enhance=False)
+            bot_vars = preprocess_for_tesseract(bot_half, full_variants=False, screen_enhance=False)
+            timing["enhancement_ms"] += (time.perf_counter() - t0_pre) * 1000.0
+            if top_vars and bot_vars:
+                t0_call = time.perf_counter()
+                t_d = pytesseract.image_to_data(top_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                b_d = pytesseract.image_to_data(bot_vars[0][1], config=f"--psm 7 {whitelist}", output_type=pytesseract.Output.DICT)
+                call_ms = (time.perf_counter() - t0_call) * 1000.0
+                timing["tesseract_tier1_ms"] += call_ms
+                timing["tesseract_ms"] += call_ms
+                t_tok = [t_d['text'][i] for i in range(len(t_d['text'])) if t_d['text'][i].strip()]
+                b_tok = [b_d['text'][i] for i in range(len(b_d['text'])) if b_d['text'][i].strip()]
+                if t_tok and b_tok:
+                    raw_stk = "".join(t_tok) + "".join(b_tok)
+                    clean_stk = clean_plate_text(raw_stk)
+                    repaired = repair_inverted_two_row(clean_stk)
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(repaired)
+                    if is_valid:
+                        t_end = time.perf_counter()
+                        timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                        timing["ocr_tier"] = "TIER_1_TESS_FAST_TWO_ROW"
+                        timing["early_exit"] = True
+                        if return_timing:
+                            return repaired, raw_stk, 0.90, "Tesseract (Tier 1 Sliced)", timing
+                        return repaired, raw_stk, 0.90, "Tesseract (Tier 1 Sliced)"
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 2: Selective Normalized EasyOCR (Fast Early Exit)
+    # Runs whenever Tier 1 Fast Tesseract did not achieve high-confidence early exit.
+    # ─────────────────────────────────────────────────────────────
+    is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
+    if not is_best_valid or best_conf < ANPR_CONFIG.get("ocr_early_exit_conf", 0.75):
+        try:
+            reader = get_easyocr_fallback()
+            t0_pre_easy = time.perf_counter()
+            sc_mode = str(ANPR_CONFIG.get("screen_robustness_mode", "auto")).lower()
+            use_screen_enh = (sc_mode == "enabled") or (sc_mode == "auto" and is_screen_degraded)
+            target_h = 100 if use_screen_enh else 90
+            if use_screen_enh:
+                norm_easy = enhance_screen_display_crop(use_crop, target_height=target_h)
+                timing["screen_enhanced"] = True
+            else:
+                norm_easy = normalize_plate_crop(use_crop, target_height=target_h)
+            timing["enhancement_ms"] += (time.perf_counter() - t0_pre_easy) * 1000.0
+
+            t0_easy = time.perf_counter()
+            results = reader.readtext(norm_easy, detail=1, allowlist='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', paragraph=False)
+            timing["easyocr_ms"] += (time.perf_counter() - t0_easy) * 1000.0
+            if results:
+                h_v, w_v = norm_easy.shape[:2]
+                var_ar = w_v / float(max(1, h_v))
+                if var_ar >= 2.0:
+                    sorted_res = sorted(results, key=lambda r: min(pt[0] for pt in r[0]))
+                else:
+                    row_h = max(20, h_v // 2)
+                    sorted_res = sorted(results, key=lambda r: (min(pt[1] for pt in r[0]) // row_h, min(pt[0] for pt in r[0])))
+                raw_combined = "".join([r[1] for r in sorted_res])
+                confs = [float(r[2]) for r in sorted_res if len(r) > 2]
+                avg_conf = float(np.mean(confs)) if confs else 0.5
+                cleaned = clean_plate_text(raw_combined)
+                if var_ar < 2.0:
+                    cleaned = repair_inverted_two_row(cleaned)
+                is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(cleaned)
+                score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                is_prev_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
+                should_replace = False
+                if is_valid and not is_prev_valid:
+                    should_replace = True
+                elif is_valid == is_prev_valid and score > best_conf:
+                    should_replace = True
+                elif not is_prev_valid and len(cleaned) >= 4 and score > best_conf:
+                    should_replace = True
+
+                if should_replace and len(cleaned) >= 4:
+                    best_conf = score
+                    best_text = cleaned
+                    best_raw = raw_combined
+                    best_engine = "EasyOCR (Tier 2" + (", Screen-Enhanced)" if use_screen_enh else ")")
+                if is_valid and score >= 0.65:
+                    t_end = time.perf_counter()
+                    timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                    timing["ocr_tier"] = "TIER_2_EASYOCR"
+                    timing["early_exit"] = True
+                    if return_timing:
+                        return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+                    return best_text, best_raw, min(0.99, best_conf), best_engine
+        except Exception:
+            pass
+
+    # ─────────────────────────────────────────────────────────────
+    # TIER 3: Targeted Secondary Tesseract Pass (Adaptive + Inverted Otsu)
+    # Only runs if neither Tier 1 nor EasyOCR yielded a confirmed plate.
+    # ─────────────────────────────────────────────────────────────
+    is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
+    if not is_best_valid or best_conf < ANPR_CONFIG.get("min_ocr_conf", 0.45):
+        t0_pre2 = time.perf_counter()
+        if crop_ar < 2.0:
+            sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=False, screen_enhance=is_screen_degraded)
+            psm_modes = [6]
+        else:
+            sec_candidates = preprocess_for_tesseract(norm_crop, full_variants=True, screen_enhance=is_screen_degraded)[:3]
+            psm_modes = [7]
+        timing["enhancement_ms"] += (time.perf_counter() - t0_pre2) * 1000.0
+
+        for vname, vimg in sec_candidates:
+            for psm in psm_modes:
+                try:
+                    t0_call2 = time.perf_counter()
+                    data = pytesseract.image_to_data(vimg, config=f"--psm {psm} {whitelist}", output_type=pytesseract.Output.DICT)
+                    call_ms2 = (time.perf_counter() - t0_call2) * 1000.0
+                    timing["tesseract_tier2_ms"] += call_ms2
+                    timing["tesseract_ms"] += call_ms2
+                    tokens = [data['text'][i] for i in range(len(data['text'])) if data['text'][i].strip()]
+                    if not tokens:
+                        continue
+                    raw_str = "".join(tokens)
+                    confs = [float(data['conf'][i]) for i in range(len(data['conf'])) if str(data['conf'][i]) != '-1']
+                    avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.5
+                    clean_str = clean_plate_text(raw_str)
+                    repaired = repair_inverted_two_row(clean_str) if crop_ar < 2.0 else clean_str
+                    is_valid, syn_score, _, _, _ = validate_indian_plate_syntax(repaired)
+                    score = avg_conf + (syn_score * 0.35 if is_valid else 0.0)
+                    is_prev_valid, _, _, _, _ = validate_indian_plate_syntax(best_text)
+                    should_replace = False
+                    if is_valid and not is_prev_valid:
+                        should_replace = True
+                    elif is_valid == is_prev_valid and score > best_conf:
+                        should_replace = True
+                    elif not is_prev_valid and len(repaired) >= 4 and score > best_conf:
+                        should_replace = True
+
+                    if should_replace and len(repaired) >= 4:
+                        best_conf = score
+                        best_text = repaired
+                        best_raw = raw_str
+                        best_engine = f"Tesseract (Tier 3 Adaptive, PSM {psm}, {vname})"
+                        if "screen_enh" in vname:
+                            timing["screen_enhanced"] = True
+                    if is_valid and score >= 0.70:
+                        t_end = time.perf_counter()
+                        timing["total_ocr_ms"] = (t_end - t0_ocr) * 1000.0
+                        timing["ocr_tier"] = "TIER_3_TESS_ADAPTIVE"
+                        timing["early_exit"] = True
+                        if return_timing:
+                            return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+                        return best_text, best_raw, min(0.99, best_conf), best_engine
+                except Exception:
+                    pass
+
+    if timing["ocr_tier"] == "NONE":
+        timing["ocr_tier"] = "TIER_3_TESS_EXHAUSTED"
+
+    timing["total_ocr_ms"] = (time.perf_counter() - t0_ocr) * 1000.0
+    if return_timing:
+        return best_text, best_raw, min(0.99, best_conf), best_engine, timing
+    return best_text, best_raw, min(0.99, best_conf), best_engine
+
+# ──────────────────────────────────────────────────────────────────
+# Stage 5: Multi-Frame Temporal Confirmation Tracker (Phase 7 Voting)
+# ──────────────────────────────────────────────────────────────────
+class TemporalConfirmationTracker:
+    """
+    Phase 7: Accumulates plate observations across consecutive frames per camera.
+    A candidate plate is confirmed when observed across >= min_sightings within
+    a temporal sliding window. Uses Confidence-Weighted Positional Character Voting
+    and Cluster Consensus to resolve single-frame character ambiguities and suppress
+    anomalous high-confidence noise spikes.
+    """
+    def __init__(self, min_sightings=2, window_sec=25.0, similarity_threshold=0.75, voting_mode="confidence_weighted"):
+        self.min_sightings = min_sightings
+        self.window_sec = window_sec
+        self.similarity_threshold = similarity_threshold
+        self.voting_mode = voting_mode
+        self.candidates = {}  # cameraId -> list of active candidate tracking dicts
+
+    def process_candidate(self, camera_id, plate_str, conf, ocr_conf=None, det_conf=None, is_syntax_valid=True, bypass_temporal=False):
+        """
+        Process plate observation with Phase 7 confidence-weighted temporal voting
+        and Steps 2 & 3 (solution.txt): Adaptive Temporal Confirmation & Shortened Active Window.
+        Returns: (is_confirmed, consolidated_plate, consolidated_conf, total_sightings, voting_telemetry)
+        """
+        now = time.time()
+        mode = ANPR_CONFIG.get("temporal_voting_mode", self.voting_mode)
+        active_win_s = float(ANPR_CONFIG.get("active_confirmation_timeout_sec", 6.0))
+        sim_thresh = float(ANPR_CONFIG.get("temporal_similarity_threshold", self.similarity_threshold))
+
+        # Step 2: Adaptive temporal confirmation requirements
+        # - High confidence (>=0.85 with valid syntax): 1 frame
+        # - Medium confidence (>=0.75): 2 frames
+        # - Lower confidence (<0.75): 3 frames
+        eff_ocr_conf = ocr_conf if ocr_conf is not None else conf
+        eff_det_conf = det_conf if det_conf is not None else conf
+        
+        if is_syntax_valid and (conf >= 0.85 or (eff_ocr_conf >= 0.80 and eff_det_conf >= 0.60)):
+            req_sightings = 1
+        elif conf >= 0.75:
+            req_sightings = 2
+        else:
+            req_sightings = 3
+
+        high_conf_immediate = (req_sightings == 1 and is_syntax_valid)
+        if bypass_temporal or high_conf_immediate:
+            return True, plate_str, conf, 1, {
+                "voting_applied": False,
+                "voting_mode": "adaptive_immediate_1_frame" if high_conf_immediate else "bypass",
+                "consensus_ratio": 1.0,
+                "total_sightings": 1,
+                "required_sightings": 1,
+                "variants": [{"plate": plate_str, "count": 1, "weight": round(conf, 3), "avg_conf": round(conf, 3)}],
+                "resolved_positions": [],
+                "outlier_suppressed": False
+            }
+
+        if camera_id not in self.candidates:
+            self.candidates[camera_id] = []
+
+        # Step 3: Prune candidate sightings older than shortened active confirmation window (5-6s)
+        self.candidates[camera_id] = [
+            c for c in self.candidates[camera_id]
+            if (now - c['last_seen']) <= active_win_s
+        ]
+
+        # Look for matching candidate using similarity threshold
+        matched = None
+        best_sim = 0.0
+        for c in self.candidates[camera_id]:
+            sim = difflib.SequenceMatcher(None, c['plate'], plate_str).ratio()
+            obs_sims = [difflib.SequenceMatcher(None, o['plate'], plate_str).ratio() for o in c.get('observations', [])]
+            max_sim = max([sim] + obs_sims) if obs_sims else sim
+            if max_sim >= sim_thresh or c['plate'] == plate_str:
+                if max_sim > best_sim:
+                    best_sim = max_sim
+                    matched = c
+
+        obs = {
+            "plate": plate_str,
+            "conf": float(conf),
+            "ocr_conf": float(eff_ocr_conf),
+            "det_conf": float(eff_det_conf),
+            "syntax_valid": bool(is_syntax_valid),
+            "timestamp": now
+        }
+
+        if matched:
+            matched.setdefault('observations', []).append(obs)
+            matched['sightings'] = len(matched['observations'])
+            matched['last_seen'] = now
+            matched.setdefault('confidences', []).append(conf)
+
+            # Perform Confidence-Weighted Consensus & Positional Voting
+            consensus_plate, consensus_conf, telemetry = self._compute_consensus(matched, mode)
+            matched['plate'] = consensus_plate
+            telemetry["required_sightings"] = req_sightings
+
+            is_confirmed = (matched['sightings'] >= req_sightings) or high_conf_immediate
+            if is_confirmed and not matched.get('already_confirmed', False):
+                matched['already_confirmed'] = True
+
+            return is_confirmed, consensus_plate, consensus_conf, matched['sightings'], telemetry
+        else:
+            # First sighting in window — initialize new candidate cluster
+            new_cluster = {
+                "plate": plate_str,
+                "first_seen": now,
+                "last_seen": now,
+                "sightings": 1,
+                "confidences": [conf],
+                "observations": [obs],
+                "already_confirmed": False
+            }
+            self.candidates[camera_id].append(new_cluster)
+            telemetry = {
+                "voting_applied": False,
+                "voting_mode": mode,
+                "consensus_ratio": 1.0,
+                "total_sightings": 1,
+                "required_sightings": req_sightings,
+                "variants": [{"plate": plate_str, "count": 1, "weight": round(conf, 3), "avg_conf": round(conf, 3)}],
+                "resolved_positions": [],
+                "outlier_suppressed": False
+            }
+            return False, plate_str, conf, 1, telemetry
+
+    def _compute_consensus(self, cluster, voting_mode):
+        observations = cluster.get('observations', [])
+        if not observations:
+            return cluster.get('plate', ''), 0.0, {}
+
+        variant_weights = defaultdict(float)
+        variant_counts = defaultdict(int)
+        variant_confs = defaultdict(list)
+        total_weight = 0.0
+
+        for o in observations:
+            if voting_mode == "simple_majority":
+                w = 1.0
+            elif voting_mode == "legacy_highest_conf":
+                w = float(o.get('conf', 0.5))
+            else:
+                # Phase 7 confidence-weighted mode:
+                # Combines detector confidence, OCR confidence and syntax validity
+                w = max(0.1, float(o.get('conf', 0.5)))
+                if o.get('syntax_valid', True):
+                    w *= 1.2
+            p = o['plate']
+            variant_weights[p] += w
+            variant_counts[p] += 1
+            variant_confs[p].append(float(o.get('conf', 0.5)))
+            total_weight += w
+
+        variants_list = []
+        for p, cnt in variant_counts.items():
+            variants_list.append({
+                "plate": p,
+                "count": cnt,
+                "weight": round(variant_weights[p], 3),
+                "avg_conf": round(float(np.mean(variant_confs[p])), 3)
+            })
+        variants_list.sort(key=lambda v: v["weight"], reverse=True)
+        best_variant_string = variants_list[0]["plate"]
+        best_variant_weight = variants_list[0]["weight"]
+
+        # Positional character voting across dominant length
+        length_weights = defaultdict(float)
+        for o in observations:
+            length_weights[len(o['plate'])] += float(o.get('conf', 0.5))
+        dom_len = max(length_weights, key=length_weights.get)
+        aligned_obs = [o for o in observations if len(o['plate']) == dom_len]
+
+        resolved_positions = []
+        consensus_chars = []
+
+        if len(aligned_obs) >= 2 and dom_len >= 5:
+            for j in range(dom_len):
+                char_weights = defaultdict(float)
+                for o in aligned_obs:
+                    w = max(0.1, float(o.get('conf', 0.5)))
+                    if o.get('syntax_valid', True):
+                        w *= 1.2
+                    char_weights[o['plate'][j]] += w
+                sorted_chars = sorted(char_weights.items(), key=lambda x: x[1], reverse=True)
+                best_c = sorted_chars[0][0]
+                if len(sorted_chars) > 1:
+                    resolved_positions.append({
+                        "pos": j,
+                        "chosen": best_c,
+                        "chosen_weight": round(sorted_chars[0][1], 3),
+                        "runner_up": sorted_chars[1][0],
+                        "runner_up_weight": round(sorted_chars[1][1], 3)
+                    })
+                consensus_chars.append(best_c)
+            consensus_candidate = "".join(consensus_chars)
+        else:
+            consensus_candidate = best_variant_string
+
+        # Validate candidate syntax using validate_indian_plate_syntax
+        is_cand_valid, _, _, _, _ = validate_indian_plate_syntax(consensus_candidate)
+        is_best_valid, _, _, _, _ = validate_indian_plate_syntax(best_variant_string)
+
+        if is_cand_valid or not is_best_valid:
+            final_consensus_plate = consensus_candidate
+            voting_applied = len(resolved_positions) > 0
+        else:
+            final_consensus_plate = best_variant_string
+            voting_applied = False
+
+        # Outlier spike detection (when a single high-confidence noise reading is overridden)
+        max_single_conf = max(o.get('conf', 0) for o in observations)
+        outlier_suppressed = any(
+            o.get('conf', 0) == max_single_conf and o['plate'] != final_consensus_plate
+            for o in observations
+        )
+
+        matching_confs = [o['conf'] for o in observations if o['plate'] == final_consensus_plate]
+        if matching_confs:
+            consensus_conf = float(np.mean(matching_confs))
+        elif aligned_obs:
+            consensus_conf = float(np.mean([o['conf'] for o in aligned_obs]))
+        else:
+            consensus_conf = float(np.mean([o['conf'] for o in observations]))
+
+        consensus_ratio = round(best_variant_weight / max(0.001, total_weight), 3)
+
+        telemetry = {
+            "voting_applied": voting_applied,
+            "voting_mode": voting_mode,
+            "consensus_ratio": consensus_ratio,
+            "total_sightings": len(observations),
+            "variants": variants_list,
+            "resolved_positions": resolved_positions,
+            "outlier_suppressed": outlier_suppressed
+        }
+        return final_consensus_plate, round(consensus_conf, 3), telemetry
+
+temporal_tracker = TemporalConfirmationTracker(
+    min_sightings=ANPR_CONFIG["min_consecutive_sightings"],
+    window_sec=ANPR_CONFIG["temporal_window_sec"],
+    similarity_threshold=ANPR_CONFIG["temporal_similarity_threshold"],
+    voting_mode=ANPR_CONFIG["temporal_voting_mode"]
+)
+
+# ──────────────────────────────────────────────────────────────────
+# API Request Models & Configuration Endpoints
+# ──────────────────────────────────────────────────────────────────
+class Base64DetectRequest(BaseModel):
+    image: str
+    cameraId: int = 1
+    cameraName: str = "Camera 1"
+    forwardToDashboard: bool = True
+    manualScan: bool = False  # Set True for manual snapshot uploads
+    developerMode: bool = False
+    keyframeSharpness: Optional[float] = None
+    keyframeWindowMs: Optional[int] = None
+    keyframeCandidates: Optional[int] = None
+    frameCapturedAt: Optional[float] = None
+    keyframeSelectedAt: Optional[float] = None
+    requestQueuedAt: Optional[float] = None
+    workerDispatchedAt: Optional[float] = None
+    queueWaitMs: Optional[float] = None
+
+@app.get("/health")
+def health():
+    vm = get_vehicle_model()
+    pm = get_plate_model()
+    return {
+        "status": "ok",
+        "anpr_version": ANPR_CONFIG.get("anpr_version", "v2"),
+        "vehicle_detector_ready": vm is not None,
+        "plate_detector_ready": pm is not None,
+        "tesseract_ready": os.path.exists(pytesseract.pytesseract.tesseract_cmd),
+        "debug_output_ready": os.path.exists(DEBUG_FRAMES_DIR) and os.path.exists(DEBUG_CROPS_DIR),
+        "inference_backend": ANPR_CONFIG.get("inference_backend", "onnx"),
+        "active_vehicle_backend": active_vehicle_backend,
+        "active_plate_backend": active_plate_backend,
+        "active_inferences": active_inferences,
+        "peak_inferences": peak_inferences,
+        "max_python_workers": ANPR_CONFIG.get("max_python_workers", 2),
+        "onnx_models_available": {
+            "vehicle": os.path.exists(VEHICLE_ONNX_PATH),
+            "plate": os.path.exists(PLATE_ONNX_PATH)
+        },
+        "config": ANPR_CONFIG
+    }
+
+@app.get("/config")
+def get_config():
+    """Expose runtime-configurable values."""
+    return ANPR_CONFIG
+
+@app.post("/config")
+def update_config(new_config: dict):
+    """Update runtime-configurable values without restarting server."""
+    global vehicle_model, plate_model, _worker_semaphore
+    backend_changed = False
+    for k, v in new_config.items():
+        if k in ANPR_CONFIG:
+            if k == "inference_backend" and str(v).lower() != str(ANPR_CONFIG.get("inference_backend")).lower():
+                backend_changed = True
+            if isinstance(ANPR_CONFIG[k], bool):
+                ANPR_CONFIG[k] = str(v).lower() in ["true", "1", "yes"] if isinstance(v, str) else bool(v)
+            else:
+                ANPR_CONFIG[k] = type(ANPR_CONFIG[k])(v)
+    if backend_changed:
+        vehicle_model = None
+        plate_model = None
+        get_vehicle_model()
+        get_plate_model()
+    if "max_python_workers" in new_config:
+        _worker_semaphore = asyncio.Semaphore(ANPR_CONFIG.get("max_python_workers", 2))
+    temporal_tracker.min_sightings = ANPR_CONFIG["min_consecutive_sightings"]
+    temporal_tracker.window_sec = ANPR_CONFIG["temporal_window_sec"]
+    temporal_tracker.similarity_threshold = ANPR_CONFIG["temporal_similarity_threshold"]
+    temporal_tracker.voting_mode = ANPR_CONFIG["temporal_voting_mode"]
+    return {
+        "status": "updated",
+        "config": ANPR_CONFIG,
+        "active_inferences": active_inferences,
+        "peak_inferences": peak_inferences,
+        "max_python_workers": ANPR_CONFIG.get("max_python_workers", 2),
+        "active_backend": {
+            "vehicle": active_vehicle_backend,
+            "plate": active_plate_backend
+        }
+    }
+
+@app.get("/debug/last")
+def get_debug_last(cameraId: Optional[int] = None):
+    """Return latest 16-point debug record for specified camera or all cameras."""
+    if cameraId is not None:
+        return LATEST_DEBUG_PER_CAM.get(cameraId, {"message": f"No debug frames yet for Camera {cameraId}"})
+    return LATEST_DEBUG_PER_CAM
+
+@app.get("/debug/history")
+def get_debug_history(limit: int = 20):
+    """Return history of recent per-frame debug logs."""
+    return RECENT_DEBUG_LOGS[-min(limit, 100):]
+
+@app.get("/debug/stats")
+def get_debug_stats():
+    """Return comparative pipeline funnel diagnostics statistics."""
+    total = DEBUG_STATS["total_frames_processed"]
+    return {
+        **DEBUG_STATS,
+        "pass_rates": {
+            "vehicle_detection_rate": round(DEBUG_STATS["vehicle_detected_count"] / max(1, total), 3),
+            "plate_localization_rate": round(DEBUG_STATS["plate_candidates_found_count"] / max(1, total), 3),
+            "syntax_validation_rate": round(DEBUG_STATS["syntax_valid_count"] / max(1, total), 3),
+            "final_confirmation_rate": round(DEBUG_STATS["confirmed_count"] / max(1, total), 3),
+        }
+    }
+
+@app.get("/debug/frames")
+def list_debug_frames(limit: int = 20):
+    """List recently saved incoming frames and plate crops."""
+    frames = sorted(os.listdir(DEBUG_FRAMES_DIR), reverse=True)[:limit]
+    crops = sorted(os.listdir(DEBUG_CROPS_DIR), reverse=True)[:limit]
+    return {
+        "frames": [f"/debug_output/frames/{f}" for f in frames],
+        "crops": [f"/debug_output/crops/{c}" for c in crops]
+    }
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 8: 6-Stage Evidence Chain Helper
+# ──────────────────────────────────────────────────────────────────
+def _make_evidence_chain(stage1_pass, stage2_pass, stage3_pass, stage4_pass, stage5_pass, stage6_pass, note=""):
+    """
+    Build the Phase 8 evidence chain log that records the pass/fail status of
+    every stage in the 6-stage false-positive gating pipeline.
+    """
+    stages = [
+        ("Stage 1", "Vehicle Detection (COCO)",          stage1_pass),
+        ("Stage 2", "Plate Localization (YOLO)",          stage2_pass),
+        ("Stage 3", "Geometric Validation (AR/Size)",     stage3_pass),
+        ("Stage 4", "OCR / Indian Syntax (MoRTH/BH)",    stage4_pass),
+        ("Stage 5", "Temporal Window (Multi-Frame Vote)", stage5_pass),
+        ("Stage 6", "Event Confirmed & Forwarded",        stage6_pass),
+    ]
+    # Determine the first failing stage
+    first_fail = next((f"{sid}: {sname}" for sid, sname, sp in stages if not sp), "None (All Passed)")
+    return {
+        "stages": [{"id": sid, "name": sname, "passed": sp} for sid, sname, sp in stages],
+        "firstFailingStage": first_fail,
+        "allPassed": all(sp for _, _, sp in stages),
+        "note": note
+    }
+
+# ──────────────────────────────────────────────────────────────────
+# Core Detection Implementation: Comprehensive 16-Point Diagnostics
+# ──────────────────────────────────────────────────────────────────
+def sync_detect_plate_core(req: Base64DetectRequest):
+    try:
+        t_frame_start = time.perf_counter()
+        t_vehicle_ms = 0.0
+        t_plate_ms = 0.0
+        t_persp_ms = 0.0
+        t_enhancement_ms = 0.0
+        t_crnn_ms = 0.0
+        t_tesseract_tier1_ms = 0.0
+        t_tesseract_tier2_ms = 0.0
+        t_tesseract_ms = 0.0
+        t_easyocr_ms = 0.0
+        t_val_ms = 0.0
+        t_tracker_ms = 0.0
+
+        DEBUG_STATS["total_frames_processed"] += 1
+        now_ts = int(time.time() * 1000)
+        frame_id = f"cam{req.cameraId}_{now_ts}"
+
+        # Decode incoming frame
+        header, encoded = req.image.split(",", 1) if "," in req.image else ("", req.image)
+        img_bytes = base64.b64decode(encoded)
+        np_arr = np.frombuffer(img_bytes, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if img is None:
+            raise HTTPException(status_code=400, detail="Invalid image data")
+
+        h_img, w_img = img.shape[:2]
+
+        # ── EXACT INCOMING FRAME ARCHIVAL ───────────────────────────
+        # Save exact incoming frame from mobile WebRTC stream before ANY processing
+        frame_filename = f"frame_{frame_id}.jpg"
+        frame_saved_path = os.path.join(DEBUG_FRAMES_DIR, frame_filename)
+        frame_relative_url = f"/debug_output/frames/{frame_filename}"
+
+        if ANPR_CONFIG.get("save_debug_frames", True):
+            cv2.imwrite(frame_saved_path, img)
+
+        # Cap max frame dimension to 1280 for real-time inference latency while preserving full detail
+        max_dim = 1280
+        if max(h_img, w_img) > max_dim:
+            scale = max_dim / float(max(h_img, w_img))
+            img = cv2.resize(img, (int(w_img * scale), int(h_img * scale)), interpolation=cv2.INTER_AREA)
+            h_img, w_img = img.shape[:2]
+
+        # Calculate Image Quality Metrics (sharpness / blur / brightness)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+        mean_brightness = float(np.mean(gray))
+        min_sharpness = float(ANPR_CONFIG.get("minimum_sharpness", 60.0))
+        is_blurry = laplacian_var < min_sharpness
+
+        # ── Phase 17: ANPR V2 Unified Execution Path ──
+        if str(ANPR_CONFIG.get("anpr_version", "v2")).lower() == "v2":
+            from anpr_v2.pipeline import get_pipeline
+            pipeline_v2 = get_pipeline()
+            extra_telemetry = {
+                "frameCapturedAt": req.frameCapturedAt,
+                "keyframeSelectedAt": req.keyframeSelectedAt,
+                "requestQueuedAt": req.requestQueuedAt,
+                "workerDispatchedAt": req.workerDispatchedAt,
+                "queueWaitMs": req.queueWaitMs
+            }
+            v2_result = pipeline_v2.process_frame(
+                frame_bgr=img,
+                camera_id=req.cameraId,
+                camera_name=req.cameraName,
+                manual_scan=req.manualScan,
+                extra_telemetry=extra_telemetry
+            )
+            confirmed_detection = v2_result.get("detection")
+            if req.forwardToDashboard and confirmed_detection and confirmed_detection.get("plate"):
+                try:
+                    requests.post(
+                        NODE_SERVER_URL,
+                        json={
+                            "plate": confirmed_detection["plate"],
+                            "cameraId": req.cameraId,
+                            "confidence": confirmed_detection["confidence"],
+                            "vehicleType": "car",
+                            "manualScan": bool(req.manualScan),
+                        },
+                        timeout=1.5,
+                        verify=False,
+                    )
+                except Exception as e:
+                    print(f"Forward to dashboard failed: {e}")
+            return v2_result
+
+        v_model = get_vehicle_model()
+        p_model = get_plate_model()
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 1, 2, 3: Vehicle Detection
+        # ──────────────────────────────────────────────────────────
+        detected_vehicles = []
+        t0_v = time.perf_counter()
+        if ANPR_CONFIG["vehicle_detection_enabled"]:
+            v_results = v_model.predict(
+                img,
+                classes=ANPR_CONFIG["vehicle_classes"],
+                conf=ANPR_CONFIG["vehicle_conf_threshold"],
+                imgsz=640,
+                verbose=False
+            )
+            for r in v_results:
+                for b in r.boxes:
+                    v_conf = float(b.conf[0])
+                    v_cls = int(b.cls[0])
+                    v_name = v_model.names.get(v_cls, "vehicle")
+                    xyxy = b.xyxy[0].cpu().numpy().astype(int)
+                    detected_vehicles.append({
+                        "class": v_name,
+                        "confidence": round(v_conf, 2),
+                        "box": xyxy.tolist()
+                    })
+        t_vehicle_ms = (time.perf_counter() - t0_v) * 1000.0
+
+        vehicle_detected = len(detected_vehicles) > 0
+        if vehicle_detected:
+            DEBUG_STATS["vehicle_detected_count"] += 1
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 4: Plate Detection Attempt Evaluation
+        # ──────────────────────────────────────────────────────────
+        allow_fallback = ANPR_CONFIG.get("allow_fullframe_fallback", False)
+        attempt_plate_detection = vehicle_detected or req.manualScan or (not ANPR_CONFIG["vehicle_detection_enabled"]) or allow_fallback
+
+        if attempt_plate_detection:
+            DEBUG_STATS["plate_attempted_count"] += 1
+            if vehicle_detected:
+                attempt_reason = f"Attempted plate detection inside {len(detected_vehicles)} vehicle ROI(s)"
+            elif req.manualScan:
+                attempt_reason = "Attempted full-frame plate detection (manual scan override)"
+            elif not ANPR_CONFIG["vehicle_detection_enabled"]:
+                attempt_reason = "Attempted full-frame plate detection (vehicle gating disabled)"
+            else:
+                attempt_reason = "Attempted full-frame plate detection (fallback enabled)"
+        else:
+            attempt_reason = f"SKIPPED: Zero vehicles detected in scene (threshold={ANPR_CONFIG['vehicle_conf_threshold']}). Vehicle gating active."
+
+        # If vehicle gating rejects frame before plate attempt
+        if not attempt_plate_detection:
+            rejection_reason = f"REJECTED_NO_VEHICLE: No vehicle detected above confidence threshold ({ANPR_CONFIG['vehicle_conf_threshold']}). Plate detection skipped."
+            record_rejection_stat("REJECTED_NO_VEHICLE")
+
+            t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+            timing_breakdown = {
+                "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+                "plateDetectionMs": 0.0,
+                "perspectiveMs": 0.0,
+                "enhancementMs": 0.0,
+                "tesseractTier1Ms": 0.0,
+                "tesseractTier2Ms": 0.0,
+                "tesseractMs": 0.0,
+                "easyOcrMs": 0.0,
+                "ocrTotalMs": 0.0,
+                "validationMs": 0.0,
+                "temporalTrackerMs": 0.0,
+                "totalProcessingMs": float(round(t_total_ms, 1)),
+                "inferenceBackend": active_vehicle_backend
+            }
+
+            frame_telemetry = {
+                "frameId": frame_id,
+                "timestamp": now_ts,
+                "cameraId": req.cameraId,
+                "cameraName": req.cameraName,
+                "frameSavedPath": frame_saved_path,
+                "frameUrl": frame_relative_url,
+                "resolution": f"{w_img}x{h_img}",
+                "sharpnessScore": round(laplacian_var, 1),
+                "isBlurry": is_blurry,
+                "keyframeStatus": "BLURRY" if is_blurry else "ACCEPTED",
+                "clientKeyframeSharpness": req.keyframeSharpness,
+                "keyframeCandidates": req.keyframeCandidates,
+                "meanBrightness": round(mean_brightness, 1),
+                "timing": timing_breakdown,
+
+                # 16-point diagnostic records
+                "1_vehicleDetected": False,
+                "2_vehicleClassAndConf": [],
+                "3_vehicleBoundingBoxes": [],
+                "4_plateDetectionAttempted": False,
+                "4_plateAttemptReason": attempt_reason,
+                "5_plateCandidateCount": 0,
+                "6_plateConfidences": [],
+                "7_plateBoundingBoxesAndAR": [],
+                "8_candidatesValidationPassed": [],
+                "9_candidateRejectionReasons": [rejection_reason],
+                "10_plateCropsSaved": [],
+                "11_ocrRawResults": [],
+                "12_ocrConfidences": [],
+                "13_normalizedOcrResults": [],
+                "14_indianFormatValidationResults": [],
+                "15_multiFrameConfirmationStatus": "SKIPPED",
+                "16_finalDecision": "REJECTED",
+
+                "summary": {
+                    "status": "REJECTED_NO_VEHICLE",
+                    "reason": rejection_reason,
+                    "failureStage": "Stage 1: Vehicle Detection",
+                    "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
+                },
+                "phase8_evidence_chain": _make_evidence_chain(
+                    stage1_pass=False,
+                    stage2_pass=False,
+                    stage3_pass=False,
+                    stage4_pass=False,
+                    stage5_pass=False,
+                    stage6_pass=False,
+                    note=f"Rejected at Stage 1: no vehicle detected above conf {ANPR_CONFIG['vehicle_conf_threshold']}"
+                ),
+                "candidates": []
+            }
+
+            LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+            RECENT_DEBUG_LOGS.append(frame_telemetry)
+            if len(RECENT_DEBUG_LOGS) > 100:
+                RECENT_DEBUG_LOGS.pop(0)
+
+            return {
+                "success": True,
+                "detected": False,
+                "status": "REJECTED_NO_VEHICLE",
+                "reason": rejection_reason,
+                "vehicles": [],
+                "detections": [],
+                "debug": frame_telemetry
+            }
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 5 to 9: Plate Candidate Detection & Geometric Validation
+        # ──────────────────────────────────────────────────────────
+        raw_candidates_evaluated = []
+        valid_candidates_to_ocr = []
+
+        t0_p = time.perf_counter()
+        if vehicle_detected:
+            # Search inside each detected vehicle's bounding box
+            for v_idx, v in enumerate(detected_vehicles):
+                vx1, vy1, vx2, vy2 = v["box"]
+                vw = vx2 - vx1
+                vh = vy2 - vy1
+                if vw < 20 or vh < 20:
+                    continue
+
+                is_two_wheeler = (v["class"] in ["motorcycle", "bicycle"]) or (vh > 1.3 * vw)
+                if is_two_wheeler:
+                    pad_x = max(int(vw * 0.50), int(vh * 0.25), 70)
+                    pad_y = max(int(vh * 0.15), 30)
+                    detector_conf = 0.10
+                    min_plate_conf = 0.14
+                else:
+                    pad_x = int(vw * ANPR_CONFIG["vehicle_roi_padding"])
+                    pad_y = int(vh * ANPR_CONFIG["vehicle_roi_padding"])
+                    detector_conf = 0.15
+                    min_plate_conf = ANPR_CONFIG["plate_conf_threshold"]
+
+                cx1 = max(0, vx1 - pad_x)
+                cy1 = max(0, vy1 - pad_y)
+                cx2 = min(w_img, vx2 + pad_x)
+                cy2 = min(h_img, vy2 + pad_y)
+
+                v_crop = img[cy1:cy2, cx1:cx2]
+                p_results = p_model.predict(
+                    v_crop,
+                    conf=detector_conf,
+                    verbose=False
+                )
+
+                # If first pass found 0 boxes and it is a two-wheeler, perform second pass with expanded square context
+                has_boxes = any(len(pr.boxes) > 0 for pr in p_results)
+                if not has_boxes and is_two_wheeler:
+                    pad_x2 = max(int(vh * 0.40), 80)
+                    pad_y2 = max(int(vh * 0.20), 40)
+                    cx1 = max(0, vx1 - pad_x2)
+                    cy1 = max(0, vy1 - pad_y2)
+                    cx2 = min(w_img, vx2 + pad_x2)
+                    cy2 = min(h_img, vy2 + pad_y2)
+                    v_crop = img[cy1:cy2, cx1:cx2]
+                    p_results = p_model.predict(
+                        v_crop,
+                        conf=detector_conf,
+                        verbose=False
+                    )
+
+                for pr in p_results:
+                    for pb in pr.boxes:
+                        p_conf = float(pb.conf[0])
+                        px1, py1, px2, py2 = pb.xyxy[0].cpu().numpy().astype(int)
+
+                        # Translate crop coordinates back to full image frame
+                        fx1 = cx1 + px1
+                        fy1 = cy1 + py1
+                        fx2 = cx1 + px2
+                        fy2 = cy1 + py2
+                        bw = fx2 - fx1
+                        bh = fy2 - fy1
+
+                        aspect_ratio = float(bw) / float(max(1, bh))
+                        plate_area = bw * bh
+                        vehicle_area = max(1, vw * vh)
+                        area_ratio = plate_area / float(vehicle_area)
+                        rel_y = (fy1 + bh / 2.0 - vy1) / float(vh)
+
+                        # Check validation criteria
+                        reject_reason = None
+                        passed_val = True
+
+                        if p_conf < min_plate_conf:
+                            passed_val = False
+                            reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {min_plate_conf:.2f}"
+                        elif bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_TOO_SMALL: size {bw}x{bh}px < min {ANPR_CONFIG['min_plate_width']}x{ANPR_CONFIG['min_plate_height']}px"
+                        elif aspect_ratio < ANPR_CONFIG["min_plate_aspect_ratio"] or aspect_ratio > ANPR_CONFIG["max_plate_aspect_ratio"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_ASPECT_RATIO: AR {aspect_ratio:.2f} not in [{ANPR_CONFIG['min_plate_aspect_ratio']}, {ANPR_CONFIG['max_plate_aspect_ratio']}]"
+                        elif area_ratio > ANPR_CONFIG["max_plate_to_vehicle_area"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_AREA_RATIO: plate area {area_ratio*100:.1f}% exceeds max {ANPR_CONFIG['max_plate_to_vehicle_area']*100:.0f}% of vehicle"
+                        elif rel_y < ANPR_CONFIG["plate_vertical_pos_min"]:
+                            passed_val = False
+                            reject_reason = f"REJECTED_VERTICAL_POSITION: rel_y {rel_y:.2f} < min {ANPR_CONFIG['plate_vertical_pos_min']} (mounted too high)"
+
+                        cand_obj = {
+                            "candidateIndex": int(len(raw_candidates_evaluated)),
+                            "detectorConfidence": float(round(p_conf, 3)),
+                            "bbox": [int(fx1), int(fy1), int(bw), int(bh)],
+                            "aspectRatio": float(round(aspect_ratio, 2)),
+                            "size": f"{int(bw)}x{int(bh)}",
+                            "passedValidation": bool(passed_val),
+                            "rejectionReason": str(reject_reason) if reject_reason else None,
+                            "vehicleClass": str(v["class"]),
+                            "vehicleConfidence": float(v["confidence"]),
+                            "vehicleBox": [int(x) for x in v["box"]]
+                        }
+                        raw_candidates_evaluated.append(cand_obj)
+                        if passed_val:
+                            valid_candidates_to_ocr.append(cand_obj)
+        else:
+            # Full-frame search (manual scan or fallback)
+            conf_thresh = ANPR_CONFIG["closeup_plate_conf_threshold"] if not req.manualScan else 0.25
+            p_results = p_model.predict(img, conf=0.15, verbose=False)
+            for pr in p_results:
+                for pb in pr.boxes:
+                    p_conf = float(pb.conf[0])
+                    x1, y1, x2, y2 = pb.xyxy[0].cpu().numpy().astype(int)
+                    bw = x2 - x1
+                    bh = y2 - y1
+                    aspect_ratio = float(bw) / float(max(1, bh))
+
+                    reject_reason = None
+                    passed_val = True
+
+                    if p_conf < conf_thresh:
+                        passed_val = False
+                        reject_reason = f"REJECTED_BELOW_PLATE_CONF: confidence {p_conf:.2f} < {conf_thresh:.2f}"
+                    elif bw < ANPR_CONFIG["min_plate_width"] or bh < ANPR_CONFIG["min_plate_height"]:
+                        passed_val = False
+                        reject_reason = f"REJECTED_TOO_SMALL: size {bw}x{bh}px < min {ANPR_CONFIG['min_plate_width']}x{ANPR_CONFIG['min_plate_height']}px"
+                    elif aspect_ratio < ANPR_CONFIG["min_plate_aspect_ratio"] or aspect_ratio > ANPR_CONFIG["max_plate_aspect_ratio"]:
+                        passed_val = False
+                        reject_reason = f"REJECTED_ASPECT_RATIO: AR {aspect_ratio:.2f} not in [{ANPR_CONFIG['min_plate_aspect_ratio']}, {ANPR_CONFIG['max_plate_aspect_ratio']}]"
+
+                    cand_obj = {
+                        "candidateIndex": int(len(raw_candidates_evaluated)),
+                        "detectorConfidence": float(round(p_conf, 3)),
+                        "bbox": [int(x1), int(y1), int(bw), int(bh)],
+                        "aspectRatio": float(round(aspect_ratio, 2)),
+                        "size": f"{int(bw)}x{int(bh)}",
+                        "passedValidation": bool(passed_val),
+                        "rejectionReason": str(reject_reason) if reject_reason else None,
+                        "vehicleClass": "Vehicle (Full-Frame)",
+                        "vehicleConfidence": 0.80,
+                        "vehicleBox": [0, 0, int(w_img), int(h_img)]
+                    }
+                    raw_candidates_evaluated.append(cand_obj)
+                    if passed_val:
+                        valid_candidates_to_ocr.append(cand_obj)
+
+        t_plate_ms = (time.perf_counter() - t0_p) * 1000.0
+
+        if len(raw_candidates_evaluated) > 0:
+            DEBUG_STATS["plate_candidates_found_count"] += 1
+
+        # If no candidates or all candidates failed geometric validation
+        if not valid_candidates_to_ocr:
+            primary_reason = (
+                raw_candidates_evaluated[0]["rejectionReason"]
+                if raw_candidates_evaluated
+                else "NO_PLATE_CANDIDATES: Plate detector found 0 candidate boxes inside vehicle ROI."
+            )
+            record_rejection_stat(primary_reason)
+
+            t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+            timing_breakdown = {
+                "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+                "plateDetectionMs": float(round(t_plate_ms, 1)),
+                "perspectiveMs": 0.0,
+                "enhancementMs": 0.0,
+                "crnnMs": 0.0,
+                "tesseractTier1Ms": 0.0,
+                "tesseractTier2Ms": 0.0,
+                "tesseractMs": 0.0,
+                "easyOcrMs": 0.0,
+                "ocrTotalMs": 0.0,
+                "validationMs": 0.0,
+                "temporalTrackerMs": 0.0,
+                "totalProcessingMs": float(round(t_total_ms, 1)),
+                "inferenceBackend": active_vehicle_backend
+            }
+
+            frame_telemetry = {
+                "frameId": frame_id,
+                "timestamp": now_ts,
+                "cameraId": req.cameraId,
+                "cameraName": req.cameraName,
+                "frameSavedPath": frame_saved_path,
+                "frameUrl": frame_relative_url,
+                "resolution": f"{w_img}x{h_img}",
+                "sharpnessScore": float(round(laplacian_var, 1)),
+                "isBlurry": bool(is_blurry),
+                "meanBrightness": float(round(mean_brightness, 1)),
+                "timing": timing_breakdown,
+
+                "1_vehicleDetected": bool(vehicle_detected),
+                "2_vehicleClassAndConf": [{"class": str(v["class"]), "confidence": float(v["confidence"])} for v in detected_vehicles],
+                "3_vehicleBoundingBoxes": [[int(x) for x in v["box"]] for v in detected_vehicles],
+                "4_plateDetectionAttempted": True,
+                "4_plateAttemptReason": str(attempt_reason),
+                "5_plateCandidateCount": int(len(raw_candidates_evaluated)),
+                "6_plateConfidences": [float(c["detectorConfidence"]) for c in raw_candidates_evaluated],
+                "7_plateBoundingBoxesAndAR": [{"bbox": [int(x) for x in c["bbox"]], "size": str(c["size"]), "aspectRatio": float(c["aspectRatio"])} for c in raw_candidates_evaluated],
+                "8_candidatesValidationPassed": [bool(c["passedValidation"]) for c in raw_candidates_evaluated],
+                "9_candidateRejectionReasons": [str(c["rejectionReason"]) for c in raw_candidates_evaluated if c["rejectionReason"]],
+                "10_plateCropsSaved": [],
+                "11_ocrRawResults": [],
+                "12_ocrConfidences": [],
+                "13_normalizedOcrResults": [],
+                "14_indianFormatValidationResults": [],
+                "15_multiFrameConfirmationStatus": "SKIPPED_NO_VALID_GEOMETRY",
+                "16_finalDecision": "REJECTED",
+
+                "summary": {
+                    "status": "REJECTED_GEOMETRY" if raw_candidates_evaluated else "REJECTED_NO_PLATES",
+                    "reason": primary_reason,
+                    "failureStage": "Stage 2: Plate Localization / Geometric Validation",
+                    "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
+                },
+                "phase8_evidence_chain": _make_evidence_chain(
+                    stage1_pass=bool(vehicle_detected),
+                    stage2_pass=bool(raw_candidates_evaluated),       # candidates found but failed geometry
+                    stage3_pass=False,                                  # geometry validation blocked all candidates
+                    stage4_pass=False,
+                    stage5_pass=False,
+                    stage6_pass=False,
+                    note=f"Rejected at Stage {'2' if not raw_candidates_evaluated else '3'}: {primary_reason[:80]}"
+                ),
+                "candidates": raw_candidates_evaluated
+            }
+
+            LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+            RECENT_DEBUG_LOGS.append(frame_telemetry)
+            if len(RECENT_DEBUG_LOGS) > 100:
+                RECENT_DEBUG_LOGS.pop(0)
+
+            return {
+                "success": True,
+                "detected": False,
+                "status": "NO_PLATE_CANDIDATES",
+                "reason": primary_reason,
+                "vehicles": detected_vehicles,
+                "detections": [],
+                "debug": frame_telemetry
+            }
+
+        # Sort valid candidates by detector confidence descending
+        valid_candidates_to_ocr.sort(key=lambda c: c["detectorConfidence"], reverse=True)
+        confirmed_detection = None
+        all_evaluations = []
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 10 to 16: Plate Crop Archival, OCR, Syntax & Multi-Frame Confirmation
+        # ──────────────────────────────────────────────────────────
+        DEBUG_STATS["ocr_attempted_count"] += 1
+
+        for c_idx, cand in enumerate(valid_candidates_to_ocr[:2]):
+            x1, y1, bw, bh = cand["bbox"]
+            pad_x = int(bw * 0.05)
+            pad_y = int(bh * 0.05)
+            cx1 = max(0, x1 - pad_x)
+            cy1 = max(0, y1 - pad_y)
+            cx2 = min(w_img, x1 + bw + pad_x)
+            cy2 = min(h_img, y1 + bh + pad_y)
+
+            crop = img[cy1:cy2, cx1:cx2]
+
+            # Phase 1: Perspective / Skew Rectification (Confidence-Aware Dual Candidate)
+            t0_persp = time.perf_counter()
+            rectified_crop, skew_deg, persp_status = rectify_plate_perspective(crop)
+            t_persp_ms += (time.perf_counter() - t0_persp) * 1000.0
+            persp_applied = persp_status.startswith("APPLIED")
+
+            # POINT 10: Save plate crop before OCR
+            crop_filename = f"crop_{frame_id}_cand{c_idx}.jpg"
+            crop_orig_filename = f"crop_{frame_id}_cand{c_idx}_orig.jpg"
+            crop_rect_filename = f"crop_{frame_id}_cand{c_idx}_rect.jpg"
+
+            crop_saved_path = os.path.join(DEBUG_CROPS_DIR, crop_filename)
+            crop_orig_path = os.path.join(DEBUG_CROPS_DIR, crop_orig_filename)
+            crop_rect_path = os.path.join(DEBUG_CROPS_DIR, crop_rect_filename)
+            crop_relative_url = f"/debug_output/crops/{crop_filename}"
+
+            if ANPR_CONFIG.get("save_debug_crops", True) and crop.size > 0:
+                cv2.imwrite(crop_saved_path, crop)
+                cv2.imwrite(crop_orig_path, crop)
+                if persp_applied and rectified_crop is not None and rectified_crop.size > 0:
+                    cv2.imwrite(crop_rect_path, rectified_crop)
+
+            # POINT 11, 12, 13: OCR Recognition (Dual-Candidate Evaluation with Phase 4 Staged Pipeline)
+            orig_clean, orig_raw, orig_conf, orig_engine, orig_timing = extract_plate_ocr(crop, return_timing=True)
+            t_enhancement_ms += orig_timing.get("enhancement_ms", 0.0)
+            t_crnn_ms += orig_timing.get("crnn_ms", 0.0)
+            t_tesseract_tier1_ms += orig_timing.get("tesseract_tier1_ms", 0.0)
+            t_tesseract_tier2_ms += orig_timing.get("tesseract_tier2_ms", 0.0)
+            t_tesseract_ms += orig_timing.get("tesseract_ms", 0.0)
+            t_easyocr_ms += orig_timing.get("easyocr_ms", 0.0)
+            candidate_ocr_tier = orig_timing.get("ocr_tier", "TIER_1_TESS_FAST")
+
+            t0_val = time.perf_counter()
+            orig_valid, orig_syn_score, orig_state, orig_sname, orig_match = validate_indian_plate_syntax(orig_clean)
+            t_val_ms += (time.perf_counter() - t0_val) * 1000.0
+
+            selected_source = "ORIGINAL"
+            clean_text = orig_clean
+            raw_ocr_text = orig_raw
+            ocr_conf = orig_conf
+            ocr_engine = orig_engine
+            is_valid_syntax = orig_valid
+            syn_score = orig_syn_score
+            state_code = orig_state
+            state_name = orig_sname
+            match_type = orig_match
+            rect_raw = ""
+            rect_clean = ""
+
+            orig_composite = (1.0 if orig_valid else 0.0) * 0.40 + orig_conf * 0.40 + (orig_syn_score * 0.20)
+
+            # Optimization: If original candidate already achieved valid MoRTH syntax with >= 0.60 conf,
+            # running OCR a second time on rectified crop is redundant.
+            need_rectified_ocr = persp_applied and rectified_crop is not None and rectified_crop.size > 0 and (not orig_valid or orig_conf < 0.60)
+
+            if need_rectified_ocr:
+                rect_clean, rect_raw, rect_conf, rect_engine, rect_timing = extract_plate_ocr(rectified_crop, return_timing=True)
+                t_enhancement_ms += rect_timing.get("enhancement_ms", 0.0)
+                t_crnn_ms += rect_timing.get("crnn_ms", 0.0)
+                t_tesseract_tier1_ms += rect_timing.get("tesseract_tier1_ms", 0.0)
+                t_tesseract_tier2_ms += rect_timing.get("tesseract_tier2_ms", 0.0)
+                t_tesseract_ms += rect_timing.get("tesseract_ms", 0.0)
+                t_easyocr_ms += rect_timing.get("easyocr_ms", 0.0)
+
+                t0_val = time.perf_counter()
+                rect_valid, rect_syn_score, rect_state, rect_sname, rect_match = validate_indian_plate_syntax(rect_clean)
+                t_val_ms += (time.perf_counter() - t0_val) * 1000.0
+
+                rect_composite = (1.0 if rect_valid else 0.0) * 0.40 + rect_conf * 0.40 + (rect_syn_score * 0.20)
+
+                # Select rectified only if it produces valid syntax or higher composite evidence
+                if (rect_valid and not orig_valid) or (rect_valid == orig_valid and rect_composite > orig_composite):
+                    selected_source = "RECTIFIED"
+                    clean_text = rect_clean
+                    raw_ocr_text = rect_raw
+                    ocr_conf = rect_conf
+                    ocr_engine = f"{rect_engine} [Perspective {skew_deg:+.1f}°]"
+                    candidate_ocr_tier = rect_timing.get("ocr_tier", candidate_ocr_tier)
+                    is_valid_syntax = rect_valid
+                    syn_score = rect_syn_score
+                    state_code = rect_state
+                    state_name = rect_sname
+                    match_type = rect_match
+                    if ANPR_CONFIG.get("save_debug_crops", True):
+                        cv2.imwrite(crop_saved_path, rectified_crop)
+
+            # POINT 14: Indian registration format validation result
+            if is_valid_syntax:
+                DEBUG_STATS["syntax_valid_count"] += 1
+
+            overall_conf = float(round((cand["detectorConfidence"] * 0.4 + ocr_conf * 0.4 + syn_score * 0.2), 2))
+
+            # POINT 15: Multi-frame confirmation status
+            if is_valid_syntax:
+                t0_track = time.perf_counter()
+                is_confirmed, final_plate, cons_conf, sightings, voting_telem = temporal_tracker.process_candidate(
+                    req.cameraId,
+                    clean_text,
+                    overall_conf,
+                    ocr_conf=ocr_conf,
+                    det_conf=cand["detectorConfidence"],
+                    is_syntax_valid=is_valid_syntax,
+                    bypass_temporal=req.manualScan
+                )
+                t_tracker_ms += (time.perf_counter() - t0_track) * 1000.0
+                conf_status = "CONFIRMED" if is_confirmed else "CANDIDATE_ACCUMULATING"
+                if is_confirmed:
+                    DEBUG_STATS["confirmed_count"] += 1
+            else:
+                is_confirmed = False
+                final_plate = clean_text
+                cons_conf = overall_conf
+                sightings = 0
+                voting_telem = {
+                    "voting_applied": False,
+                    "voting_mode": ANPR_CONFIG.get("temporal_voting_mode", "confidence_weighted"),
+                    "consensus_ratio": 1.0,
+                    "total_sightings": 0,
+                    "variants": [],
+                    "resolved_positions": [],
+                    "outlier_suppressed": False
+                }
+                conf_status = "REJECTED_SYNTAX"
+
+            # POINT 16: Final ACCEPTED / REJECTED result
+            if is_confirmed:
+                final_decision = "ACCEPTED"
+                rejection_reason = None
+            elif not is_valid_syntax:
+                final_decision = "REJECTED"
+                rejection_reason = match_type
+                record_rejection_stat(match_type)
+            elif ocr_conf < ANPR_CONFIG["min_ocr_conf"]:
+                final_decision = "REJECTED"
+                rejection_reason = f"REJECTED_OCR_CONF: OCR confidence {ocr_conf:.2f} < {ANPR_CONFIG['min_ocr_conf']:.2f}"
+                record_rejection_stat("REJECTED_OCR_CONF")
+            else:
+                final_decision = "CANDIDATE_ACCUMULATING"
+                rejection_reason = f"Awaiting multi-frame confirmation ({sightings}/{ANPR_CONFIG['min_consecutive_sightings']} sightings)"
+
+            eval_record = {
+                "candidateIndex": c_idx,
+                "plate": final_plate if is_valid_syntax else "",
+                "rawOcr": raw_ocr_text,
+                "normalizedOcr": clean_text,
+                "ocrConfidence": float(round(ocr_conf, 2)),
+                "ocrEngine": ocr_engine,
+                "stateCode": state_code,
+                "stateName": state_name,
+                "syntaxMatch": match_type,
+                "syntaxValid": is_valid_syntax,
+                "detectorConfidence": float(round(cand["detectorConfidence"], 2)),
+                "confidence": float(round(cons_conf, 2)),
+                "sightings": sightings,
+                "requiredSightings": ANPR_CONFIG["min_consecutive_sightings"],
+                "confirmationStatus": conf_status,
+                "finalDecision": final_decision,
+                "rejectionReason": rejection_reason,
+                "cropSavedPath": crop_saved_path,
+                "cropUrl": crop_relative_url,
+                "perspectiveCorrection": "APPLIED" if persp_applied else "SKIPPED",
+                "perspectiveStatus": persp_status,
+                "estimatedSkewDegrees": float(round(skew_deg, 2)),
+                "perspectiveSelected": selected_source,
+                "originalOcr": orig_raw,
+                "rectifiedOcr": rect_raw if persp_applied else "N/A",
+                "bbox": [int(x1), int(y1), int(bw), int(bh)],
+                "cameraId": req.cameraId,
+                "vehicleType": str(cand.get("vehicleClass", "car")),
+                "plateType": "HSRP (High Security Registration Plate)",
+                "status": "CONFIRMED" if is_confirmed else ("REJECTED_SYNTAX" if not is_valid_syntax else "CANDIDATE_ACCUMULATING"),
+                "ocrTier": candidate_ocr_tier,
+                "screenDegraded": bool(orig_timing.get("screen_degraded", False)),
+                "screenEnhanced": bool(orig_timing.get("screen_enhanced", False) or (need_rectified_ocr and rect_timing.get("screen_enhanced", False))),
+                "screenQuality": orig_timing.get("screen_quality", {}),
+                "temporalVoting": voting_telem
+            }
+
+            all_evaluations.append(eval_record)
+            if is_confirmed and confirmed_detection is None:
+                confirmed_detection = eval_record
+
+        # Final timing computation
+        t_total_ms = (time.perf_counter() - t_frame_start) * 1000.0
+        primary_eval = all_evaluations[0] if all_evaluations else {}
+        active_ocr_tier = primary_eval.get("ocrTier", "TIER_1_TESS_FAST")
+        timing_payload = {
+            "vehicleDetectionMs": float(round(t_vehicle_ms, 1)),
+            "plateDetectionMs": float(round(t_plate_ms, 1)),
+            "perspectiveMs": float(round(t_persp_ms, 1)),
+            "enhancementMs": float(round(t_enhancement_ms, 1)),
+            "crnnMs": float(round(t_crnn_ms, 1)),
+            "tesseractTier1Ms": float(round(t_tesseract_tier1_ms, 1)),
+            "tesseractTier2Ms": float(round(t_tesseract_tier2_ms, 1)),
+            "tesseractMs": float(round(t_tesseract_ms, 1)),
+            "easyOcrMs": float(round(t_easyocr_ms, 1)),
+            "ocrTotalMs": float(round(t_crnn_ms + t_tesseract_ms + t_easyocr_ms, 1)),
+            "validationMs": float(round(t_val_ms, 2)),
+            "temporalTrackerMs": float(round(t_tracker_ms, 2)),
+            "totalProcessingMs": float(round(t_total_ms, 1)),
+            "inferenceBackend": active_vehicle_backend,
+            "ocrTier": active_ocr_tier,
+            "fallbackOcrTriggered": bool(orig_timing.get("fallback_ocr_triggered", False)),
+            "ocrRouterDecision": str(orig_timing.get("ocr_router_decision", "NONE")),
+            "unresolvedAmbiguity": bool(orig_timing.get("unresolved_ambiguity", False)),
+            "stagedOcrEnabled": bool(ANPR_CONFIG.get("ocr_staged_execution", True)),
+            "screenDegraded": bool(primary_eval.get("screenDegraded", False)),
+            "screenEnhanced": bool(primary_eval.get("screenEnhanced", False)),
+            "screenQuality": primary_eval.get("screenQuality", {}),
+            "activeInferences": active_inferences,
+            "maxPythonWorkers": ANPR_CONFIG.get("max_python_workers", 2)
+        }
+
+        timeline_payload = {
+            "frameCapturedAt": req.frameCapturedAt,
+            "keyframeSelectedAt": req.keyframeSelectedAt,
+            "requestQueuedAt": req.requestQueuedAt,
+            "workerDispatchedAt": req.workerDispatchedAt,
+            "queueWaitMs": req.queueWaitMs,
+            "pyStartMs": round(t_frame_start * 1000.0, 1),
+            "vehicleDetectionMs": round(t_vehicle_ms, 1),
+            "plateDetectionMs": round(t_plate_ms, 1),
+            "perspectiveMs": round(t_persp_ms, 1),
+            "crnnMs": round(t_crnn_ms, 1),
+            "fallbackOcrMs": round(t_tesseract_ms + t_easyocr_ms, 1),
+            "temporalTrackerMs": round(t_tracker_ms, 2),
+            "totalProcessingMs": round(t_total_ms, 1),
+            "fallbackOcrTriggered": bool(orig_timing.get("fallback_ocr_triggered", False)),
+            "ocrRouterDecision": str(orig_timing.get("ocr_router_decision", "NONE")),
+        }
+
+        # Construct comprehensive 16-point diagnostic payload for this frame
+        frame_telemetry = {
+            "frameId": frame_id,
+            "timestamp": now_ts,
+            "cameraId": req.cameraId,
+            "cameraName": req.cameraName,
+            "frameSavedPath": frame_saved_path,
+            "frameUrl": frame_relative_url,
+            "resolution": f"{w_img}x{h_img}",
+            "sharpnessScore": float(round(laplacian_var, 1)),
+            "isBlurry": bool(is_blurry),
+            "meanBrightness": float(round(mean_brightness, 1)),
+            "timing": timing_payload,
+
+            # The 16 requested diagnostic points:
+            "1_vehicleDetected": bool(vehicle_detected),
+            "2_vehicleClassAndConf": [{"class": str(v["class"]), "confidence": float(v["confidence"])} for v in detected_vehicles],
+            "3_vehicleBoundingBoxes": [[int(x) for x in v["box"]] for v in detected_vehicles],
+            "4_plateDetectionAttempted": True,
+            "4_plateAttemptReason": str(attempt_reason),
+            "5_plateCandidateCount": int(len(raw_candidates_evaluated)),
+            "6_plateConfidences": [float(c["detectorConfidence"]) for c in raw_candidates_evaluated],
+            "7_plateBoundingBoxesAndAR": [{"bbox": [int(x) for x in c["bbox"]], "size": str(c["size"]), "aspectRatio": float(c["aspectRatio"])} for c in raw_candidates_evaluated],
+            "8_candidatesValidationPassed": [bool(c["passedValidation"]) for c in raw_candidates_evaluated],
+            "9_candidateRejectionReasons": [str(c["rejectionReason"]) for c in raw_candidates_evaluated if c["rejectionReason"]],
+            "10_plateCropsSaved": [str(e["cropUrl"]) for e in all_evaluations],
+            "11_ocrRawResults": [str(e["rawOcr"]) for e in all_evaluations],
+            "12_ocrConfidences": [float(e["ocrConfidence"]) for e in all_evaluations],
+            "13_normalizedOcrResults": [str(e["normalizedOcr"]) for e in all_evaluations],
+            "14_indianFormatValidationResults": [{"valid": bool(e["syntaxValid"]), "syntax": str(e["syntaxMatch"]), "state": str(e["stateCode"])} for e in all_evaluations],
+            "15_multiFrameConfirmationStatus": str(primary_eval.get("confirmationStatus", "NONE")),
+            "16_finalDecision": "ACCEPTED" if confirmed_detection else str(primary_eval.get("finalDecision", "REJECTED")),
+            "perspectiveCorrection": str(primary_eval.get("perspectiveCorrection", "SKIPPED")),
+            "estimatedSkewDegrees": float(primary_eval.get("estimatedSkewDegrees", 0.0)),
+            "perspectiveSelected": str(primary_eval.get("perspectiveSelected", "NONE")),
+            "originalOcr": str(primary_eval.get("originalOcr", "")),
+            "rectifiedOcr": str(primary_eval.get("rectifiedOcr", "N/A")),
+            "keyframeSharpness": float(round(laplacian_var, 1)),
+            "clientKeyframeSharpness": req.keyframeSharpness,
+            "keyframeCandidatesEvaluated": req.keyframeCandidates,
+            "keyframeStatus": "BLURRY" if is_blurry else "ACCEPTED",
+            "temporalVoting": primary_eval.get("temporalVoting", {}),
+
+            "summary": {
+                "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "NO_DETECTION"),
+                "reason": primary_eval.get("rejectionReason") if not confirmed_detection else f"Confirmed plate {confirmed_detection['plate']}",
+                "failureStage": "None (Passed)" if confirmed_detection else (
+                    "Stage 5: Multi-Frame Temporal Window" if primary_eval.get("confirmationStatus") == "CANDIDATE_ACCUMULATING" else "Stage 4: OCR / Syntax Validation"
+                ),
+                "ocrTier": active_ocr_tier,
+                "screenDegraded": bool(primary_eval.get("screenDegraded", False)),
+                "screenEnhanced": bool(primary_eval.get("screenEnhanced", False)),
+                "latencyMs": float(round(t_total_ms, 1)),
+                "latencyBreakdown": f"Veh: {t_vehicle_ms:.0f}ms | Plt: {t_plate_ms:.0f}ms | OCR: {t_tesseract_ms + t_easyocr_ms:.0f}ms [{active_ocr_tier}{' + SCREEN_ENH' if primary_eval.get('screenEnhanced') else ''}] | Total: {t_total_ms:.0f}ms ({active_vehicle_backend.upper()})"
+            },
+            "phase8_evidence_chain": _make_evidence_chain(
+                stage1_pass=bool(vehicle_detected),
+                stage2_pass=bool(raw_candidates_evaluated),
+                stage3_pass=bool(valid_candidates_to_ocr),
+                stage4_pass=bool(primary_eval.get("syntaxValid", False)),
+                stage5_pass=bool(confirmed_detection is not None),
+                stage6_pass=bool(confirmed_detection is not None),
+                note=(
+                    f"CONFIRMED: {confirmed_detection['plate']} (conf={confirmed_detection['confidence']:.2f})"
+                    if confirmed_detection
+                    else f"REJECTED at {primary_eval.get('status', 'UNKNOWN')}: {str(primary_eval.get('rejectionReason', ''))[:80]}"
+                )
+            ),
+            "candidates": raw_candidates_evaluated,
+            "evaluations": all_evaluations
+        }
+
+        LATEST_DEBUG_PER_CAM[req.cameraId] = frame_telemetry
+        RECENT_DEBUG_LOGS.append(frame_telemetry)
+        if len(RECENT_DEBUG_LOGS) > 100:
+            RECENT_DEBUG_LOGS.pop(0)
+
+        # ──────────────────────────────────────────────────────────
+        # POINT 16: Forward ONLY Confirmed Events to Node.js Backend
+        # ──────────────────────────────────────────────────────────
+        if confirmed_detection and req.forwardToDashboard:
+            try:
+                requests.post(
+                    NODE_SERVER_URL,
+                    json={
+                        "plate": confirmed_detection["plate"],
+                        "cameraId": req.cameraId,
+                        "confidence": confirmed_detection["confidence"],
+                        "vehicleType": confirmed_detection["vehicleType"],
+                        "simulated": False,
+                        "manualScan": bool(req.manualScan),
+                    },
+                    timeout=1.5,
+                    verify=False,
+                )
+            except Exception as e:
+                print(f"Forward to dashboard failed: {e}")
+
+        return {
+            "success": True,
+            "detected": confirmed_detection is not None,
+            "status": "CONFIRMED_ANPR_EVENT" if confirmed_detection else primary_eval.get("status", "CANDIDATE_TRACKING"),
+            "detection": confirmed_detection,
+            "vehicles": detected_vehicles,
+            "detections": all_evaluations,
+            "timing": timing_payload,
+            "timeline": timeline_payload,
+            "debug": frame_telemetry,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
+
+# ──────────────────────────────────────────────────────────────────
+# Phase 6: Async Endpoint with Worker Semaphore & Event-Loop Offload
+# ──────────────────────────────────────────────────────────────────
+@app.post("/detect")
+async def detect_plate(req: Base64DetectRequest):
+    global active_inferences, peak_inferences
+    sem = get_worker_semaphore()
+    async with sem:
+        active_inferences += 1
+        peak_inferences = max(peak_inferences, active_inferences)
+        try:
+            return await asyncio.to_thread(sync_detect_plate_core, req)
+        finally:
+            active_inferences = max(0, active_inferences - 1)
+
+@app.post("/detect-file")
+async def detect_plate_file(
+    file: UploadFile = File(...),
+    cameraId: int = Form(1),
+    cameraName: str = Form("Manual Scan"),
+    forwardToDashboard: bool = Form(True)
+):
+    try:
+        contents = await file.read()
+        encoded = base64.b64encode(contents).decode("utf-8")
+        req = Base64DetectRequest(
+            image=f"data:image/jpeg;base64,{encoded}",
+            cameraId=cameraId,
+            cameraName=cameraName,
+            forwardToDashboard=forwardToDashboard,
+            manualScan=True  # Manual file uploads bypass multi-frame delay
+        )
+        return await detect_plate(req)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+if __name__ == "__main__":
+    print("Starting Multi-Stage ANPR Inference Server on http://127.0.0.1:5001...")
+    uvicorn.run(app, host="127.0.0.1", port=5001, log_level="info")
