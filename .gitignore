@@ -40,3 +40,4 @@ datasets/
 dataset/
 benchmarks/**/crops/
 data/
+backup_before_stitch_integration/

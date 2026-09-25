@@ -9,6 +9,8 @@ const path       = require('path');
 const os         = require('os');
 const fs         = require('fs');
 const crypto     = require('crypto');
+const trajectoryService = require('./services/trajectoryService');
+const analyticsService  = require('./services/analyticsService');
 
 // ─────────────────────────────────────────────
 //  Utilities
@@ -46,23 +48,46 @@ const io = new Server(httpsServer, {
 
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  }
+}));
 app.use('/debug_output', express.static(path.join(__dirname, 'debug_output')));
 
 // ─────────────────────────────────────────────
 //  Camera Node Configuration
 // ─────────────────────────────────────────────
-const CAMERA_NODES = [
-  { id: 1, name: 'Junction A',    lat: 13.0827, lng: 80.2707, location: 'Chennai Central',  zone: 'North' },
-  { id: 2, name: 'Junction B',    lat: 13.0731, lng: 80.2609, location: 'T. Nagar',         zone: 'West'  },
-  { id: 3, name: 'Junction C',    lat: 13.0878, lng: 80.2785, location: 'Perambur',         zone: 'North-East' },
-  { id: 4, name: 'Highway Entry', lat: 13.0569, lng: 80.2425, location: 'Guindy',           zone: 'South' },
-];
+const DATA_DIR   = path.join(__dirname, 'data');
+const CAM_FILE   = path.join(DATA_DIR, 'cameras.json');
+let CAMERA_NODES = [];
+try {
+  const camData = JSON.parse(fs.readFileSync(CAM_FILE, 'utf8'));
+  // Map our file format to the format expected by the rest of the code
+  CAMERA_NODES = camData.map(c => ({
+    id: c.cameraId,
+    name: c.name,
+    lat: c.latitude,
+    lng: c.longitude,
+    location: c.roadName,
+    zone: c.zone,
+    direction: c.direction
+  }));
+} catch (e) {
+  console.warn('⚠️  Could not load cameras.json, using defaults:', e.message);
+  CAMERA_NODES = [
+    { id: 1, name: 'Junction A',    lat: 13.0827, lng: 80.2707, location: 'Chennai Central',  zone: 'North', direction: 'northbound' },
+    { id: 2, name: 'Junction B',    lat: 13.0731, lng: 80.2609, location: 'T. Nagar',         zone: 'West', direction: 'eastbound' },
+    { id: 3, name: 'Junction C',    lat: 13.0878, lng: 80.2785, location: 'Perambur',         zone: 'North-East', direction: 'southbound' },
+    { id: 4, name: 'Highway Entry', lat: 13.0569, lng: 80.2425, location: 'Guindy',           zone: 'South', direction: 'westbound' },
+  ];
+}
 
 // ─────────────────────────────────────────────
 //  Data Persistence
 // ─────────────────────────────────────────────
-const DATA_DIR   = path.join(__dirname, 'data');
 const DET_FILE   = path.join(DATA_DIR, 'detections.json');
 const WL_FILE    = path.join(DATA_DIR, 'watchlist.json');
 const ALERT_FILE = path.join(DATA_DIR, 'alerts.json');
@@ -74,8 +99,9 @@ const DETECTION_COOLDOWN = 30000; // ms — same plate+camera cooldown
 
 let detections   = [];
 let alertHistory = [];
-let watchlist    = new Map(); // plate → { reason, addedAt, plate }
+let watchlist    = new Map(); // plate → { reason, priority, notes, active, addedAt, createdAt, updatedAt, plate }
 const lastDetTime = new Map(); // `${plate}:${cameraId}` → timestamp ms
+const cameraRuntimeStats = new Map(); // camId -> { lastSeenAt, lastFrameAt, lastDetectionAt }
 
 function loadData() {
   try {
@@ -110,7 +136,7 @@ process.on('SIGTERM', () => { saveData(); process.exit(); });
 //  Core Detection Store Function
 // ─────────────────────────────────────────────
 function storeDetection(data) {
-  const { plate, cameraId, confidence, vehicleType, simulated } = data;
+  const { plate, cameraId, confidence, vehicleType, simulated, detectorConfidence, ocrConfidence, imagePath } = data;
   if (!plate || !cameraId) return null;
 
   const camId = parseInt(cameraId, 10);
@@ -124,18 +150,26 @@ function storeDetection(data) {
 
   const camNode = CAMERA_NODES.find(c => c.id === camId) || {};
   const detection = {
-    id:         crypto.randomUUID(),
-    plate:      plate.toUpperCase().replace(/[^A-Z0-9]/g, ''),
-    cameraId:   camId,
-    cameraName: camNode.name     || `CAM-${camId}`,
-    location:   camNode.location || '',
-    zone:       camNode.zone     || '',
-    timestamp:  new Date().toISOString(),
-    confidence: Math.min(1, Math.max(0, parseFloat(confidence) || 0.85)),
-    vehicleType: vehicleType || 'car',
-    lat:        camNode.lat || 0,
-    lng:        camNode.lng || 0,
-    simulated:  !!simulated,
+    id:                 crypto.randomUUID(),
+    plate:              plate.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+    cameraId:           camId, // Numeric ID for compatibility
+    cameraStringId:     `CAM_0${camId}`, // Roadmap standard CAM_01
+    cameraNumericId:    camId,
+    timestamp:          new Date().toISOString(),
+    confidence:         Math.min(1, Math.max(0, parseFloat(confidence) || 0.85)),
+    detectorConfidence: parseFloat(detectorConfidence) || 0.9,
+    ocrConfidence:      parseFloat(ocrConfidence) || 0.9,
+    vehicleType:        vehicleType || 'car',
+    direction:          camNode.direction || 'unknown',
+    latitude:           camNode.lat || 0,
+    longitude:          camNode.lng || 0,
+    lat:                camNode.lat || 0, // Legacy Leaflet compatibility
+    lng:                camNode.lng || 0, // Legacy Leaflet compatibility
+    cameraLocation:     camNode.name || `CAM-${camId}`,
+    cameraName:         camNode.name || `CAM-${camId}`, // Legacy compatibility
+    imagePath:          imagePath || null,
+    zone:               camNode.zone || '',
+    simulated:          !!simulated,
   };
 
   detections.push(detection);
@@ -144,18 +178,28 @@ function storeDetection(data) {
   // Broadcast live detection
   io.emit('anpr:detection', detection);
 
+  // Update camera runtime stats
+  cameraRuntimeStats.set(camId, {
+    ...(cameraRuntimeStats.get(camId) || {}),
+    lastDetectionAt: now,
+    lastFrameAt: now,
+  });
+
   // Watchlist check
   if (watchlist.has(detection.plate)) {
     const wlEntry = watchlist.get(detection.plate);
-    const alert = {
-      ...detection,
-      alertId:   crypto.randomUUID(),
-      reason:    wlEntry.reason,
-      alertTime: new Date().toISOString(),
-    };
-    alertHistory.push(alert);
-    io.emit('anpr:alert', alert);
-    console.log(`🚨  WATCHLIST HIT: ${detection.plate} at ${detection.cameraName}`);
+    if (wlEntry && wlEntry.active !== false) {
+      const alert = {
+        ...detection,
+        alertId:   crypto.randomUUID(),
+        reason:    wlEntry.reason || 'Watchlisted vehicle',
+        priority:  wlEntry.priority || 'HIGH',
+        alertTime: new Date().toISOString(),
+      };
+      alertHistory.push(alert);
+      io.emit('anpr:alert', alert);
+      console.log(`🚨  WATCHLIST HIT: ${detection.plate} (${alert.priority}) at ${detection.cameraName}`);
+    }
   }
 
   return detection;
@@ -169,16 +213,22 @@ app.get('/api/network-info', (req, res) => {
 });
 
 app.get('/api/qrcode/:id', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (id < 1 || id > 4) return res.status(400).json({ error: 'Invalid camera id' });
+  const rawId = String(req.params.id || '');
+  const id = parseInt(rawId.replace(/\D/g, ''), 10);
+  if (isNaN(id) || id < 1 || id > 4) {
+    return res.status(400).json({ error: 'Invalid camera id. Expected 1-4 or CAM_01-CAM_04.' });
+  }
   const url = `https://${HOST_IP}:${PORT}/camera.html?id=${id}`;
   try {
     const dataUrl = await QRCode.toDataURL(url, {
-      errorCorrectionLevel: 'M', margin: 2,
-      color: { dark: '#00ff41', light: '#0a0a0f' }, width: 280,
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      color: { dark: '#00ff41', light: '#0a0a0f' },
+      width: 280,
     });
-    res.json({ qr: dataUrl, url });
+    res.json({ qr: dataUrl, url, id });
   } catch (err) {
+    console.error('QR generation error for camera', id, err);
     res.status(500).json({ error: 'QR generation failed' });
   }
 });
@@ -193,9 +243,82 @@ app.get('/api/cameras/config', (req, res) => {
   const result = CAMERA_NODES.map(n => ({
     ...n,
     online: connectedIds.has(n.id),
-    detectionCount: detections.filter(d => d.cameraId === n.id).length,
+    detectionCount: detections.filter(d => d.cameraId === n.id || d.cameraNumericId === n.id || String(d.cameraId) === `CAM_0${n.id}`).length,
   }));
   res.json(result);
+});
+
+/** GET /api/cameras/status — Dynamic operational camera status & ANPR health */
+app.get('/api/cameras/status', (req, res) => {
+  const connectedIds = new Set(Object.keys(cameras).map(Number));
+  const now = Date.now();
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const cameraStatuses = CAMERA_NODES.map(cam => {
+    const isConnected = connectedIds.has(cam.id);
+    const rt = cameraRuntimeStats.get(cam.id) || {};
+    
+    // ANPR status: ACTIVE if frame/detection within last 45s, STANDBY if connected, INACTIVE otherwise
+    let anprStatus = 'INACTIVE';
+    if (isConnected) {
+      if (rt.lastFrameAt && (now - rt.lastFrameAt < 45000)) {
+        anprStatus = 'ACTIVE';
+      } else {
+        anprStatus = 'STANDBY';
+      }
+    }
+
+    // Connection status: ONLINE, DEGRADED, OFFLINE
+    let status = 'OFFLINE';
+    if (isConnected) {
+      if (rt.lastFrameAt && (now - rt.lastFrameAt > 60000)) {
+        status = 'DEGRADED';
+      } else {
+        status = 'ONLINE';
+      }
+    }
+
+    const camDets = detections.filter(d => d.cameraId === cam.id || d.cameraNumericId === cam.id || String(d.cameraId) === `CAM_0${cam.id}`);
+    const todayDets = camDets.filter(d => new Date(d.timestamp) >= startOfDay);
+    const lastDet = camDets[camDets.length - 1];
+
+    return {
+      cameraId: `CAM_0${cam.id}`,
+      id: cam.id,
+      name: cam.name,
+      location: cam.location || cam.roadName || '',
+      roadName: cam.roadName || cam.location || '',
+      zone: cam.zone || '',
+      lat: cam.lat,
+      lng: cam.lng,
+      direction: cam.direction || '',
+      connected: isConnected,
+      status, // ONLINE, DEGRADED, OFFLINE
+      anprStatus, // ACTIVE, STANDBY, INACTIVE
+      lastSeenAt: rt.lastSeenAt ? new Date(rt.lastSeenAt).toISOString() : (isConnected ? new Date().toISOString() : null),
+      lastFrameAt: rt.lastFrameAt ? new Date(rt.lastFrameAt).toISOString() : null,
+      lastDetectionAt: lastDet ? lastDet.timestamp : (rt.lastDetectionAt ? new Date(rt.lastDetectionAt).toISOString() : null),
+      lastPlate: lastDet ? lastDet.plate : null,
+      detectionsToday: todayDets.length,
+      totalDetections: camDets.length,
+    };
+  });
+
+  const summary = {
+    total: cameraStatuses.length,
+    online: cameraStatuses.filter(c => c.status === 'ONLINE').length,
+    offline: cameraStatuses.filter(c => c.status === 'OFFLINE').length,
+    degraded: cameraStatuses.filter(c => c.status === 'DEGRADED').length,
+    anprActive: cameraStatuses.filter(c => c.anprStatus === 'ACTIVE').length,
+  };
+
+  res.json({
+    success: true,
+    summary,
+    cameras: cameraStatuses,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 /** Store a detection (from browser ANPR engine via HTTP fallback) */
@@ -268,6 +391,11 @@ class MultiCameraQueueManager {
 
     this.globalStats.totalReceived++;
     cam.stats.received++;
+    cameraRuntimeStats.set(cameraId, {
+      ...(cameraRuntimeStats.get(cameraId) || {}),
+      lastFrameAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
 
     return new Promise((resolve, reject) => {
       // Bounded Queue Size = 1 per camera.
@@ -465,6 +593,14 @@ setInterval(() => {
   }
 }, 2500);
 
+// Broadcast analytics summary via Socket.io every 5 seconds for live dashboard updates
+setInterval(() => {
+  if (typeof io !== 'undefined' && detections.length > 0) {
+    const summary = analyticsService.getSummary(detections, alertHistory);
+    io.emit('analytics:summary-update', summary);
+  }
+}, 5000);
+
 /** Forward frame through Phase 6 Multi-Camera Concurrency Queue */
 app.post('/api/anpr/detect', async (req, res) => {
   try {
@@ -565,7 +701,7 @@ app.get('/api/detections', (req, res) => {
   const { plate, cameraId, limit, since } = req.query;
 
   if (plate)    results = results.filter(d => d.plate === plate.toUpperCase());
-  if (cameraId) results = results.filter(d => d.cameraId === parseInt(cameraId));
+  if (cameraId) results = results.filter(d => String(d.cameraId) === String(cameraId) || String(d.cameraNumericId) === String(cameraId) || String(d.cameraId) === `CAM_0${cameraId}`);
   if (since)    results = results.filter(d => new Date(d.timestamp) >= new Date(since));
 
   results.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
@@ -573,44 +709,108 @@ app.get('/api/detections', (req, res) => {
   res.json(results.slice(0, lim));
 });
 
-/** Vehicle trajectory — all detections for a plate, chronological */
-app.get('/api/detections/trajectory/:plate', (req, res) => {
-  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const trail = detections
-    .filter(d => d.plate === plate)
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-  if (trail.length === 0) return res.json({ plate, found: false, trail: [] });
-
-  const first = trail[0];
-  const last  = trail[trail.length - 1];
-  const totalMs = new Date(last.timestamp) - new Date(first.timestamp);
-
-  // Camera-to-camera segments
-  const segments = [];
-  for (let i = 1; i < trail.length; i++) {
-    const diffMs = new Date(trail[i].timestamp) - new Date(trail[i-1].timestamp);
-    segments.push({
-      from:       trail[i-1].cameraName,
-      to:         trail[i].cameraName,
-      travelMins: Math.round(diffMs / 60000),
+/** Vehicle trajectory — all detections for a plate, chronological with segment analysis */
+const trajectoryHandler = (req, res) => {
+  const plate = req.params.plate;
+  const result = trajectoryService.buildTrajectory(plate, detections);
+  if (!result.found) {
+    return res.json({
+      success: false,
+      found: false,
+      plate: trajectoryService.normalizePlate(plate),
+      message: 'No detections found for this plate',
+      trail: [],
+      points: [],
+      segments: [],
+      totalSightings: 0,
+      totalDistanceKm: 0,
+      totalTravelTimeSeconds: 0,
+      totalTravelTimeMinutes: 0,
+      totalMinutes: 0,
+      averageJourneySpeedKmh: null,
+      validSegmentCount: 0,
+      invalidSegmentCount: 0,
+      cameras: [],
+      firstSeen: null,
+      lastSeen: null,
     });
   }
+  res.json(result);
+};
 
-  res.json({
-    plate,
-    found:         true,
-    trail,
-    totalSightings: trail.length,
-    firstSeen:     first.timestamp,
-    lastSeen:      last.timestamp,
-    totalMinutes:  Math.round(totalMs / 60000),
-    cameras:       [...new Set(trail.map(d => d.cameraName))],
-    segments,
-  });
+// Support both existing endpoint and new roadmap API
+app.get('/api/detections/trajectory/:plate', trajectoryHandler);
+app.get('/api/trajectory/:plate', trajectoryHandler);
+
+// ─────────────────────────────────────────────
+//  Phase C: Macro Traffic Flow & Movement Analytics Endpoints
+// ─────────────────────────────────────────────
+
+/** GET /api/analytics/summary — Executive traffic dashboard metrics */
+app.get('/api/analytics/summary', (req, res) => {
+  const cameraStatuses = {};
+  for (let i = 1; i <= 4; i++) {
+    cameraStatuses[i] = cameras[i] ? 'connected' : 'disconnected';
+  }
+  const summary = analyticsService.getSummary(detections, alertHistory, cameraStatuses);
+  res.json(summary);
 });
 
-/** Traffic analytics aggregations */
+/** GET /api/analytics/density — Camera & Zone Traffic Volume & Density Classification */
+app.get('/api/analytics/density', (req, res) => {
+  const result = analyticsService.trafficAnalytics.getDensityAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** GET /api/analytics/routes — Camera-to-Camera Route Density & Flow */
+app.get('/api/analytics/routes', (req, res) => {
+  const result = analyticsService.routeAnalytics.getRouteDensityAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** GET /api/analytics/speed — Estimated Average Speed per Route & Network-wide */
+app.get('/api/analytics/speed', (req, res) => {
+  const result = analyticsService.speedAnalytics.getSpeedAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** GET /api/analytics/origin-destination — Origin-Destination Pairs & Travel Matrix */
+app.get('/api/analytics/origin-destination', (req, res) => {
+  const result = analyticsService.odAnalytics.getOriginDestinationAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** GET /api/analytics/congestion — Deterministic Congestion Scoring vs Baseline */
+app.get('/api/analytics/congestion', (req, res) => {
+  const result = analyticsService.congestionAnalytics.getCongestionAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** GET /api/analytics/trends — Time-series Traffic Flow & Speed Trends */
+app.get('/api/analytics/trends', (req, res) => {
+  const result = analyticsService.trendAnalytics.getTrendAnalytics(detections, req.query);
+  if (result.status === 400) {
+    return res.status(400).json(result);
+  }
+  res.json(result);
+});
+
+/** Traffic analytics aggregations (preserved legacy endpoint) */
 app.get('/api/detections/analytics', (req, res) => {
   const now = Date.now();
   const last60min = detections.filter(d => now - new Date(d.timestamp).getTime() < 3600000);
@@ -619,7 +819,10 @@ app.get('/api/detections/analytics', (req, res) => {
   // Per camera counts
   const perCamera = {};
   CAMERA_NODES.forEach(n => { perCamera[n.id] = { name: n.name, count: 0 }; });
-  last60min.forEach(d => { if (perCamera[d.cameraId]) perCamera[d.cameraId].count++; });
+  last60min.forEach(d => {
+    const cid = d.cameraNumericId || parseInt(String(d.cameraId).replace(/\D/g, ''), 10) || d.cameraId;
+    if (perCamera[cid]) perCamera[cid].count++;
+  });
 
   // Busiest camera
   const busiestCam = Object.values(perCamera).sort((a, b) => b.count - a.count)[0];
@@ -675,32 +878,99 @@ app.get('/api/detections/analytics', (req, res) => {
   });
 });
 
-/** Watchlist */
+/** Watchlist CRUD Endpoints */
 app.get('/api/watchlist', (req, res) => {
-  const entries = [...watchlist.entries()].map(([plate, data]) => ({
-    plate,
-    ...data,
-    alertCount: alertHistory.filter(a => a.plate === plate).length,
-  }));
+  const today = new Date().toISOString().slice(0, 10);
+  const entries = [...watchlist.entries()].map(([plate, data]) => {
+    const plateAlerts = alertHistory.filter(a => a.plate === plate);
+    return {
+      plate,
+      reason: data.reason || 'Watchlisted vehicle',
+      priority: data.priority || 'HIGH',
+      notes: data.notes || '',
+      active: data.active !== false,
+      addedAt: data.addedAt || data.createdAt || new Date().toISOString(),
+      createdAt: data.createdAt || data.addedAt || new Date().toISOString(),
+      updatedAt: data.updatedAt || data.addedAt || new Date().toISOString(),
+      alertCount: plateAlerts.length,
+      alertsToday: plateAlerts.filter(a => (a.alertTime || a.timestamp || '').slice(0, 10) === today).length,
+      lastAlertAt: (plateAlerts.slice(-1)[0] || {}).alertTime || null,
+    };
+  });
   res.json(entries);
 });
 
 app.post('/api/watchlist', (req, res) => {
-  const { plate, reason } = req.body;
-  if (!plate) return res.status(400).json({ error: 'plate required' });
+  const { plate, reason, priority, notes, active } = req.body;
+  if (!plate) return res.status(400).json({ success: false, error: 'plate required' });
   const normalized = plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  watchlist.set(normalized, { reason: reason || 'Suspicious vehicle', addedAt: new Date().toISOString(), plate: normalized });
+  const existing = watchlist.get(normalized) || {};
+  const now = new Date().toISOString();
+  const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+  const assignedPriority = validPriorities.includes((priority || '').toUpperCase()) ? priority.toUpperCase() : (existing.priority || 'HIGH');
+
+  const entry = {
+    plate: normalized,
+    reason: reason || existing.reason || 'Suspicious vehicle',
+    priority: assignedPriority,
+    notes: notes !== undefined ? notes : (existing.notes || ''),
+    active: active !== undefined ? !!active : (existing.active !== false),
+    addedAt: existing.addedAt || now,
+    createdAt: existing.createdAt || existing.addedAt || now,
+    updatedAt: now,
+  };
+  watchlist.set(normalized, entry);
   io.emit('watchlist:updated', [...watchlist.entries()].map(([p, d]) => ({ plate: p, ...d })));
   saveData();
-  res.json({ status: 'added', plate: normalized });
+  res.json({ success: true, status: 'added', entry });
+});
+
+app.put('/api/watchlist/:plate', (req, res) => {
+  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!watchlist.has(plate)) {
+    return res.status(404).json({ success: false, error: 'Vehicle not found on watchlist' });
+  }
+  const existing = watchlist.get(plate);
+  const { reason, priority, notes, active } = req.body;
+  const now = new Date().toISOString();
+  const validPriorities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
+  const assignedPriority = priority && validPriorities.includes(priority.toUpperCase()) ? priority.toUpperCase() : (existing.priority || 'HIGH');
+
+  const updated = {
+    ...existing,
+    plate,
+    reason: reason !== undefined ? reason : existing.reason,
+    priority: assignedPriority,
+    notes: notes !== undefined ? notes : (existing.notes || ''),
+    active: active !== undefined ? !!active : (existing.active !== false),
+    updatedAt: now,
+  };
+  watchlist.set(plate, updated);
+  io.emit('watchlist:updated', [...watchlist.entries()].map(([p, d]) => ({ plate: p, ...d })));
+  saveData();
+  res.json({ success: true, status: 'updated', entry: updated });
+});
+
+app.post('/api/watchlist/:plate/toggle', (req, res) => {
+  const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!watchlist.has(plate)) {
+    return res.status(404).json({ success: false, error: 'Vehicle not found on watchlist' });
+  }
+  const existing = watchlist.get(plate);
+  existing.active = !(existing.active !== false);
+  existing.updatedAt = new Date().toISOString();
+  watchlist.set(plate, existing);
+  io.emit('watchlist:updated', [...watchlist.entries()].map(([p, d]) => ({ plate: p, ...d })));
+  saveData();
+  res.json({ success: true, active: existing.active, entry: existing });
 });
 
 app.delete('/api/watchlist/:plate', (req, res) => {
   const plate = req.params.plate.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  watchlist.delete(plate);
+  const deleted = watchlist.delete(plate);
   io.emit('watchlist:updated', [...watchlist.entries()].map(([p, d]) => ({ plate: p, ...d })));
   saveData();
-  res.json({ status: 'removed', plate });
+  res.json({ success: true, status: 'removed', plate, deleted });
 });
 
 app.get('/api/alerts', (req, res) => {
@@ -821,7 +1091,11 @@ io.on('connection', (socket) => {
     if (cameras[id] && cameras[id].socketId !== socket.id) {
       console.log(`⚠️   Replacing camera ${id} (old: ${cameras[id].socketId})`);
     }
-    cameras[id] = { socketId: socket.id, status: 'connected' };
+    cameras[id] = { socketId: socket.id, status: 'connected', connectedAt: Date.now() };
+    cameraRuntimeStats.set(id, {
+      ...(cameraRuntimeStats.get(id) || {}),
+      lastSeenAt: Date.now(),
+    });
     socket.data.cameraId = id;
     console.log(`📷  Camera ${id} registered: ${socket.id}`);
     dashboardSockets.forEach(dashId => io.to(dashId).emit('camera:ready', { cameraId: id }));

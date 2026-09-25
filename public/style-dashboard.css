@@ -27,13 +27,18 @@
   --transition:    0.25s ease;
 }
 
-html, body {
+html {
   height: 100%;
+}
+
+body {
+  min-height: 100%;
   background: var(--bg-deep);
   color: var(--text-primary);
   font-family: var(--text-sans);
   font-size: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* ── Scanline Overlay ── */
@@ -229,16 +234,19 @@ body::after {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(5,5,8,0.92);
-  gap: 14px;
+  background: rgba(5,5,8,0.94);
+  gap: 8px;
   z-index: 4;
+  padding: 8px 12px;
+  overflow-y: auto;
 }
 
 .offline-overlay.hidden { display: none; }
 
 .offline-icon {
-  width: 52px;
-  height: 52px;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   border-radius: 50%;
   border: 2px solid rgba(255,59,48,0.4);
   display: flex;
@@ -247,19 +255,22 @@ body::after {
   color: rgba(255,59,48,0.6);
 }
 
-.offline-icon svg { width: 28px; height: 28px; }
+.offline-icon svg { width: 20px; height: 20px; }
 
 .offline-label {
   font-family: var(--text-mono);
   font-size: 11px;
   color: var(--text-dim);
   letter-spacing: 1px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .offline-actions {
   display: flex;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
 /* ── QR Section inside offline overlay ── */
@@ -267,15 +278,26 @@ body::after {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .qr-image {
-  width: 120px;
-  height: 120px;
-  border: 2px solid rgba(0,255,65,0.3);
-  border-radius: 4px;
+  width: 112px;
+  height: 112px;
+  flex-shrink: 0;
+  border: 2px solid rgba(0,255,65,0.35);
+  border-radius: 6px;
   image-rendering: pixelated;
+  background: #0a0a0f;
+  object-fit: contain;
+  box-shadow: 0 0 16px rgba(0,255,65,0.12);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.qr-image:hover {
+  transform: scale(1.04);
+  border-color: var(--green);
 }
 
 .qr-url {
@@ -1462,6 +1484,260 @@ body::after {
 .scan-action-btn.secondary:hover {
   border-color: var(--blue);
   color: var(--blue);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Phase D: GIS Traffic Map Styling Tokens
+   ═══════════════════════════════════════════════════════════ */
+.time-filter-chip {
+  background: #111420;
+  border: 1px solid #1a1d2e;
+  color: var(--text-dim);
+  font-family: var(--text-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.time-filter-chip:hover {
+  border-color: #00b4ff;
+  color: #dde2ec;
+}
+
+.time-filter-chip.active {
+  background: rgba(0, 180, 255, 0.15);
+  border-color: #00b4ff;
+  color: #00b4ff;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(0, 180, 255, 0.25);
+}
+
+.traffic-mode-btn {
+  background: #111420;
+  border: 1px solid #1a1d2e;
+  color: var(--text-dim);
+  font-family: var(--text-mono);
+  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.traffic-mode-btn:hover {
+  border-color: var(--green);
+  color: #dde2ec;
+}
+
+.traffic-mode-btn.active {
+  background: rgba(0, 255, 65, 0.12);
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.25);
+}
+
+.traffic-mode-btn[data-mode="routes"].active {
+  background: rgba(0, 180, 255, 0.12);
+  border-color: #00b4ff;
+  color: #00b4ff;
+  box-shadow: 0 0 10px rgba(0, 180, 255, 0.25);
+}
+
+.traffic-mode-btn[data-mode="congestion"].active {
+  background: rgba(255, 180, 0, 0.12);
+  border-color: #ffb400;
+  color: #ffb400;
+  box-shadow: 0 0 10px rgba(255, 180, 0, 0.25);
+}
+
+.map-fullscreen {
+  position: fixed !important;
+  inset: 10px !important;
+  z-index: 9990 !important;
+  height: calc(100vh - 20px) !important;
+  box-shadow: 0 0 40px rgba(0,0,0,0.85) !important;
+}
+
+@keyframes marker-pulse {
+  0% { transform: scale(0.9); opacity: 0.9; }
+  50% { transform: scale(1.6); opacity: 0.3; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.traffic-cam-marker {
+  transition: transform 0.2s ease;
+}
+
+.traffic-cam-marker:hover {
+  transform: scale(1.25);
+  z-index: 1000 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Tab Panels, Stable Map Dimensions & Responsive Layout Rules
+═══════════════════════════════════════════════════════════ */
+.tab-panel {
+  width: 100%;
+  min-height: calc(100vh - 52px);
+  background: var(--bg-deep);
+}
+
+#tab-cmd {
+  height: calc(100vh - 52px);
+  overflow: hidden;
+}
+
+#tab-cmd .layout {
+  height: 100%;
+}
+
+/* Explicit stable dimensions for Leaflet map containers */
+.map-container,
+#trackMap {
+  width: 100%;
+  min-height: 480px;
+  height: 500px;
+  background: #050508;
+}
+
+#analyticsMap {
+  width: 100%;
+  min-height: 520px;
+  height: 520px;
+  background: #050508;
+}
+
+#networkMap {
+  width: 100%;
+  min-height: 440px;
+  height: 440px;
+  background: #050508;
+}
+
+/* Priority Badges */
+.badge-priority-critical {
+  background: rgba(255, 59, 48, 0.25);
+  border: 1px solid #ff3b30;
+  color: #ff3b30;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--text-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-priority-high {
+  background: rgba(255, 59, 48, 0.15);
+  border: 1px solid rgba(255, 59, 48, 0.5);
+  color: #ff3b30;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--text-mono);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.badge-priority-medium {
+  background: rgba(255, 180, 0, 0.15);
+  border: 1px solid rgba(255, 180, 0, 0.5);
+  color: #ffb400;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--text-mono);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.badge-priority-low {
+  background: rgba(0, 180, 255, 0.15);
+  border: 1px solid rgba(0, 180, 255, 0.5);
+  color: #00b4ff;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: var(--text-mono);
+  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Timeline & Trajectory Enhancements */
+.trajectory-step-card {
+  display: flex;
+  gap: 14px;
+  position: relative;
+}
+
+.trajectory-step-num {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #00ff41;
+  color: #050508;
+  font-weight: 800;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 12px rgba(0, 255, 65, 0.4);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.trajectory-leg-card {
+  margin-left: 14px;
+  padding: 10px 14px;
+  background: rgba(0, 180, 255, 0.05);
+  border-left: 2px solid #00b4ff;
+  border-radius: 4px;
+  font-family: var(--text-mono);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trajectory-leg-card.anomaly {
+  background: rgba(255, 59, 48, 0.08);
+  border-left-color: #ff3b30;
+}
+
+/* Table Horizontal Overflow Containers */
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1366px) {
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .chart-grid {
+    gap: 12px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .chart-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
 
 

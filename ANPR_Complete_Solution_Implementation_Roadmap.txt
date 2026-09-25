@@ -1,0 +1,1818 @@
+MULTI-CAMERA INDIAN ANPR TRAFFIC INTELLIGENCE PLATFORM
+COMPLETE SOLUTION AND IMPLEMENTATION ROADMAP
+Compatible with the Current Project Architecture
+
+======================================================================
+1. PURPOSE OF THIS DOCUMENT
+======================================================================
+
+This document explains exactly what must be done to bring the current
+Multi-Camera Indian ANPR Traffic Intelligence Platform into close alignment
+with the complete problem statement.
+
+The current project already contains a strong working base:
+- Multi-camera WebRTC streaming
+- Socket.io signaling
+- Node.js backend
+- Python FastAPI ANPR microservice
+- YOLO-based plate detection
+- Plate rectification
+- PaddleOCR / PP-OCRv4
+- Multi-frame voting
+- Indian registration validation
+- Detection history
+- GIS route visualization using Leaflet
+- Watchlist / BOLO alerts
+- Mobile-camera pairing
+
+Therefore, the solution described below DOES NOT require rebuilding the project
+from scratch.
+
+The objective is to extend the current system while preserving the existing
+working ANPR pipeline.
+
+The most important remaining work is:
+1. End-to-end OCR benchmarking
+2. Improved trajectory metadata
+3. Traffic density analytics
+4. Average speed estimation
+5. Origin-Destination analytics
+6. Route density analytics
+7. Congestion detection
+8. Traffic heatmaps
+9. Traffic trend visualization
+10. Route anomaly alerts
+11. Data-storage improvements for larger deployments
+12. Scalability and performance improvements
+
+======================================================================
+2. CURRENT PROJECT ARCHITECTURE TO PRESERVE
+======================================================================
+
+The existing architecture should remain the base architecture.
+
+CURRENT FLOW:
+
+Camera / Smartphone / RTSP Stream
+            |
+            v
+       WebRTC Streaming
+            |
+            v
+Node.js + Socket.io Backend
+       Port 3000
+            |
+            v
+Python FastAPI ANPR Service
+       Port 5001
+            |
+            v
+Plate Detector
+            |
+            v
+Plate Rectifier
+            |
+            v
+PP-OCRv4 Recognition
+            |
+            v
+Multi-Frame Consensus
+            |
+            v
+Indian Plate Validator
+            |
+            v
+Detection Storage
+            |
+     -------------------
+     |                 |
+     v                 v
+Trajectory          Watchlist
+Tracking             Alerts
+     |
+     v
+Leaflet GIS Map
+
+This structure is already correct and should not be replaced.
+
+NEW FUNCTIONS SHOULD BE ADDED AROUND THE EXISTING DETECTION DATA.
+
+======================================================================
+3. MAIN PRINCIPLE FOR THE NEXT DEVELOPMENT PHASE
+======================================================================
+
+DO NOT spend the next phase rebuilding the OCR engine unless benchmarking
+proves that it is necessary.
+
+The current ANPR engine already provides the information required for most
+remaining features.
+
+The main idea is:
+
+ANPR detections
+      |
+      v
+Central Detection Dataset
+      |
+      +-----------------------+
+      |                       |
+      v                       v
+Vehicle-level              City-level
+Intelligence               Intelligence
+      |                       |
+      v                       v
+Trajectory                Density
+Tracking                  Speed
+History                   Congestion
+Alerts                    OD Matrix
+                          Heatmaps
+                          Route Flow
+                          Trends
+
+The same detections can support both single-vehicle tracking and macro traffic
+analytics.
+
+======================================================================
+4. STANDARDIZE THE DETECTION RECORD
+======================================================================
+
+Before implementing the new analytics features, all detections should follow
+one standard structure.
+
+Recommended detection record:
+
+{
+  "id": "unique_detection_id",
+  "plate": "TN45AB1234",
+  "cameraId": "CAM_01",
+  "timestamp": "2026-09-24T10:15:32.124Z",
+  "confidence": 0.94,
+  "detectorConfidence": 0.96,
+  "ocrConfidence": 0.92,
+  "vehicleType": "car",
+  "direction": "northbound",
+  "latitude": 10.7905,
+  "longitude": 78.7047,
+  "cameraLocation": "Junction A",
+  "imagePath": "optional/path/to/crop.jpg"
+}
+
+Minimum required fields:
+
+plate
+cameraId
+timestamp
+confidence
+latitude
+longitude
+
+Recommended additional fields:
+
+vehicleType
+direction
+ocrConfidence
+detectorConfidence
+cameraLocation
+imagePath
+
+WHY THIS IS IMPORTANT:
+
+Every major analytics feature depends on clean and consistent detection data.
+
+======================================================================
+5. CAMERA METADATA STRUCTURE
+======================================================================
+
+Create or maintain a separate camera configuration file.
+
+Suggested file:
+
+data/cameras.json
+
+Example:
+
+[
+  {
+    "cameraId": "CAM_01",
+    "name": "Junction A",
+    "latitude": 10.7905,
+    "longitude": 78.7047,
+    "roadName": "Main Road",
+    "direction": "northbound",
+    "zone": "Zone_A"
+  },
+  {
+    "cameraId": "CAM_02",
+    "name": "Junction B",
+    "latitude": 10.8010,
+    "longitude": 78.7100,
+    "roadName": "Central Road",
+    "direction": "eastbound",
+    "zone": "Zone_B"
+  }
+]
+
+This allows every detection to be linked to a real geographic location.
+
+======================================================================
+6. MODULE 1 - END-TO-END ANPR ACCURACY BENCHMARK
+======================================================================
+
+CURRENT SITUATION:
+
+The project has a strong plate-detection result, but plate-detection precision
+must not be presented as complete OCR recognition accuracy.
+
+The problem statement specifically expects more than 90% recognition accuracy.
+
+Therefore, a formal end-to-end test must be added.
+
+----------------------------------------------------------------------
+6.1 Create a Test Dataset
+----------------------------------------------------------------------
+
+Create a folder:
+
+tests/anpr_benchmark/
+
+Structure:
+
+tests/anpr_benchmark/
+    images/
+    ground_truth.json
+
+Example ground_truth.json:
+
+[
+  {
+    "image": "car_001.jpg",
+    "plate": "TN45AB1234",
+    "condition": "daylight"
+  },
+  {
+    "image": "car_002.jpg",
+    "plate": "KA01MN4589",
+    "condition": "angle"
+  },
+  {
+    "image": "car_003.jpg",
+    "plate": "TN38CD5555",
+    "condition": "night"
+  }
+]
+
+Include examples for:
+
+- daylight
+- night
+- glare
+- rain
+- motion blur
+- angled plates
+- partially dirty plates
+- cars
+- bikes
+- trucks
+- commercial plates
+- BH-series plates
+
+----------------------------------------------------------------------
+6.2 Calculate Multiple Metrics
+----------------------------------------------------------------------
+
+Measure:
+
+1. Plate detection precision
+2. Plate detection recall
+3. Exact plate recognition accuracy
+4. Character-level accuracy
+5. Average OCR confidence
+6. Accuracy by environmental condition
+
+Exact Recognition Accuracy:
+
+Correct full plates
+------------------- x 100
+Total test plates
+
+Character Accuracy:
+
+Correct characters
+------------------ x 100
+Total characters
+
+This benchmark should be accessible from a script such as:
+
+python tests/run_benchmark.py
+
+Final output example:
+
+Detection Precision: 97.14%
+Detection Recall: 94.30%
+Exact Plate OCR Accuracy: 91.60%
+Character Accuracy: 97.80%
+
+Daylight Accuracy: 95.20%
+Night Accuracy: 88.40%
+Angle Accuracy: 90.10%
+Motion Blur Accuracy: 86.50%
+
+This gives credible evidence for the SIH requirement.
+
+======================================================================
+7. MODULE 2 - IMPROVE TRAJECTORY RECONSTRUCTION
+======================================================================
+
+The project already performs trajectory tracking.
+
+The next step is to enrich each trajectory with useful metadata.
+
+----------------------------------------------------------------------
+7.1 Vehicle Search
+----------------------------------------------------------------------
+
+User searches:
+
+TN45AB1234
+
+Backend retrieves every detection matching this plate.
+
+Sort by:
+
+timestamp ASC
+
+Example:
+
+09:05 - CAM_01
+09:18 - CAM_05
+09:33 - CAM_09
+09:48 - CAM_14
+
+----------------------------------------------------------------------
+7.2 Return Complete Trajectory Information
+----------------------------------------------------------------------
+
+For every point return:
+
+- Camera ID
+- Camera name
+- Timestamp
+- Latitude
+- Longitude
+- Direction
+- OCR confidence
+- Vehicle type
+- Distance from previous camera
+- Time from previous camera
+- Estimated average speed
+
+Suggested API:
+
+GET /api/trajectory/TN45AB1234
+
+Suggested response:
+
+{
+  "plate": "TN45AB1234",
+  "totalSightings": 4,
+  "totalDistanceKm": 11.4,
+  "totalTravelTimeMinutes": 43,
+  "points": [...]
+}
+
+----------------------------------------------------------------------
+7.3 Calculate Distance Between Camera Points
+----------------------------------------------------------------------
+
+Use the Haversine formula or geographic library.
+
+Input:
+
+latitude1
+longitude1
+latitude2
+longitude2
+
+Output:
+
+distanceKm
+
+This can be calculated in Node.js.
+
+No new AI model is required.
+
+----------------------------------------------------------------------
+7.4 Calculate Estimated Average Speed
+----------------------------------------------------------------------
+
+For two consecutive camera detections:
+
+speed = distance / time
+
+Example:
+
+Distance = 3 km
+Time = 5 minutes
+
+speed = 3 / (5 / 60)
+speed = 36 km/h
+
+Store this only as an estimated segment speed.
+
+IMPORTANT:
+
+Do not describe this as exact instantaneous vehicle speed.
+
+It is an estimated average speed between two geographically known camera
+detections.
+
+======================================================================
+8. MODULE 3 - TRAFFIC DENSITY ANALYTICS
+======================================================================
+
+This is one of the most important missing modules.
+
+Traffic density can be implemented directly from detection counts.
+
+----------------------------------------------------------------------
+8.1 Define Time Buckets
+----------------------------------------------------------------------
+
+Recommended time windows:
+
+5 minutes
+15 minutes
+30 minutes
+1 hour
+
+Example:
+
+CAM_01
+
+10:00-10:15 = 120 vehicles
+10:15-10:30 = 205 vehicles
+10:30-10:45 = 278 vehicles
+
+----------------------------------------------------------------------
+8.2 Backend Function
+----------------------------------------------------------------------
+
+Create:
+
+services/trafficAnalytics.js
+
+Functions:
+
+getVehicleCountByCamera()
+getDensityByCamera()
+getDensityByZone()
+getDensityByTimeRange()
+
+Suggested API:
+
+GET /api/analytics/density
+
+Optional query parameters:
+
+?from=
+?to=
+?cameraId=
+?interval=15m
+
+----------------------------------------------------------------------
+8.3 Traffic Levels
+----------------------------------------------------------------------
+
+Avoid fixed thresholds initially.
+
+Instead, allow configuration:
+
+data/analytics_config.json
+
+Example:
+
+{
+  "densityThresholds": {
+    "low": 100,
+    "medium": 250,
+    "high": 500
+  }
+}
+
+Then:
+
+0-100       = LOW
+101-250     = MEDIUM
+251-500     = HIGH
+500+        = SEVERE
+
+Thresholds should be configurable because different roads have different normal
+traffic volumes.
+
+======================================================================
+9. MODULE 4 - AVERAGE SPEED ANALYTICS
+======================================================================
+
+Average speed can be calculated from matched plates detected by two cameras.
+
+----------------------------------------------------------------------
+9.1 Required Data
+----------------------------------------------------------------------
+
+Plate
+Camera A timestamp
+Camera B timestamp
+Camera A location
+Camera B location
+Distance between cameras
+
+----------------------------------------------------------------------
+9.2 Algorithm
+----------------------------------------------------------------------
+
+For every plate seen by Camera A and later by Camera B:
+
+travelTime = timestampB - timestampA
+
+averageSpeed = cameraDistance / travelTime
+
+Ignore invalid results.
+
+Example invalid conditions:
+
+- negative travel time
+- zero time difference
+- unrealistic calculated speed
+- detections separated by excessively large time intervals
+
+Use configurable validation.
+
+Example:
+
+maxReasonableSpeed = 180 km/h
+
+This prevents corrupted data from affecting analytics.
+
+----------------------------------------------------------------------
+9.3 API
+----------------------------------------------------------------------
+
+GET /api/analytics/speed
+
+Example output:
+
+{
+  "route": "CAM_01 -> CAM_05",
+  "averageSpeedKmh": 28.5,
+  "vehicleCount": 114,
+  "period": "10:00-11:00"
+}
+
+======================================================================
+10. MODULE 5 - ORIGIN-DESTINATION ANALYSIS
+======================================================================
+
+This is directly required by the problem statement.
+
+An Origin-Destination matrix shows where traffic starts and where it ends.
+
+----------------------------------------------------------------------
+10.1 Basic Version
+----------------------------------------------------------------------
+
+For each plate within a selected time window:
+
+First valid camera = Origin
+Last valid camera = Destination
+
+Example:
+
+TN01AA1111:
+CAM_01 -> CAM_05
+
+TN02BB2222:
+CAM_01 -> CAM_09
+
+TN03CC3333:
+CAM_05 -> CAM_09
+
+Aggregate the results.
+
+----------------------------------------------------------------------
+10.2 Output
+----------------------------------------------------------------------
+
+Example:
+
+CAM_01 -> CAM_05 = 482 vehicles
+CAM_01 -> CAM_09 = 217 vehicles
+CAM_05 -> CAM_09 = 891 vehicles
+
+----------------------------------------------------------------------
+10.3 OD Matrix
+----------------------------------------------------------------------
+
+            Destination
+          A     B     C     D
+
+Origin A  -    482   217    83
+       B  92    -    143   891
+       C  77   101    -    324
+       D  81   190   211    -
+
+----------------------------------------------------------------------
+10.4 API
+----------------------------------------------------------------------
+
+GET /api/analytics/origin-destination
+
+Query:
+
+?from=
+?to=
+
+======================================================================
+11. MODULE 6 - ROUTE DENSITY
+======================================================================
+
+Route density measures how many vehicles use each camera-to-camera route.
+
+Example:
+
+CAM_01 -> CAM_05 = 510 vehicles/hour
+CAM_05 -> CAM_09 = 860 vehicles/hour
+CAM_09 -> CAM_14 = 310 vehicles/hour
+
+Implementation:
+
+For every consecutive pair in a vehicle trajectory:
+
+routeKey = previousCamera + "->" + currentCamera
+
+Increment route count.
+
+Suggested API:
+
+GET /api/analytics/routes
+
+Output:
+
+[
+  {
+    "from": "CAM_01",
+    "to": "CAM_05",
+    "vehicleCount": 510
+  }
+]
+
+This data should be drawn on Leaflet using thicker lines for higher-density
+routes.
+
+======================================================================
+12. MODULE 7 - CONGESTION DETECTION
+======================================================================
+
+Congestion should initially be implemented using understandable rules.
+
+Do not introduce a complex machine-learning model unless necessary.
+
+Use a congestion score based on:
+
+1. Vehicle density
+2. Average travel speed
+3. Historical baseline
+
+Example logic:
+
+IF
+currentDensity > normalDensity * 1.5
+
+AND
+
+currentAverageSpeed < normalAverageSpeed * 0.6
+
+THEN
+
+Congestion = HIGH
+
+----------------------------------------------------------------------
+12.1 Baseline
+----------------------------------------------------------------------
+
+Initially, calculate historical averages from stored data.
+
+Example:
+
+Route CAM_01 -> CAM_05
+
+Normal vehicle count:
+280 vehicles/hour
+
+Normal average speed:
+42 km/h
+
+Current:
+
+560 vehicles/hour
+21 km/h
+
+Result:
+
+Congestion Score = HIGH
+
+----------------------------------------------------------------------
+12.2 API
+----------------------------------------------------------------------
+
+GET /api/analytics/congestion
+
+Example:
+
+{
+  "route": "CAM_01 -> CAM_05",
+  "level": "HIGH",
+  "currentVehicleCount": 560,
+  "normalVehicleCount": 280,
+  "currentSpeed": 21,
+  "normalSpeed": 42
+}
+
+======================================================================
+13. MODULE 8 - REAL-TIME TRAFFIC HEATMAP
+======================================================================
+
+The current Leaflet map can be reused.
+
+Do not replace Leaflet.
+
+Use traffic-density data as heat intensity.
+
+Each camera already has coordinates.
+
+Example:
+
+CAM_01
+latitude = ...
+longitude = ...
+density = 0.85
+
+Heatmap point:
+
+[latitude, longitude, intensity]
+
+Possible implementation:
+
+Leaflet.heat
+
+or a similar lightweight Leaflet heatmap plugin.
+
+Intensity can be normalized:
+
+normalizedDensity =
+currentCameraCount / maximumCameraCount
+
+Range:
+
+0.0 to 1.0
+
+The map can display:
+
+Low
+Medium
+High
+Severe
+
+This should update periodically through Socket.io.
+
+Recommended refresh:
+
+5-10 seconds for demo mode
+
+or
+
+30-60 seconds for production-like analytics.
+
+======================================================================
+14. MODULE 9 - TRAFFIC FLOW TRENDS
+======================================================================
+
+Add graphs to the dashboard.
+
+Recommended charts:
+
+1. Vehicle Count vs Time
+2. Average Speed vs Time
+3. Congestion Level vs Time
+4. Top Routes
+5. Top Origin-Destination Pairs
+6. Vehicle Type Distribution
+
+A lightweight frontend chart library can be used.
+
+Examples:
+
+Chart.js
+ECharts
+
+Keep the current dashboard frontend.
+
+Do not rewrite the entire SPA.
+
+Suggested API:
+
+GET /api/analytics/trends
+
+Return time-series JSON.
+
+======================================================================
+15. MODULE 10 - WATCHLIST ALERT SYSTEM
+======================================================================
+
+The existing BOLO/watchlist system should be preserved.
+
+Existing logic:
+
+Detected plate
+      |
+      v
+Check Watchlist
+      |
+     Match
+      |
+      v
+Audio + Visual Alert
+
+Enhance alert records to include:
+
+plate
+timestamp
+cameraId
+cameraLocation
+confidence
+vehicleType
+image
+lastKnownTrajectory
+
+Suggested alert structure:
+
+{
+  "type": "WATCHLIST_MATCH",
+  "plate": "TN45AB1234",
+  "cameraId": "CAM_05",
+  "timestamp": "...",
+  "confidence": 0.95,
+  "severity": "HIGH"
+}
+
+======================================================================
+16. MODULE 11 - ROUTE ANOMALY DETECTION
+======================================================================
+
+The problem statement expects suspicious route anomaly alerts.
+
+For the current project, implement this first using deterministic rules.
+
+DO NOT add a heavy AI model immediately.
+
+Recommended anomaly rules:
+
+----------------------------------------------------------------------
+16.1 Impossible Travel Speed
+----------------------------------------------------------------------
+
+If:
+
+distance / travelTime > configured maximum
+
+Then:
+
+ANOMALY_TYPE = IMPOSSIBLE_TRAVEL
+
+This may also indicate:
+
+- incorrect OCR match
+- false plate association
+- duplicate plate
+- corrupted timestamp
+
+Therefore, the system should mark this as an anomaly for review, not assume
+criminal intent.
+
+----------------------------------------------------------------------
+16.2 Repeated Route Loop
+----------------------------------------------------------------------
+
+Example:
+
+CAM_02
+  ->
+CAM_07
+  ->
+CAM_02
+  ->
+CAM_07
+  ->
+CAM_02
+
+If repeated more than configured threshold:
+
+ANOMALY_TYPE = REPEATED_ROUTE_LOOP
+
+----------------------------------------------------------------------
+16.3 Restricted Zone Rule
+----------------------------------------------------------------------
+
+If the project demo includes restricted zones:
+
+IF camera.zone == RESTRICTED
+
+AND plate is not authorized
+
+THEN trigger:
+
+RESTRICTED_ZONE_ENTRY
+
+----------------------------------------------------------------------
+16.4 Unusual Time Rule
+----------------------------------------------------------------------
+
+Optional demonstration rule:
+
+A vehicle appears repeatedly in a configured zone during a rare time window.
+
+This should be presented as:
+
+"Unusual movement pattern detected"
+
+NOT:
+
+"Criminal vehicle detected"
+
+----------------------------------------------------------------------
+16.5 Unexpected Camera Sequence
+----------------------------------------------------------------------
+
+If a vehicle appears in two cameras that are geographically unrelated within
+an unrealistic time:
+
+Possible anomaly.
+
+This can also help detect OCR mistakes.
+
+----------------------------------------------------------------------
+16.6 Configuration File
+----------------------------------------------------------------------
+
+Create:
+
+data/anomaly_rules.json
+
+Example:
+
+{
+  "maxReasonableSpeedKmh": 180,
+  "routeLoopThreshold": 3,
+  "routeLoopWindowMinutes": 60,
+  "enableRestrictedZones": true
+}
+
+======================================================================
+17. MODULE 12 - ANALYTICS ENGINE STRUCTURE
+======================================================================
+
+Recommended Node.js structure:
+
+server/
+  services/
+    trafficAnalytics.js
+    trajectoryService.js
+    speedAnalytics.js
+    odAnalytics.js
+    congestionAnalytics.js
+    anomalyDetector.js
+
+  routes/
+    analytics.js
+    trajectories.js
+    alerts.js
+
+  data/
+    detections.json
+    watchlist.json
+    cameras.json
+    analytics_config.json
+    anomaly_rules.json
+
+This structure keeps the analytics logic separate from the streaming logic.
+
+IMPORTANT:
+
+Do not mix analytics calculations inside WebRTC signaling code.
+
+======================================================================
+18. RECOMMENDED API STRUCTURE
+======================================================================
+
+Keep existing APIs and add:
+
+GET /api/analytics/summary
+
+GET /api/analytics/density
+
+GET /api/analytics/speed
+
+GET /api/analytics/origin-destination
+
+GET /api/analytics/routes
+
+GET /api/analytics/congestion
+
+GET /api/analytics/trends
+
+GET /api/trajectory/:plate
+
+GET /api/anomalies
+
+POST /api/anomaly-rules
+
+GET /api/cameras
+
+Example summary response:
+
+{
+  "activeCameras": 4,
+  "vehiclesLastHour": 1284,
+  "uniquePlatesLastHour": 932,
+  "averageSpeedKmh": 32.5,
+  "congestedRoutes": 2,
+  "watchlistAlerts": 1,
+  "routeAnomalies": 3
+}
+
+======================================================================
+19. DASHBOARD CHANGES
+======================================================================
+
+Do not redesign the entire interface.
+
+Keep the existing command-center layout.
+
+Add dedicated sections/tabs.
+
+Recommended layout:
+
+1. LIVE MONITOR
+2. VEHICLE SEARCH
+3. TRAJECTORY
+4. TRAFFIC MAP
+5. ANALYTICS
+6. ALERTS
+7. SYSTEM STATUS
+
+----------------------------------------------------------------------
+19.1 Live Monitor
+----------------------------------------------------------------------
+
+Keep:
+
+- multi-camera grid
+- plate boxes
+- OCR text
+- confidence
+- camera connection status
+
+----------------------------------------------------------------------
+19.2 Vehicle Search
+----------------------------------------------------------------------
+
+Input:
+
+Search Plate
+
+Output:
+
+- latest sighting
+- total sightings
+- vehicle type
+- trajectory
+- timeline
+- route map
+- average segment speeds
+
+----------------------------------------------------------------------
+19.3 Traffic Map
+----------------------------------------------------------------------
+
+Add map modes:
+
+CAMERA VIEW
+TRAJECTORY VIEW
+TRAFFIC HEATMAP
+ROUTE DENSITY
+CONGESTION VIEW
+
+Use the same Leaflet map where possible.
+
+----------------------------------------------------------------------
+19.4 Analytics
+----------------------------------------------------------------------
+
+Cards:
+
+Active Cameras
+Vehicles / Hour
+Average Speed
+Congested Routes
+Watchlist Alerts
+Unique Plates
+
+Graphs:
+
+Traffic Volume
+Average Speed
+Traffic by Camera
+Top Routes
+OD Flow
+Vehicle Type Distribution
+
+----------------------------------------------------------------------
+19.5 Alerts
+----------------------------------------------------------------------
+
+Separate alert categories:
+
+WATCHLIST
+ROUTE ANOMALY
+RESTRICTED ZONE
+SYSTEM
+
+======================================================================
+20. REAL-TIME SOCKET.IO EVENTS
+======================================================================
+
+The project already uses Socket.io.
+
+Reuse it.
+
+Suggested events:
+
+traffic:density-update
+traffic:speed-update
+traffic:congestion-update
+traffic:heatmap-update
+trajectory:update
+alert:watchlist
+alert:anomaly
+
+Example:
+
+io.emit("traffic:density-update", densityData)
+
+Do not create another real-time protocol.
+
+======================================================================
+21. CURRENT JSON STORAGE - WHAT TO DO NOW
+======================================================================
+
+The current project uses JSON files.
+
+For the current SIH prototype:
+
+KEEP JSON STORAGE.
+
+Do not immediately migrate the whole project before completing functionality.
+
+Why:
+
+- It reduces implementation risk.
+- Existing APIs already depend on it.
+- It is sufficient for a limited-camera demonstration.
+- It avoids breaking working code.
+
+However, improve JSON data management.
+
+Recommended steps:
+
+1. Keep detections append-only.
+2. Add unique IDs.
+3. Sort/index in memory when server starts.
+4. Avoid rewriting the full file for every minor update if possible.
+5. Archive old detections periodically.
+6. Keep analytics caches separate.
+
+Suggested:
+
+data/
+  detections.json
+  detections_archive/
+  cameras.json
+  watchlist.json
+  analytics_cache.json
+  alerts.json
+
+======================================================================
+22. FUTURE DATABASE MIGRATION
+======================================================================
+
+Only after the SIH prototype is stable:
+
+Move from JSON to:
+
+PostgreSQL + PostGIS
+
+Recommended schema:
+
+cameras
+detections
+vehicles
+watchlist
+alerts
+trajectory_segments
+analytics_hourly
+route_statistics
+
+PostGIS is useful for:
+
+- geographic camera queries
+- distance calculations
+- route analysis
+- map-based filtering
+
+IMPORTANT:
+
+Database migration should be treated as a SCALE-UP task, not as a requirement
+before finishing the missing functionality.
+
+======================================================================
+23. PERFORMANCE IMPROVEMENT
+======================================================================
+
+The current ANPR stack is already optimized for CPU usage.
+
+Continue using:
+
+- ONNX Runtime
+- frame queue dropping
+- latest-frame priority
+- multi-frame consensus
+
+Add the following:
+
+----------------------------------------------------------------------
+23.1 Frame Sampling
+----------------------------------------------------------------------
+
+Do not run OCR on every video frame.
+
+Example:
+
+30 FPS feed
+
+Detection/OCR sample:
+
+5-10 FPS
+
+or adaptive sampling.
+
+----------------------------------------------------------------------
+23.2 Duplicate Suppression
+----------------------------------------------------------------------
+
+If the same plate is detected by the same camera repeatedly within a few
+seconds, avoid storing every frame as a separate city-level detection.
+
+Example:
+
+Plate TN45AB1234 detected 20 times in 4 seconds.
+
+Store:
+
+one validated sighting
+
+with:
+
+firstSeen
+lastSeen
+bestConfidence
+
+This reduces data volume.
+
+----------------------------------------------------------------------
+23.3 Analytics Caching
+----------------------------------------------------------------------
+
+Do not recalculate all historical detections every time a dashboard loads.
+
+Maintain cached:
+
+5-minute
+15-minute
+hourly
+
+aggregates.
+
+======================================================================
+24. SCALABILITY PLAN
+======================================================================
+
+CURRENT STAGE:
+
+Prototype / limited concurrent cameras
+
+TARGET:
+
+10+ streams first
+
+FUTURE:
+
+City-scale distributed deployment
+
+Recommended stages:
+
+PHASE 1
+Current machine
+Node.js + FastAPI
+JSON
+3-4 cameras
+
+PHASE 2
+GPU / TensorRT
+10+ cameras
+PostgreSQL
+
+PHASE 3
+Multiple ANPR worker services
+Message queue
+PostgreSQL/PostGIS
+Load balancer
+
+Possible future architecture:
+
+Camera Nodes
+      |
+      v
+Stream Gateway
+      |
+      v
+ANPR Worker Pool
+      |
+      v
+Message Queue
+      |
+      v
+Central Database
+      |
+  --------------
+  |            |
+  v            v
+Analytics    Alerts
+  |
+  v
+Dashboard
+
+This future architecture should NOT be implemented until the core SIH solution
+is stable.
+
+======================================================================
+25. DEVELOPMENT ORDER
+======================================================================
+
+Recommended exact development sequence:
+
+PHASE A - DATA FOUNDATION
+
+1. Standardize detection schema.
+2. Add cameras.json.
+3. Ensure timestamp and coordinates exist for every stored detection.
+4. Add duplicate suppression.
+
+PHASE B - TRAJECTORY COMPLETION
+
+5. Improve trajectory API.
+6. Add distance calculation.
+7. Add travel time.
+8. Add estimated average speed.
+9. Improve trajectory timeline UI.
+
+PHASE C - TRAFFIC ANALYTICS
+
+10. Traffic density.
+11. Route density.
+12. Average speed analytics.
+13. Origin-Destination matrix.
+14. Traffic flow trends.
+15. Congestion detection.
+
+PHASE D - GIS ANALYTICS
+
+16. Traffic heatmap.
+17. Route-density map.
+18. Congestion map.
+
+PHASE E - ALERTS
+
+19. Improve watchlist alert data.
+20. Add impossible-travel anomaly.
+21. Add repeated-route-loop rule.
+22. Add optional restricted-zone rule.
+23. Add anomaly alert panel.
+
+PHASE F - VALIDATION
+
+24. Build ANPR benchmark dataset.
+25. Measure full-plate OCR accuracy.
+26. Measure night / angle / blur accuracy.
+27. Record benchmark results.
+
+PHASE G - PERFORMANCE
+
+28. Analytics caching.
+29. Frame sampling.
+30. Data archival.
+31. Test 4 simultaneous streams.
+32. Test 6 streams.
+33. Test 10 streams if hardware allows.
+
+======================================================================
+26. FEATURES THAT SHOULD NOT BE REBUILT
+======================================================================
+
+Do NOT replace these unless an actual failure is proven:
+
+- Existing Node.js WebRTC signaling
+- Existing Socket.io event flow
+- Existing FastAPI ANPR microservice
+- Current YOLO plate detector
+- Current PP-OCRv4 recognizer
+- Current rectification
+- Multi-frame voting
+- Indian registration validator
+- Existing Leaflet GIS system
+- Existing watchlist
+- Mobile QR camera pairing
+
+Changing these unnecessarily creates regression risk.
+
+======================================================================
+27. FEATURES THAT SHOULD BE ADDED WITHOUT DISTURBING CURRENT LOGIC
+======================================================================
+
+Add as new services/modules:
+
+trafficAnalytics.js
+speedAnalytics.js
+odAnalytics.js
+congestionAnalytics.js
+anomalyDetector.js
+
+Add new dashboard panels.
+
+Add new API endpoints.
+
+Add new Socket.io update events.
+
+This modular approach ensures that if analytics fails, the ANPR system still
+continues working.
+
+======================================================================
+28. ACCEPTANCE CRITERIA
+======================================================================
+
+The project should be considered functionally aligned with the problem
+statement when the following can be demonstrated.
+
+----------------------------------------------------------------------
+ANPR
+----------------------------------------------------------------------
+
+[ ] Plate detection works on live streams.
+[ ] OCR produces plate text.
+[ ] Multi-frame validation works.
+[ ] Exact full-plate OCR benchmark is calculated.
+[ ] End-to-end recognition accuracy target is demonstrated.
+
+----------------------------------------------------------------------
+MULTI-CAMERA
+----------------------------------------------------------------------
+
+[ ] Multiple cameras can connect simultaneously.
+[ ] Camera ID is stored.
+[ ] Camera coordinates are stored.
+[ ] Detections reach the central backend.
+
+----------------------------------------------------------------------
+TRAJECTORY
+----------------------------------------------------------------------
+
+[ ] Search by plate.
+[ ] All sightings are retrieved.
+[ ] Sightings are chronological.
+[ ] Route is drawn on GIS map.
+[ ] Timestamps are displayed.
+[ ] Segment distance is displayed.
+[ ] Estimated segment speed is displayed.
+
+----------------------------------------------------------------------
+TRAFFIC ANALYTICS
+----------------------------------------------------------------------
+
+[ ] Vehicle count by camera.
+[ ] Traffic density.
+[ ] Average speed.
+[ ] Origin-Destination analysis.
+[ ] Route density.
+[ ] Congestion detection.
+[ ] Traffic trends.
+[ ] Traffic heatmap.
+
+----------------------------------------------------------------------
+ALERTS
+----------------------------------------------------------------------
+
+[ ] BOLO/watchlist match.
+[ ] Audio/visual alert.
+[ ] Alert history.
+[ ] Route anomaly.
+[ ] Impossible travel detection.
+[ ] Repeated route pattern detection.
+
+----------------------------------------------------------------------
+DASHBOARD
+----------------------------------------------------------------------
+
+[ ] Live streams.
+[ ] ANPR detections.
+[ ] GIS trajectory.
+[ ] Heatmap.
+[ ] Analytics cards.
+[ ] Charts.
+[ ] Alerts.
+[ ] Camera status.
+
+======================================================================
+29. DEMONSTRATION SCENARIO
+======================================================================
+
+For the final demo, configure at least 3-4 cameras.
+
+Example:
+
+CAM_01 - Entry Junction
+CAM_02 - Central Junction
+CAM_03 - Market Road
+CAM_04 - Exit Junction
+
+Scenario:
+
+STEP 1
+
+Vehicle:
+
+TN45AB1234
+
+appears on CAM_01.
+
+System:
+
+- detects plate
+- recognizes text
+- validates plate
+- stores detection
+
+STEP 2
+
+Same vehicle appears on CAM_02.
+
+System:
+
+- matches previous plate
+- adds trajectory point
+- calculates travel time
+- estimates speed
+
+STEP 3
+
+Vehicle appears on CAM_04.
+
+System now displays:
+
+CAM_01 -> CAM_02 -> CAM_04
+
+on Leaflet.
+
+STEP 4
+
+Search TN45AB1234.
+
+Display:
+
+- timeline
+- route
+- timestamps
+- speed
+- confidence
+
+STEP 5
+
+Multiple vehicles pass through cameras.
+
+Dashboard updates:
+
+- vehicle count
+- density
+- route density
+- average speeds
+- OD matrix
+
+STEP 6
+
+Create artificial congestion in demo data.
+
+Example:
+
+high vehicle count
++
+reduced average travel speed
+
+Dashboard marks:
+
+CAM_02 -> CAM_04
+
+as:
+
+HIGH CONGESTION
+
+STEP 7
+
+Put one plate into watchlist.
+
+When detected:
+
+WATCHLIST ALERT
+
+STEP 8
+
+Generate impossible travel data.
+
+Example:
+
+Same plate appears at distant cameras within an impossible time interval.
+
+System displays:
+
+ROUTE ANOMALY / POSSIBLE DATA OR PLATE MISMATCH
+
+This single demo covers almost every major requirement.
+
+======================================================================
+30. IMPORTANT TERMINOLOGY FOR PRESENTATION
+======================================================================
+
+Use:
+
+"Plate detection precision"
+
+when discussing YOLO detector performance.
+
+Use:
+
+"Exact plate recognition accuracy"
+
+when discussing the complete OCR result.
+
+Do not confuse the two.
+
+Use:
+
+"Estimated average speed between camera nodes"
+
+instead of claiming exact vehicle speed.
+
+Use:
+
+"Rule-based route anomaly"
+
+instead of claiming the system can determine criminal intent.
+
+Use:
+
+"Centralized traffic intelligence"
+
+to describe the complete platform.
+
+======================================================================
+31. EXPECTED FINAL SOLUTION
+======================================================================
+
+When all modules above are added, the project will perform the following flow:
+
+CITY CAMERA NETWORK
+       |
+       v
+MULTI-CAMERA STREAM INGESTION
+       |
+       v
+NUMBER PLATE DETECTION
+       |
+       v
+RECTIFICATION
+       |
+       v
+OCR
+       |
+       v
+MULTI-FRAME VALIDATION
+       |
+       v
+INDIAN REGISTRATION VALIDATION
+       |
+       v
+CENTRAL DETECTION STORE
+       |
+       +----------------------------+
+       |                            |
+       v                            v
+VEHICLE INTELLIGENCE          TRAFFIC INTELLIGENCE
+       |                            |
+       v                            v
+Trajectory Search             Density
+Route Reconstruction          Average Speed
+Travel Timeline               OD Analysis
+Watchlist Alerts              Route Density
+Route Anomalies               Congestion
+                              Heatmaps
+                              Traffic Trends
+       |                            |
+       +-------------+--------------+
+                     |
+                     v
+              GIS COMMAND CENTER
+
+======================================================================
+32. FINAL PRIORITY SUMMARY
+======================================================================
+
+HIGHEST PRIORITY:
+
+1. Standardize detections.
+2. Complete trajectory metrics.
+3. Add traffic density.
+4. Add average speed.
+5. Add Origin-Destination analysis.
+6. Add congestion detection.
+7. Add heatmap.
+8. Add route-density visualization.
+9. Add traffic trend charts.
+10. Add deterministic route anomaly rules.
+11. Benchmark actual OCR accuracy.
+
+MEDIUM PRIORITY:
+
+12. Analytics cache.
+13. Data archival.
+14. Better alert history.
+15. Improve camera metadata.
+
+LATER / SCALE-UP:
+
+16. PostgreSQL/PostGIS.
+17. TensorRT.
+18. Multi-worker inference.
+19. Message queues.
+20. Vehicle Re-ID.
+
+======================================================================
+33. CONCLUSION
+======================================================================
+
+The current project does not need a complete rebuild.
+
+Its strongest components are already in place:
+
+- ANPR
+- OCR
+- validation
+- multi-camera streaming
+- GIS
+- trajectory tracking
+- watchlist alerts
+
+The correct next step is to build the missing CITY-WIDE TRAFFIC INTELLIGENCE
+layer on top of the existing detection records.
+
+The architecture should remain modular:
+
+ANPR produces reliable detections.
+
+Trajectory services turn detections into vehicle movement history.
+
+Traffic analytics aggregate those detections into city-wide intelligence.
+
+Alert services monitor watchlists and rule-based anomalies.
+
+Leaflet and the existing dashboard visualize all results.
+
+Following this roadmap allows the project to move toward full alignment with
+the problem statement without destabilizing the current working ANPR system.
+
+END OF DOCUMENT

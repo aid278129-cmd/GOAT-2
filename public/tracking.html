@@ -101,6 +101,8 @@
               <th>Camera</th>
               <th>Location</th>
               <th>Time</th>
+              <th>Leg Dist</th>
+              <th>Est. Speed</th>
               <th>Conf</th>
               <th>Type</th>
               <th>Source</th>
@@ -192,6 +194,8 @@ function renderResults(data) {
 
   // Stats
   const stats = document.getElementById('journeyStats');
+  const distStr = data.totalDistanceKm !== undefined && data.totalDistanceKm !== null ? `${data.totalDistanceKm} km` : '—';
+  const speedStr = data.averageJourneySpeedKmh ? `~${data.averageJourneySpeedKmh} km/h` : '—';
   stats.innerHTML = `
     <div class="stat-card">
       <div class="stat-label">Registration</div>
@@ -202,19 +206,27 @@ function renderResults(data) {
       <div class="stat-value blue">${data.totalSightings}</div>
     </div>
     <div class="stat-card">
+      <div class="stat-label">Total Distance</div>
+      <div class="stat-value" style="font-size:18px;color:#00b4ff">${distStr}</div>
+    </div>
+    <div class="stat-card">
       <div class="stat-label">First Seen</div>
-      <div class="stat-value" style="font-size:16px">${new Date(data.firstSeen).toTimeString().slice(0,8)}</div>
+      <div class="stat-value" style="font-size:15px">${new Date(data.firstSeen).toTimeString().slice(0,8)}</div>
       <div class="stat-meta">${new Date(data.firstSeen).toLocaleDateString('en-IN')}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Last Seen</div>
-      <div class="stat-value" style="font-size:16px">${new Date(data.lastSeen).toTimeString().slice(0,8)}</div>
+      <div class="stat-value" style="font-size:15px">${new Date(data.lastSeen).toTimeString().slice(0,8)}</div>
       <div class="stat-meta">${new Date(data.lastSeen).toLocaleDateString('en-IN')}</div>
     </div>
     <div class="stat-card amber">
       <div class="stat-label">Travel Time</div>
-      <div class="stat-value amber">${data.totalMinutes}</div>
-      <div class="stat-meta">minutes</div>
+      <div class="stat-value amber">${data.totalTravelTimeMinutes || data.totalMinutes || 0}</div>
+      <div class="stat-meta">minutes (${data.totalTravelTimeSeconds || 0}s)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Journey Speed</div>
+      <div class="stat-value" style="font-size:18px;color:var(--amber)">${speedStr}</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Cameras Hit</div>
@@ -237,22 +249,45 @@ function renderResults(data) {
 
 function renderTimeline(trail, segments) {
   const container = document.getElementById('timelineContainer');
-  let html = '<div class="timeline">';
+  let html = '<div class="timeline" style="display:flex;flex-direction:column;gap:14px;">';
   trail.forEach((det, i) => {
     const time = new Date(det.timestamp).toTimeString().slice(0,8);
     const conf = Math.round(det.confidence * 100);
+
+    if (i > 0 && segments && segments[i - 1]) {
+      const seg = segments[i - 1];
+      const segDist = seg.distanceKm !== null && seg.distanceKm !== undefined ? `${seg.distanceKm} km` : '—';
+      const segTime = seg.travelTimeSeconds !== null && seg.travelTimeSeconds !== undefined
+        ? (seg.travelTimeSeconds >= 60 ? `${Math.round(seg.travelTimeSeconds / 60)} min (${seg.travelTimeSeconds}s)` : `${seg.travelTimeSeconds}s`)
+        : '—';
+      const segSpeed = seg.estimatedSpeedKmh !== null && seg.estimatedSpeedKmh !== undefined
+        ? `~${seg.estimatedSpeedKmh} km/h`
+        : '—';
+
+      let badge = '';
+      if (seg.anomaly && seg.anomaly.type === 'IMPOSSIBLE_TRAVEL') {
+        badge = `<span class="badge danger" style="margin-left:6px;font-size:9px;">⚠️ IMPOSSIBLE TRAVEL (~${seg.estimatedSpeedKmh} km/h)</span>`;
+      } else if (seg.isSameCamera) {
+        badge = `<span class="badge dim" style="margin-left:6px;font-size:9px;">SAME CAMERA OBSERVATION</span>`;
+      }
+
+      html += `
+        <div style="margin-left:24px;padding:8px 12px;background:rgba(0,180,255,0.06);border-left:2px solid #00b4ff;border-radius:4px;font-family:var(--mono);font-size:11px;color:var(--text-dim);">
+          <div style="color:#00b4ff;font-weight:600;margin-bottom:2px;">↓ Leg ${i}: ${seg.fromCameraName} → ${seg.toCameraName}</div>
+          <div>📏 Distance: <b style="color:#dde2ec">${segDist}</b> · ⏱ Time: <b style="color:#dde2ec">${segTime}</b> · ⚡ Est. Avg Speed: <b style="color:var(--amber)">${segSpeed}</b> ${badge}</div>
+        </div>
+      `;
+    }
+
     html += `
       <div class="timeline-item">
-        <div class="timeline-dot"></div>
+        <div class="timeline-dot">${i+1}</div>
         <div class="timeline-content">
-          <div class="timeline-cam">${det.cameraName}</div>
-          <div class="timeline-meta">${det.location} · ${time} · ${conf}% conf · ${det.vehicleType}</div>
+          <div class="timeline-cam">${i+1}. ${det.cameraName} ${det.cameraLocation ? '— ' + det.cameraLocation : ''}</div>
+          <div class="timeline-meta">${det.location ? det.location + ' · ' : ''}${time} · ${conf}% conf · ${det.vehicleType}</div>
         </div>
       </div>
     `;
-    if (segments && segments[i]) {
-      html += `<div class="timeline-travel">↓ ${segments[i].travelMins} min travel</div>`;
-    }
   });
   html += '</div>';
   container.innerHTML = html;
@@ -316,12 +351,16 @@ function renderTable(trail) {
     const srcBadge = det.simulated
       ? '<span class="badge amber">SIM</span>'
       : '<span class="badge green">LIVE</span>';
+    const legDist = det.distanceFromPreviousKm !== null && det.distanceFromPreviousKm !== undefined ? `${det.distanceFromPreviousKm} km` : '—';
+    const legSpeed = det.estimatedSpeedKmh !== null && det.estimatedSpeedKmh !== undefined ? `~${det.estimatedSpeedKmh} km/h` : '—';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td style="color:var(--text-dim)">${trail.length - i}</td>
       <td><span class="badge blue">${det.cameraName}</span></td>
       <td style="color:var(--text-dim)">${det.location}</td>
       <td style="font-family:'Share Tech Mono',monospace;font-size:11px">${time}</td>
+      <td style="color:#00b4ff;font-family:'Share Tech Mono',monospace;">${legDist}</td>
+      <td style="color:var(--amber);font-family:'Share Tech Mono',monospace;">${legSpeed}</td>
       <td>${conf}%</td>
       <td style="text-transform:capitalize">${det.vehicleType}</td>
       <td>${srcBadge}</td>

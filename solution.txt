@@ -1,1055 +1,1462 @@
-You are acting as the senior Computer Vision / ML engineer for my existing
-Smart India Hackathon project.
+You are continuing development of my existing:
 
-PROJECT:
-City-Wide AI Engine for Multi-Camera ANPR Trajectory Tracking and
-Urban Traffic Analytics.
+# Multi-Camera ANPR Traffic Intelligence Platform
 
-IMPORTANT:
-This is an EXISTING working project.
+The ANPR pipeline is currently WORKING.
 
-DO NOT rebuild the entire application.
-DO NOT redesign the frontend.
-DO NOT remove working WebRTC, multi-camera, GIS, analytics, watchlist,
-trajectory tracking, persistence, or dashboard functionality.
+Do NOT retrain, replace, refactor, tune, or otherwise modify:
 
-Your task is to REPLACE ONLY the unreliable ANPR/OCR recognition pipeline
-with a clean, modern, maintainable implementation.
+- `indian_plate_best.onnx`
+- YOLO/ONNX detector
+- PP-OCRv4 / RapidOCR
+- plate rectification
+- Indian plate validation
+- FastAPI inference pipeline
+- multi-frame consensus
+- working ANPR thresholds
 
-============================================================
+The latest regression investigation confirmed that:
+
+- Node.js server works
+- FastAPI ANPR service works
+- Node → Python communication works
+- YOLO detection works
+- OCR works
+- detection storage works
+- Socket.io broadcast works
+- dashboard live detection rendering works
+
+Therefore the next task is NOT model development.
+
+==================================================
 PRIMARY OBJECTIVE
-============================================================
+==================================================
 
-Build a reliable Indian Automatic Number Plate Recognition pipeline:
+Focus development on these FOUR core modules:
 
-CAMERA / IMAGE
-       ↓
-LICENSE PLATE DETECTION
-       ↓
-BEST PLATE CROP
-       ↓
-PERSPECTIVE RECTIFICATION
-       ↓
-PP-OCR RECOGNITION
-       ↓
-MULTI-FRAME OCR CONSENSUS
-       ↓
-INDIAN REGISTRATION FORMAT VALIDATION
-       ↓
-CONFIRMED PLATE
-       ↓
-EXISTING TRAJECTORY / GIS / WATCHLIST / ANALYTICS
+1. VEHICLE TRACKING
+2. ANALYTICS
+3. CAMERA NETWORK
+4. WATCHLIST
 
-Target example:
+Work on BOTH:
 
-VISIBLE PLATE:
-MH01AV8669
+- Frontend/UI/UX
+- Backend functionality/API integration
 
-SYSTEM OUTPUT:
-MH01AV8669
+The current problem is that these sections exist but are not polished enough for actual operator use.
 
-Do not consider outputs such as:
+Known UI problems include:
 
-TN046978
+- some pages cannot scroll properly
+- lower content gets cut off
+- some content renders below the visible viewport
+- fixed-height containers hide content
+- maps sometimes render incorrectly
+- maps may appear partially blank/cropped
+- Vehicle Tracking map especially needs improvement
+- cards/tables can overflow
+- tab switching can affect map sizing
+- responsive layout is inconsistent
 
-acceptable simply because they happen to match a valid-looking
-registration format.
+The final result should feel like a proper:
 
-Correctness has priority over aggressively guessing a registration.
+**CITY-WIDE ANPR TRAFFIC INTELLIGENCE COMMAND CENTER**
 
-============================================================
-PHASE 0 — INSPECT THE EXISTING PROJECT FIRST
-============================================================
+Do not add unrelated features.
 
-Before modifying anything:
+==================================================
+STEP 1 — AUDIT BEFORE MODIFYING
+==================================================
 
-1. Inspect the entire repository.
-2. Understand the existing architecture.
-3. Locate:
-   - Python ANPR service
-   - Node.js backend
-   - WebRTC pipeline
-   - camera frame dispatch
-   - dashboard
-   - existing YOLO models
-   - existing CRNN
-   - Tesseract/EasyOCR code
-   - temporal tracker
-   - plate validation
-   - GIS
-   - trajectory tracking
-   - watchlist
-   - analytics
-   - benchmark scripts
-   - training scripts
-   - datasets
-   - model weights
-   - requirements
-   - startup scripts
+Before writing code, inspect the CURRENT implementation of:
 
-4. Identify exactly which files implement the existing OCR/ANPR pipeline.
+- dashboard.html
+- dashboard CSS
+- shared frontend JS
+- trafficMap.js
+- Leaflet initialization
+- Socket.io handlers
+- vehicle tracking frontend
+- analytics frontend
+- camera/network frontend
+- watchlist frontend
+- related backend routes in server.js
+- trajectoryService.js
+- analyticsService.js
+- trafficAnalytics.js
+- routeAnalytics.js
+- congestionAnalytics.js
+- cameras.json
+- detections.json
+- watchlist.json
 
-5. Create:
+Identify:
 
-ANPR_REBUILD_PLAN.md
+1. containers using fixed heights
+2. `overflow: hidden`
+3. nested scroll containers
+4. absolute/fixed elements covering content
+5. map containers initialized while hidden
+6. Leaflet maps not receiving `invalidateSize()`
+7. tables overflowing containers
+8. missing loading/error/empty states
+9. frontend elements not backed by actual APIs
+10. backend APIs missing information needed by these four modules
 
-Document:
+Do not blindly redesign the application.
 
-CURRENT PIPELINE
-NEW PIPELINE
-FILES TO MODIFY
-FILES TO KEEP
-FILES TO DEPRECATE
-MODEL REQUIREMENTS
-DATASET REQUIREMENTS
-BENCHMARK STRATEGY
+Fix the existing architecture.
 
-Do not begin destructive changes until this analysis is complete.
+==================================================
+GLOBAL UI FIX — SCROLLING
+==================================================
 
-============================================================
-PHASE 1 — CREATE A CLEAN MODULAR ANPR V2
-============================================================
+This is HIGH PRIORITY.
 
-Do NOT immediately delete the existing implementation.
+Currently some sections do not allow proper vertical scrolling and content near the bottom becomes inaccessible.
 
-Create the new implementation as:
+Fix the dashboard layout so EVERY major module can scroll naturally when its content exceeds the viewport.
 
-anpr_v2/
+Expected structure conceptually:
+
+```text
+BODY
+ └── APP SHELL
+      ├── SIDEBAR
+      └── MAIN
+           ├── HEADER
+           └── PAGE CONTENT
+                  ↓
+               SCROLLABLE
+```
+
+Avoid global:
+
+```css
+overflow: hidden;
+```
+
+when it prevents page/module scrolling.
+
+If the application requires a fixed sidebar/header, only the appropriate main-content region should scroll.
+
+Target:
+
+```text
+Header        FIXED/STICKY if existing design requires it
+Sidebar       FIXED/STICKY
+Main Content  VERTICAL SCROLL
+```
+
+Every module must allow the user to reach its final card/table/control.
+
+==================================================
+NO CONTENT BELOW INACCESSIBLE VIEWPORT
+==================================================
+
+Inspect:
+
+- `height: 100vh`
+- `max-height`
+- `calc(100vh - ...)`
+- absolute positioning
+- fixed positioning
+- flex children without `min-height: 0`
+- grid containers
+- overflow clipping
+
+Fix situations where content technically exists but is rendered below an inaccessible area.
+
+Do NOT solve this by shrinking everything.
+
+Allow scrolling.
+
+==================================================
+MAP CONTAINER RULE
+==================================================
+
+All Leaflet maps need explicit, stable dimensions.
+
+Example concept:
+
+```css
+.map-container {
+    width: 100%;
+    min-height: 480px;
+}
+```
+
+Use dimensions appropriate for the existing dashboard.
+
+Do not let a Leaflet map depend entirely on an unstable parent's percentage height.
+
+==================================================
+MODULE 1 — VEHICLE TRACKING
+==================================================
+
+This is the MOST IMPORTANT module in this task.
+
+The Vehicle Tracking page should clearly demonstrate the core problem-statement requirement:
+
+**Track one vehicle across multiple geographically distributed ANPR cameras and reconstruct its spatial-temporal trajectory.**
+
+==================================================
+VEHICLE TRACKING PAGE STRUCTURE
+==================================================
+
+Create/polish the page into approximately:
+
+```text
+VEHICLE TRACKING
+
+┌─────────────────────────────────────────────────────────────┐
+│ Search Vehicle                                             │
+│ [ TN45AB1234                         ] [ TRACK VEHICLE ]    │
+└─────────────────────────────────────────────────────────────┘
+
+
+┌───────────┬───────────┬───────────┬────────────┐
+│ Sightings │ Distance  │ Duration  │ Avg Speed  │
+│     4     │  12.8 km  │  31 min   │ 24.7 km/h │
+└───────────┴───────────┴───────────┴────────────┘
+
+
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│                  VEHICLE TRAJECTORY MAP                     │
+│                                                             │
+│ CAM 01 ●────────────● CAM 02                               │
+│                       \                                     │
+│                        \                                    │
+│                         ● CAM 03 ────────● CAM 04          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+
+TIMELINE / SIGHTINGS
+
+● CAM 01
+  10:14:03
+  Junction A
+
+│
+│  3.2 km
+│  8 min
+│  Est. 24 km/h
+↓
+
+● CAM 02
+  10:22:16
+  Junction B
+
+↓
+...
+
+SEGMENT DETAILS
+...
+```
+
+Adapt this to the current visual theme.
+
+==================================================
+VEHICLE SEARCH
+==================================================
+
+Use the existing trajectory API.
+
+Do NOT fabricate sample trajectory values.
+
+Support plate normalization:
+
+```text
+tn45 ab 1234
+TN45AB1234
+tn45ab1234
+```
+
+should resolve consistently where existing validation allows it.
+
+Provide:
+
+- loading state
+- invalid plate state
+- vehicle not found state
+- successful trajectory state
+- API failure state
+
+Do not leave an empty map with no explanation.
+
+==================================================
+VEHICLE TRACKING MAP — CRITICAL FIX
+==================================================
+
+The current sample/trajectory map must be rendered CORRECTLY and CLEARLY.
+
+Investigate the existing map before replacing anything.
+
+Common Leaflet issue:
+
+The map is initialized while the Vehicle Tracking tab is hidden.
+
+Then when the tab becomes visible, Leaflet retains the wrong dimensions.
+
+Fix this properly.
+
+When Vehicle Tracking becomes visible:
+
+```javascript
+trackMap.invalidateSize();
+```
+
+must run on the ACTUAL Leaflet map instance after the container has completed layout.
+
+Use a small `requestAnimationFrame()` or short delayed execution if necessary.
+
+DO NOT rely on:
+
+```javascript
+window.trackMap
+```
+
+if `trackMap` is also the HTML element ID.
+
+The previous regression investigation already found that DOM IDs can automatically appear on `window` and be mistaken for Leaflet instances.
+
+Use an unambiguous variable such as:
+
+```javascript
+vehicleTrackingMapInstance
+```
+
+if necessary.
+
+==================================================
+MAP RENDERING REQUIREMENTS
+==================================================
+
+The Vehicle Tracking map must:
+
+- occupy the full available card width
+- have sufficient height
+- not be cropped
+- not be partially grey/blank
+- render map tiles correctly
+- render all camera markers
+- render trajectory lines
+- display markers above polylines
+- correctly fit the searched trajectory
+- maintain readable zoom
+- resize correctly after tab switching
+
+When a trajectory is loaded:
+
+calculate its bounds and use:
+
+```javascript
+map.fitBounds(...)
+```
+
+with reasonable padding.
+
+Do this after the map is visible.
+
+Do NOT continuously call `fitBounds()` afterward.
+
+==================================================
+SAMPLE MAP / EMPTY MAP
+==================================================
+
+Before a vehicle is searched, the map should still look intentional.
+
+If actual camera configuration exists:
+
+show the configured camera network.
+
+Example:
+
+```text
+CAM 01 ●
+
+                     ● CAM 02
+
+
+          ● CAM 03
+
+                               ● CAM 04
+```
+
+Do NOT create fake city coordinates.
+
+Use actual coordinates from:
+
+`data/cameras.json`
+
+If cameras.json has insufficient valid coordinates, show a proper empty state instead of fabricating locations.
+
+Suggested message:
+
+```text
+Search for a detected vehicle to reconstruct its route across the ANPR camera network.
+```
+
+==================================================
+TRAJECTORY MARKERS
+==================================================
+
+Make trajectory markers easy to understand.
+
+Each point should display sequence information:
+
+```text
+1
+2
+3
+4
+```
+
+Popup:
+
+```text
+Sighting #2
+
+Plate:
+TN45AB1234
+
+Camera:
+CAM_02
+
+Location:
+Junction B
+
+Timestamp:
+10:22:16
+
+OCR Confidence:
+94%
+```
+
+Only display fields actually available.
+
+==================================================
+TRAJECTORY LINE
+==================================================
+
+Connect valid sightings chronologically.
+
+Direction should be visually understandable.
+
+Preferred:
+
+```text
+1 ─────→ 2 ─────→ 3 ─────→ 4
+```
+
+If directional arrows are straightforward with the current Leaflet setup, implement them.
+
+Otherwise use sequence markers.
+
+Do not introduce a large dependency solely for arrows.
+
+==================================================
+TRAJECTORY SUMMARY
+==================================================
+
+Display:
+
+- total sightings
+- total distance
+- total travel time
+- estimated average journey speed
+- first detected
+- last detected
+- cameras visited
+
+Use the existing trajectory service.
+
+Do not calculate conflicting versions in frontend.
+
+==================================================
+TIMELINE
+==================================================
+
+Add/polish a chronological timeline below the map.
+
+For every sighting show:
+
+```text
+CAM_01
+Junction A
+10:14:03
+```
+
+Between sightings show:
+
+```text
+3.2 km
+8 min
+Estimated Avg Speed: 24 km/h
+```
+
+If a segment is invalid:
+
+show:
+
+```text
+Segment excluded from analytics
+Reason: IMPOSSIBLE_TRAVEL
+```
+
+Do not silently display an invalid speed.
+
+==================================================
+MODULE 2 — ANALYTICS
+==================================================
+
+The Analytics page should become a concise city traffic intelligence dashboard.
+
+Use existing Phase C APIs.
+
+Top summary cards:
+
+```text
+ACTIVE CAMERAS
+
+VEHICLES / HOUR
+
+UNIQUE VEHICLES
+
+EST. AVG SPEED
+
+CONGESTED ROUTES
+
+WATCHLIST ALERTS
+```
+
+Then charts:
+
+```text
+TRAFFIC VOLUME OVER TIME
+
+AVERAGE ESTIMATED SPEED
+
+TRAFFIC BY CAMERA
+
+TOP ROUTES
+
+ORIGIN → DESTINATION
+
+VEHICLE TYPE DISTRIBUTION
+```
+
+Then GIS traffic map:
+
+```text
+CAMERAS
+HEATMAP
+ROUTE DENSITY
+CONGESTION
+```
+
+==================================================
+ANALYTICS PAGE SCROLL
+==================================================
+
+The Analytics module will naturally be taller than one screen.
+
+DO NOT compress all analytics into one viewport.
+
+It MUST scroll.
+
+Expected:
+
+```text
+Summary
+   ↓
+Charts
+   ↓
+Traffic Map
+   ↓
+OD Matrix
+   ↓
+Route Table
+```
+
+All sections must remain reachable.
+
+==================================================
+ANALYTICS BACKEND
+==================================================
+
+Verify these endpoints return actual data and are correctly consumed:
+
+```text
+GET /api/analytics/summary
+GET /api/analytics/density
+GET /api/analytics/routes
+GET /api/analytics/speed
+GET /api/analytics/origin-destination
+GET /api/analytics/congestion
+GET /api/analytics/trends
+```
+
+Do not replace working services.
+
+Fix only missing integration/data problems.
+
+==================================================
+ANALYTICS EMPTY DATA
+==================================================
+
+Never populate charts with fake demo values.
+
+If insufficient data exists:
+
+show:
+
+```text
+Not enough traffic data for this period.
+```
+
+For OD:
+
+```text
+No origin-destination journeys available.
+```
+
+For congestion:
+
+```text
+Insufficient route data to evaluate congestion.
+```
+
+==================================================
+MODULE 3 — CAMERA NETWORK
+==================================================
+
+Transform Camera Network into a useful operational overview.
+
+It should answer:
+
+- How many cameras exist?
+- Which cameras are connected?
+- Which cameras are actively sending frames?
+- Which cameras are detecting vehicles?
+- Where are cameras located?
+- When was the last detection?
+- Is ANPR functioning on each camera?
+
+==================================================
+CAMERA NETWORK PAGE
+==================================================
 
 Suggested structure:
 
-anpr_v2/
-    detector.py
-    rectifier.py
-    recognizer.py
-    tracker.py
-    validator.py
-    pipeline.py
-    config.py
+```text
+CAMERA NETWORK
 
-training/
-    detector/
-    ocr/
+TOTAL CAMERAS    ONLINE    OFFLINE    ANPR ACTIVE
+     4              3         1           3
 
-benchmarks/
-    anpr_v2/
 
-datasets/
-    README.md
+CAMERA NETWORK MAP
+------------------------------------------------
+             ● CAM 02
 
-Keep modules independent and testable.
+● CAM 01
 
-The old pipeline must remain available temporarily for A/B comparison.
+                         ● CAM 03
 
-============================================================
-PHASE 2 — LICENSE PLATE DETECTOR
-============================================================
+          ● CAM 04
+------------------------------------------------
 
-PRIMARY DETECTOR:
 
-RF-DETR Small
+CAMERA NODES
 
-Fine-tune RF-DETR specifically for:
+CAM 01
+Junction A
+● ONLINE
+ANPR: ACTIVE
+Last Seen: 3 sec ago
+Last Detection: TN45AB1234
+Detections Today: 42
 
-license_plate
+CAM 02
+...
+```
 
-Do NOT use a general vehicle detector as a mandatory prerequisite for
-plate detection.
+==================================================
+CAMERA STATUS
+==================================================
 
-The detector should directly locate license plates in the complete frame.
+Do not determine camera status using static hard-coded values.
 
-INPUT:
+Use actual:
 
-full camera frame
+- Socket.io/WebRTC connection state
+- last heartbeat/frame
+- detection activity
 
-OUTPUT:
+Define sensible states:
 
-[
-  {
-    bbox: [x1,y1,x2,y2],
-    confidence: 0.xx
-  }
-]
+```text
+ONLINE
+OFFLINE
+DEGRADED
+```
 
-Support:
+For ANPR:
 
-cars
-motorcycles
-buses
-trucks
-autos
-commercial vehicles
+```text
+ACTIVE
+INACTIVE
+ERROR
+```
 
-Support:
+If backend currently does not expose enough status information, add a small dedicated endpoint such as:
 
-front plates
-rear plates
-rectangular plates
-two-line plates
-HSRP plates
-yellow commercial plates
+```text
+GET /api/cameras/status
+```
 
-Keep the existing YOLO plate detector available as a BASELINE.
+Return only factual runtime state.
 
-Benchmark:
+==================================================
+CAMERA STATUS API
+==================================================
 
-RF-DETR
-vs
-existing YOLO plate detector
+Possible response:
 
-using exactly the same held-out images.
+```json
+{
+  "success": true,
+  "cameras": [
+    {
+      "cameraId": "CAM_01",
+      "name": "Junction A",
+      "connected": true,
+      "lastFrameAt": "...",
+      "lastDetectionAt": "...",
+      "detectionsToday": 42,
+      "anprStatus": "ACTIVE"
+    }
+  ]
+}
+```
 
-Compare:
+Integrate camera metadata from cameras.json.
 
-precision
-recall
-mAP50
-mAP50-95
-false positives
-CPU latency
-GPU latency if available.
+Do not create duplicate camera definitions.
 
-Do not automatically assume RF-DETR is better.
+==================================================
+CAMERA NETWORK MAP
+==================================================
 
-Select it only if the benchmark supports the decision.
+Use actual cameras.json coordinates.
 
-============================================================
-PHASE 3 — DATASET PREPARATION FOR DETECTOR
-============================================================
+Map markers should indicate:
 
-Prepare a proper Indian license-plate detection dataset.
+ONLINE
+OFFLINE
+DEGRADED
 
-Use available legally usable public Indian number-plate datasets.
+Popup:
 
-DO NOT silently download datasets with unclear licensing.
+```text
+CAM_01
+Junction A
 
-Document:
+Status: ONLINE
+ANPR: ACTIVE
 
-dataset name
-source
-license
-image count
-annotation type
+Last Frame:
+2 sec ago
 
-Merge compatible datasets into a unified dataset.
+Last Detection:
+TN45AB1234
 
-Detection annotation:
+Detections Today:
+42
+```
 
-IMAGE
-+
-LICENSE PLATE BOUNDING BOX
+Again, only use available real data.
 
-Create:
+==================================================
+CAMERA CARDS
+==================================================
 
-train
-validation
-test
+Camera cards should not overflow horizontally.
 
-Suggested starting split:
+Use responsive grid layout.
 
-80% train
-10% validation
-10% test
+Example desktop:
 
-IMPORTANT:
+```text
+CAM 01     CAM 02
+CAM 03     CAM 04
+```
 
-Images from the same video/vehicle must not leak between train and test.
+or more columns if appropriate.
 
-If multiple frames show the same vehicle, keep that vehicle within the
-same split.
+Smaller screen:
 
-Prevent dataset leakage.
+```text
+CAM 01
+CAM 02
+CAM 03
+CAM 04
+```
 
-============================================================
-PHASE 4 — DATA QUALITY CHECK
-============================================================
+==================================================
+MODULE 4 — WATCHLIST
+==================================================
 
-Before training, analyze dataset distribution.
+Make Watchlist a complete operational feature rather than only a plate-entry form.
 
-Report counts for:
+==================================================
+WATCHLIST PAGE
+==================================================
 
-cars
-motorcycles
-commercial vehicles
-trucks/buses
+Suggested structure:
 
-day
-night
+```text
+WATCHLIST / BOLO
 
-front
-rear
+[ + ADD VEHICLE ]       [ Search Watchlist... ]
 
-straight
-angled
 
-near
-medium
-far
+SUMMARY
 
-white plate
-yellow plate
+TOTAL WATCHLIST    ACTIVE ALERTS    MATCHES TODAY
+      8                  2                3
 
-single-row
-two-row
 
-blurred
-clear
+WATCHLIST VEHICLES
 
-Create:
+TN45AB1234
+Priority: HIGH
+Reason: Test Vehicle
+Added: ...
+Status: ACTIVE
 
-DATASET_ANALYSIS.md
+[ EDIT ] [ REMOVE ]
 
-If important categories are severely underrepresented, report the issue
-before training.
 
-============================================================
-PHASE 5 — TRAIN RF-DETR
-============================================================
+RECENT WATCHLIST MATCHES
 
-Fine-tune RF-DETR Small.
+TN45AB1234
+CAM_02
+Junction B
+10:42:16
+OCR Confidence: 94%
 
-Do NOT blindly use huge epoch counts.
+[ VIEW TRAJECTORY ]
+```
+
+==================================================
+WATCHLIST BACKEND
+==================================================
+
+Verify:
+
+- add plate
+- list entries
+- edit entry
+- delete entry
+- enable/disable entry
+- detection matching
+- alert creation
+- alert history
+
+If edit/enable-disable is missing, implement it cleanly without changing the ANPR model.
+
+Use persistent:
+
+`data/watchlist.json`
+
+for the current prototype.
+
+==================================================
+WATCHLIST ENTRY MODEL
+==================================================
+
+Where compatible with existing data, support:
+
+```text
+plate
+reason
+priority
+notes
+active
+createdAt
+updatedAt
+```
+
+Priority:
+
+```text
+LOW
+MEDIUM
+HIGH
+CRITICAL
+```
+
+Do not require all optional fields for legacy entries.
+
+Maintain backward compatibility.
+
+==================================================
+WATCHLIST MATCH
+==================================================
+
+When ANPR confirms a plate:
+
+```text
+Detection
+   ↓
+Normalize Plate
+   ↓
+Check Active Watchlist
+   ↓
+MATCH?
+   ↓ YES
+Create Alert
+   ↓
+Socket.io
+   ↓
+Dashboard Alert
+```
+
+Do not duplicate alerts for the same camera/plate every frame.
+
+Reuse existing deduplication if available.
+
+==================================================
+VIEW TRAJECTORY FROM WATCHLIST
+==================================================
+
+Add a useful connection between modules.
+
+For a watchlist alert:
+
+```text
+VIEW TRAJECTORY
+```
+
+should:
+
+1. open Vehicle Tracking
+2. pre-fill the detected plate
+3. perform trajectory search
+4. render its map/timeline
+
+Do not duplicate the trajectory implementation inside Watchlist.
+
+==================================================
+CROSS-MODULE NAVIGATION
+==================================================
+
+Create useful connections:
+
+```text
+CAMERA NETWORK
+Camera → View Detections
+
+WATCHLIST
+Alert → Track Vehicle
+
+ANALYTICS
+Route → View on Map
+
+VEHICLE TRACKING
+Camera → Camera Network
+```
+
+Only implement connections that are cleanly supported by current architecture.
+
+==================================================
+GLOBAL TABLE FIXES
+==================================================
+
+All tables must remain usable.
 
 Use:
 
-validation monitoring
-early stopping
-best checkpoint saving
-learning-rate scheduling
+```text
+overflow-x: auto
+```
 
-Save:
+for wide tables.
 
-models/rfdetr_plate_best.*
+Do not let a wide OD matrix destroy the page layout.
 
-Model selection metric should prioritize detection quality on the
-held-out validation set.
+OD matrix should have its own horizontally scrollable wrapper.
 
-Never evaluate final performance using training images.
+==================================================
+GLOBAL RESPONSIVE FIX
+==================================================
 
-============================================================
-PHASE 6 — PLATE CROP PROCESSING
-============================================================
+Target:
 
-Once RF-DETR detects the plate:
+1920×1080
+1366×768
+1280×720
+tablet-width layouts
 
-extract the plate crop.
+The dashboard must remain usable at 1366×768 because this is a common demo/laptop resolution.
 
-Keep preprocessing MINIMAL.
+Check especially:
 
-Required:
+- sidebar
+- header
+- map
+- cards
+- tables
+- charts
+- bottom content
 
-1. crop
-2. optional perspective rectification
-3. resolution normalization
+==================================================
+MAP INSTANCE MANAGEMENT
+==================================================
 
-Avoid stacking unnecessary filters.
+This is critical because the project has multiple maps.
 
-Do NOT automatically apply:
+Do NOT use ambiguous globals such as:
 
-heavy sharpening
-aggressive thresholding
-multiple CLAHE passes
-destructive HSRP masking
+```text
+map
+trackMap
+analyticsMap
+```
 
-unless benchmark evidence shows improvement.
+when HTML IDs may use the same names.
 
-OCR should receive a crop that visually resembles the original plate.
+Prefer explicit variables:
 
-For debugging allow saving:
+```javascript
+vehicleTrackingMapInstance
+cameraNetworkMapInstance
+analyticsTrafficMapInstance
+```
 
-debug_output/
+Each map should:
 
-raw_frame.jpg
-detected_crop.jpg
-rectified_crop.jpg
-ocr_input.jpg
+- initialize once
+- retain its instance
+- invalidate size after tab visibility changes
+- clear/update layers rather than recreate the map
 
-============================================================
-PHASE 7 — OCR MODEL
-============================================================
+==================================================
+LEAFLET TAB VISIBILITY
+==================================================
 
-PRIMARY OCR:
+For each map-containing tab:
 
-PaddleOCR PP-OCRv6 recognition model.
+```text
+Tab selected
+    ↓
+DOM becomes visible
+    ↓
+requestAnimationFrame / short delay
+    ↓
+map.invalidateSize()
+```
 
-Use PaddleOCR recognition for plate text.
+For a newly searched trajectory:
 
-Do NOT use Tesseract or EasyOCR in the primary production path.
+```text
+invalidateSize()
+    ↓
+draw route
+    ↓
+fitBounds(routeBounds)
+```
 
-They may remain available ONLY as benchmark baselines.
+This should fix cropped/partial maps.
 
-Initial OCR pipeline:
+==================================================
+GLOBAL LOADING STATES
+==================================================
 
-PLATE CROP
-      ↓
-PP-OCR
-      ↓
-RAW TEXT
-      ↓
-CONFIDENCE
+Every asynchronous section should have:
+
+LOADING
+
+SUCCESS
+
+EMPTY
+
+ERROR
 
 Example:
 
-crop:
-[ MH01AV8669 ]
+```text
+Loading trajectory...
+```
 
-output:
+then:
 
-text = "MH01AV8669"
-confidence = 0.xx
+```text
+Trajectory loaded
+```
 
-============================================================
-PHASE 8 — FINE-TUNE OCR FOR INDIAN PLATES
-============================================================
+or:
 
-Create a dedicated recognition dataset.
+```text
+No sightings found for TN45AB1234.
+```
 
-FORMAT:
+or:
 
-plate_image -> exact registration string
+```text
+Unable to load trajectory.
+```
 
-Example:
+Do not leave blank cards.
 
-plate_00001.jpg -> MH01AV8669
-plate_00002.jpg -> TN45AB1234
-plate_00003.jpg -> KA03MN8821
+==================================================
+BACKEND ERROR RESPONSES
+==================================================
 
-Use real Indian plate crops wherever legally available.
-
-Include:
-
-MH
-TN
-KA
-KL
-DL
-UP
-MP
-RJ
-GJ
-WB
-AP
-TS
-etc.
-
-Include difficult character pairs:
-
-B / 8
-O / 0
-D / 0
-I / 1
-T / 1
-S / 5
-Z / 2
-G / 6
-A / 4
-
-Include:
-
-HSRP
-yellow plates
-two-row plates
-motorcycles
-commercial vehicles
-blur
-motion
-compression
-distance
-perspective
-glare
-low light.
-
-============================================================
-VERY IMPORTANT — DATASET LEAKAGE
-============================================================
-
-Do not put the same registration number/video sequence into both
-training and testing where avoidable.
-
-The final TEST dataset must remain untouched.
-
-Never train on failed benchmark examples just to make benchmark scores
-increase.
-
-Maintain:
-
-TRAIN
-VALIDATION
-TEST
-
-separately.
-
-============================================================
-PHASE 9 — AUGMENTATION
-============================================================
-
-Use realistic augmentation only.
-
-Allowed examples:
-
-small perspective changes
-brightness variation
-contrast variation
-JPEG compression
-mild blur
-motion blur
-small rotations
-small scaling
-low-light simulation
-mild glare
-
-Do NOT create unrealistic plate distortions.
-
-Characters must remain readable.
-
-============================================================
-PHASE 10 — REMOVE AGGRESSIVE OCR CORRECTION
-============================================================
-
-THIS IS CRITICAL.
-
-Do NOT implement logic that invents registration numbers.
-
-Do NOT automatically convert:
-
-8 -> B
-0 -> O
-1 -> I
-
-simply because the resulting string matches an Indian registration
-pattern.
-
-Indian registration rules are a VALIDATOR.
-
-They are NOT an OCR generator.
-
-Correct:
-
-OCR:
-MH01AV8669
-
-Validator:
-VALID
-
-Accept.
-
-Also acceptable:
-
-OCR:
-XH01AV8669
-
-Validator:
-INVALID / UNCERTAIN
-
-Request another frame.
-
-NOT acceptable:
-
-OCR:
-TN046978
-
-Decoder:
-"Maybe MH01AV8669"
-
-Never fabricate the expected plate.
-
-============================================================
-PHASE 11 — TEMPORAL OCR CONSENSUS
-============================================================
-
-For live video, do not trust one uncertain OCR result.
-
-Track the same plate across several nearby frames.
+Use consistent API responses.
 
 Example:
 
-Frame 1:
-MH01AV8669
+```json
+{
+  "success": false,
+  "message": "Vehicle not found"
+}
+```
 
-Frame 2:
-MH01AV8668
+Do not expose raw stack traces to the dashboard.
 
-Frame 3:
-MH01AV8669
+==================================================
+SOCKET.IO
+==================================================
 
-Determine consensus:
+Continue using Socket.io for relevant live events.
 
-MH01AV8669
+Possible existing events include:
 
-Implement character-level confidence-weighted temporal voting.
+```text
+anpr:detection
+anpr:alert
+```
 
-Prefer:
+Reuse existing events.
 
-VISUAL EVIDENCE FROM MULTIPLE FRAMES
+Do NOT introduce another real-time framework.
+
+Camera Network should update connection status in near real time where possible.
+
+Watchlist should receive alerts immediately.
+
+==================================================
+PERFORMANCE
+==================================================
+
+Do not let these UI improvements interfere with live ANPR.
 
-over:
+Avoid:
+
+- repeated full-history requests
+- rebuilding Leaflet maps
+- unnecessary 1-second analytics API calls
+- recreating charts repeatedly
+- massive DOM rerenders
+
+Use incremental updates where reasonable.
+
+==================================================
+DO NOT TOUCH
+==================================================
+
+Do NOT modify working:
+
+- ANPR detector
+- OCR
+- model files
+- confidence thresholds
+- FastAPI model pipeline
+- multi-frame consensus
+- plate rectification
+
+Do not start:
+
+- PostgreSQL migration
+- PostGIS
+- Redis
+- Kafka
+- Vehicle Re-ID
+- new AI models
+
+This task is specifically:
+
+**Vehicle Tracking + Analytics + Camera Network + Watchlist**
 
-FORMAT-BASED CHARACTER CORRECTION.
+frontend AND backend.
 
-High-confidence identical readings across multiple frames should be
-confirmed rapidly.
+==================================================
+TESTING — VEHICLE TRACKING
+==================================================
+
+Test:
+
+1. page scroll
+2. plate search
+3. no-result search
+4. map initial rendering
+5. map after tab switch
+6. map after repeated tab switches
+7. trajectory fitBounds
+8. markers
+9. chronological route
+10. timeline
+11. summary statistics
+12. invalid segments
+13. bottom content accessibility
 
-============================================================
-PHASE 12 — BEST FRAME SELECTION
-============================================================
+==================================================
+TESTING — ANALYTICS
+==================================================
 
-Do not OCR every frame.
+Test:
 
-For each tracked plate collect several candidate crops.
+1. page scroll
+2. summary cards
+3. charts
+4. traffic map
+5. map modes
+6. time filters
+7. OD matrix
+8. route table
+9. empty states
+10. bottom content accessibility
+
+==================================================
+TESTING — CAMERA NETWORK
+==================================================
+
+Test:
+
+1. camera cards
+2. actual connection status
+3. network map
+4. marker popups
+5. camera metadata
+6. last seen
+7. last detection
+8. page scroll
+9. offline state
+10. responsive layout
+
+==================================================
+TESTING — WATCHLIST
+==================================================
+
+Test:
+
+1. add
+2. edit
+3. delete
+4. enable/disable
+5. live match
+6. alert
+7. alert history
+8. View Trajectory
+9. scrolling
+10. empty states
+
+==================================================
+REGRESSION TESTS
+==================================================
+
+After implementation run existing tests:
+
+```text
+node tests/test_phase_b_trajectory.js
+node tests/test_phase_c_analytics.js
+node tests/test_phase_d_gis.js
+node -c server.js
+```
+
+Expected existing results should remain:
+
+Phase B:
+13 / 13
+
+Phase C:
+18 / 18
+
+Phase D:
+12 / 12
+
+Also perform one ANPR end-to-end test.
+
+ANPR must still:
+
+```text
+Detect
+→ OCR
+→ Store
+→ Socket.io
+→ Display
+```
 
-Score them using:
+==================================================
+BROWSER TESTING IS REQUIRED
+==================================================
 
-plate detector confidence
-sharpness
-plate size
-motion blur
-viewing angle
+Do not consider this task complete based only on syntax/unit tests.
 
-OCR only the strongest candidate(s).
+Open the dashboard in a real/headless browser and test all four tabs.
 
-Example:
+Specifically use a viewport around:
 
-Frame A sharpness 42
-Frame B sharpness 91
-Frame C sharpness 67
+```text
+1366 × 768
+```
 
-Prefer Frame B.
+and also test:
+
+```text
+1920 × 1080
+```
+
+At 1366×768 verify that:
 
-This should improve OCR while reducing CPU usage.
+- Vehicle Tracking can scroll to its final content
+- Analytics can scroll to its final content
+- Camera Network can scroll to its final content
+- Watchlist can scroll to its final content
+- maps are not cropped
+- bottom content is accessible
+- sidebar does not block content
 
-============================================================
-PHASE 13 — INDIAN REGISTRATION VALIDATOR
-============================================================
+==================================================
+SCREENSHOT VERIFICATION
+==================================================
 
-Implement a validator supporting common Indian registration structures.
+If browser tooling allows screenshots, capture:
 
-Examples:
+1. Vehicle Tracking — top
+2. Vehicle Tracking — map + trajectory
+3. Vehicle Tracking — bottom/timeline
+4. Analytics
+5. Camera Network
+6. Watchlist
 
-MH01AV8669
-TN45AB1234
-KA03MN8821
+Use screenshots to visually verify layout.
 
-BH Series:
+Do not claim a page looks correct solely because the DOM contains its elements.
 
-22BH1234AA
+==================================================
+DEFINITION OF DONE
+==================================================
 
-Support valid variations where applicable.
+This task is complete when:
 
-The validator returns:
+### VEHICLE TRACKING
 
-VALID
-INVALID
-UNCERTAIN
+A user can search a plate and clearly see:
 
-It must NOT rewrite the OCR string.
+```text
+Vehicle
+   ↓
+Sighting 1
+   ↓
+Camera A
+   ↓
+Route
+   ↓
+Camera B
+   ↓
+Route
+   ↓
+Camera C
+```
 
-============================================================
-PHASE 14 — CONFIRMATION POLICY
-============================================================
+on a correctly rendered Leaflet map plus chronological timeline.
 
-Suggested behavior:
+### ANALYTICS
 
-VERY HIGH OCR CONFIDENCE
-+
-VALID FORMAT
-+
-strong plate crop
-+
-same result repeated
+A user can understand:
 
-=> CONFIRM
+- traffic volume
+- traffic trends
+- route density
+- estimated speeds
+- congestion
+- OD movement
 
-MEDIUM CONFIDENCE
+without inaccessible content.
 
-=> wait for another frame
+### CAMERA NETWORK
 
-LOW CONFIDENCE
+A user can understand:
 
-=> reject/request another crop.
+- where cameras are
+- which cameras are online
+- which are actively processing ANPR
+- their latest activity
 
-Avoid confidently publishing unrelated registrations.
+### WATCHLIST
 
-============================================================
-PHASE 15 — BUILD A REAL BENCHMARK
-============================================================
+A user can:
 
-Create a manually verified held-out Indian plate benchmark.
+- manage watchlisted vehicles
+- receive live alerts
+- review matches
+- immediately open the matched vehicle's trajectory
 
-Minimum initial goal:
+### ENTIRE DASHBOARD
 
-200+ REAL plate crops.
+- scroll works
+- maps render correctly
+- bottom content is reachable
+- no major overflow
+- no blank map caused by hidden-tab initialization
+- no fake operational data
+- existing ANPR remains functional
 
-Preferably expand toward:
+==================================================
+FINAL REPORT
+==================================================
 
-500–1000+
+When finished, STOP.
 
-Include difficult conditions.
-
-Every image must have:
-
-ground_truth_plate
-
-Measure:
-
-DETECTION:
-
-precision
-recall
-mAP
-
-OCR:
-
-character accuracy
-
-FULL PLATE EXACT MATCH
-
-1-character error rate
-
-2-character error rate
-
-3+ character error rate
-
-wrong-state-code rate
-
-invalid-output rate
-
-LIVE SYSTEM:
-
-median confirmation latency
-P95 confirmation latency
-worst-case latency
-false-positive rate
-incorrect-confirmation rate
-
-PRIMARY OCR METRIC:
-
-FULL PLATE EXACT MATCH.
-
-============================================================
-CRITICAL REGRESSION CASE
-============================================================
-
-Add this known test case:
-
-GROUND TRUTH:
-
-MH01AV8669
-
-This is a REGRESSION TEST ONLY.
-
-Do NOT train specifically on this test image.
-
-The system should ultimately return:
-
-MH01AV8669
-
-A result such as:
-
-TN046978
-
-must count as a CATASTROPHIC OCR FAILURE.
-
-Define:
-
-catastrophic OCR error =
-Levenshtein distance >= 3
-OR
-wrong state prefix combined with additional character errors.
-
-Track catastrophic error rate.
-
-============================================================
-PHASE 16 — A/B TEST
-============================================================
-
-Before replacing production ANPR, compare:
-
-CURRENT SYSTEM
-vs
-ANPR V2
-
-on exactly the same test dataset.
+Do not begin another phase.
 
 Report:
 
-                         OLD       V2
-
-Plate Recall
-Plate Precision
-Character Accuracy
-Exact Match
-1-char Error
-2-char Error
-3+ Error
-Wrong State
-False Positive
-Median Latency
-P95 Latency
-
-Do NOT replace the old system unless ANPR V2 clearly improves real
-full-plate recognition.
-
-============================================================
-PHASE 17 — INTEGRATE INTO EXISTING APPLICATION
-============================================================
-
-Only after V2 passes benchmarking:
-
-connect:
-
-ANPR V2
-   ↓
-existing Node backend
-   ↓
-existing detection events
-   ↓
-trajectory tracking
-   ↓
-GIS
-   ↓
-watchlist
-   ↓
-analytics
-   ↓
-dashboard
-
-Preserve the API response format expected by the existing application
-where possible.
-
-Do not rewrite unrelated application code.
-
-============================================================
-PHASE 18 — CONFIGURATION
-============================================================
-
-Expose ANPR settings in a centralized configuration.
-
-Example:
-
-ANPR_VERSION=v2
-
-DETECTOR=rfdetr
-OCR=paddleocr
-
-DEVICE=auto
-
-TEMPORAL_CONSENSUS=true
-
-SAVE_DEBUG_CROPS=false
-
-Do not scatter thresholds throughout source files.
-
-============================================================
-PHASE 19 — HARDWARE FALLBACK
-============================================================
-
-The project must run without a dedicated GPU.
-
-Preferred runtime order:
-
-CUDA GPU if available
-↓
-supported hardware acceleration
-↓
-CPU
-
-Do not make CUDA mandatory.
-
-The SIH demo must remain functional on CPU.
-
-============================================================
-PHASE 20 — DEPENDENCIES
-============================================================
-
-Update project dependencies cleanly.
-
-Pin compatible versions.
-
-Do not leave conflicting abandoned ML libraries.
-
-Document installation.
-
-The project should still launch through the existing startup mechanism
-where practical.
-
-============================================================
-PHASE 21 — TESTING
-============================================================
-
-Add automated tests for:
-
-detector loading
-OCR loading
-plate crop extraction
-rectification
-validator
-temporal consensus
-API integration
-empty frame
-no plate
-multiple plates
-two-row plate
-yellow plate
-motorcycle plate
-invalid text
-low-confidence OCR
-
-Also create:
-
-python scripts/test_anpr_v2.py
-
-============================================================
-PHASE 22 — FINAL DOCUMENTATION
-============================================================
-
-Create:
-
-ANPR_V2_REPORT.md
-
-Include:
-
-1. architecture
-2. models used
-3. model/checkpoint licenses
-4. datasets used
-5. dataset licenses
-6. training procedure
-7. preprocessing
-8. detector benchmark
-9. OCR benchmark
-10. live benchmark
-11. old vs new comparison
-12. known limitations
-13. hardware requirements
-14. reproduction instructions
-
-Do not fabricate metrics.
-
-Every reported number must come from an actual benchmark.
-
-============================================================
-EXECUTION RULES
-============================================================
-
-IMPORTANT:
-
-Do not try to complete everything in one uncontrolled edit.
-
-Execute incrementally:
-
-STEP 1
-Repository inspection
-
-STEP 2
-ANPR_REBUILD_PLAN.md
-
-STEP 3
-Dataset preparation
-
-STEP 4
-Detector baseline
-
-STEP 5
-RF-DETR fine-tuning
-
-STEP 6
-PP-OCR baseline
-
-STEP 7
-PP-OCR fine-tuning
-
-STEP 8
-Temporal consensus
-
-STEP 9
-Real benchmark
-
-STEP 10
-A/B comparison
-
-STEP 11
-Production integration
-
-After every major step:
-
-RUN TESTS.
-
-If something fails:
-
-STOP
-DIAGNOSE
-FIX
-RETEST
-
-Do not continue stacking changes on a broken stage.
-
-============================================================
-ABSOLUTE RULES
-============================================================
-
-DO NOT:
-
-- hardcode license plates
-- hardcode benchmark answers
-- train using test images
-- invent benchmark results
-- automatically rewrite OCR into plausible registrations
-- add dozens of regex corrections
-- rebuild the frontend
-- remove working project functionality
-- add Vehicle Re-ID yet
-- optimize only for latency
-- optimize only for number of detections
-
-PRIORITY ORDER:
-
-1. FULL-PLATE EXACT-MATCH ACCURACY
-2. LOW CATASTROPHIC ERROR RATE
-3. PLATE DETECTION RECALL
-4. FALSE-POSITIVE CONTROL
-5. LIVE RELIABILITY
-6. LATENCY
-
-============================================================
-FIRST ACTION
-============================================================
-
-Start NOW with repository inspection.
-
-Do NOT immediately modify the ANPR implementation.
-
-First produce:
-
-ANPR_REBUILD_PLAN.md
-
-Then show me:
-
-1. existing files/components that will be reused
-2. existing ANPR components that will be replaced
-3. proposed ANPR V2 file structure
-4. model download/training requirements
-5. dataset requirements
-6. dependency changes
-7. implementation sequence
-
-After the plan is created, proceed incrementally with implementation
-unless you encounter a decision that genuinely requires user input.
-
-The final goal is a SIMPLE and RELIABLE system:
-
-FRAME
- ↓
-RF-DETR PLATE DETECTION
- ↓
-CLEAN PLATE CROP
- ↓
-PP-OCR
- ↓
-MULTI-FRAME VISUAL CONSENSUS
- ↓
-FORMAT VALIDATION
- ↓
-CONFIRMED EXACT REGISTRATION
-
-Do not reintroduce unnecessary complexity unless benchmark evidence
-demonstrates that it improves FULL-PLATE EXACT-MATCH accuracy.
+1. UI problems found
+2. Root causes of scrolling issues
+3. Files created
+4. Files modified
+5. Backend APIs added/changed
+6. Vehicle Tracking improvements
+7. Vehicle Tracking map fix
+8. Analytics improvements
+9. Camera Network improvements
+10. Watchlist improvements
+11. Cross-module navigation
+12. Responsive-layout changes
+13. 1366×768 browser results
+14. 1920×1080 browser results
+15. Screenshot verification results
+16. Phase B test result
+17. Phase C test result
+18. Phase D test result
+19. ANPR regression result
+20. Remaining limitations
+
+Clearly distinguish:
+
+ACTUALLY TESTED
+
+from:
+
+IMPLEMENTED BUT NOT MANUALLY VERIFIED.
+
+Do not touch the working ANPR model while implementing this task.

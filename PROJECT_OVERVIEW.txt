@@ -1,0 +1,68 @@
+# Multi-Camera Indian ANPR Traffic Intelligence Platform - Complete Overview
+
+## 1. Introduction
+This project is an advanced, enterprise-grade Automatic Number Plate Recognition (ANPR) and Urban Traffic Intelligence platform. It was developed for the Smart India Hackathon (SIH) under Problem Statement ID 26127 for Bharat Electronics Limited (BEL). 
+
+The primary goal of this system is to accurately detect, recognize, and track Indian vehicle license plates across multiple camera feeds in real-time. It is designed to handle the diverse complexities of Indian roadways, including different vehicle classes (cars, bikes, autos, trucks), varying plate formats (standard, high-security, commercial, EV, Bharat series), and challenging environmental conditions (night glare, angles, etc.).
+
+## 2. Core Capabilities & Objectives
+- **Multi-Camera WebRTC Streaming:** Ingests live video from standard IP cameras, RTSP streams, and even smartphones (acting as edge nodes) using low-latency WebRTC and Socket.io.
+- **Direct Full-Frame Plate Localization:** Employs a custom-trained YOLOv8/RF-DETR model to directly detect license plates even in close-up or truncated views where the vehicle body is not fully visible.
+- **Ultra-Fast Edge OCR Engine:** Uses PaddleOCR (PP-OCRv4) running on ONNX Runtime to perform high-speed character recognition (8-14 ms on CPU), eliminating the need for heavy GPU infrastructure.
+- **Pure Indian Registration Validator:** Implements strict parsing according to Ministry of Road Transport and Highways (MoRTH) standards. It validates state codes, district codes, and specialized formats (like the BH series) without fabricating or aggressively "guessing" characters.
+- **Trajectory Tracking & GIS:** Stitches vehicle sightings across multiple geographic camera nodes to build real-time movement trajectories on an interactive Leaflet map.
+- **Security Watchlist & Alerting:** Automatically cross-references detected plates against a BOLO (Be On the Lookout) database and triggers immediate audio-visual alerts for stolen or flagged vehicles.
+
+## 3. System Architecture
+The system is built on a highly modular, decoupled architecture:
+
+### A. Frontend Command Center (Vanilla Web Tech & Leaflet.js)
+A persistent Single-Page Application (SPA) that provides a real-time dashboard for operators. It includes:
+- Live multi-camera viewing grids.
+- Real-time diagnostic overlays (bounding boxes, OCR confidence).
+- Interactive Geographic Information System (GIS) mapping for tracking vehicle routes.
+- A built-in QR scanner to instantly pair mobile phones as surveillance cameras.
+
+### B. Node.js Streaming & Signaling Backend (Port 3000)
+- Manages full-duplex WebRTC connections and Socket.io events.
+- Handles camera node queue management (dropping stale frames to prioritize live action).
+- Exposes REST APIs for detections, watchlists, analytics, and trajectory history.
+- Maintains persistent JSON data stores (`data/detections.json`, `data/watchlist.json`, etc.).
+
+### C. Python ANPR Microservice (FastAPI on Port 5001)
+The core AI engine containing the `anpr_v2` inference pipeline:
+- **Detector (`detector.py`):** YOLO-based neural network for drawing bounding boxes around plates.
+- **Rectifier (`rectifier.py`):** Unskews angled plates (4-point homography) and applies padding.
+- **Recognizer (`recognizer.py`):** PP-OCRv4 ONNX model extracting text.
+- **Tracker & Validator (`tracker.py` & `validator.py`):** Accumulates multi-frame evidence, votes on the most confident characters, and strictly validates against MoRTH Indian syntax rules.
+
+## 4. Key Innovations
+- **Zero Hallucination OCR:** Older versions of the project tried to "force" noisy reads into valid Indian formats by mutating characters (e.g., swapping 8 and B). The modern V2 pipeline strictly functions as a validator, dropping the error rate drastically.
+- **Multi-Frame Consensus:** Rather than trusting a single blurry frame, the system tracks a vehicle across multiple frames and votes on the highest confidence characters to form the final result.
+- **Direct Edge Deployment:** The entire AI model stack is quantized and exported to `.onnx` and `.pt` formats, allowing it to run smoothly on standard CPUs without requiring expensive NVIDIA GPUs.
+
+## 5. Startup & Operations
+The system features a one-click initialization script that boots the Node.js server, the Python microservice, and automatically opens the operator dashboard.
+
+**Windows Command Prompt:**
+```cmd
+start_system.bat
+```
+**Cross-Platform Python Launcher:**
+```bash
+python run.py
+```
+
+## 6. Current Status & Future Roadmap
+The project has successfully modernized its AI pipeline (ANPR V2), achieving a **97.14% plate detection precision** and reducing OCR hallucinations by 57%. 
+
+**Recently Completed Implementation Phases (A - D):**
+- **Phase A (Data Foundation):** Standardized detection schema with geographic metadata, zones, and camera orientations.
+- **Phase B (Geospatial Intelligence):** Leaflet GIS integration, multi-camera trajectory tracking, and GeoJSON route visualization.
+- **Phase C (Concurrent Architecture):** WebRTC multi-streaming, asynchronous multi-camera queue management, and stateless Python ANPR integration.
+- **Phase D (Dashboard & Analytics):** Persistent UI state management, real-time Socket.io dashboards, and robust memory leak prevention.
+
+Future roadmap items include:
+- Scaling to 10+ concurrent HD streams using TensorRT/GPU acceleration.
+- Adding hardware IR filters to combat night-time headlight glare (CCD blooming).
+- Implementing advanced Vehicle Re-Identification (Re-ID) using chassis appearance embeddings to track vehicles even if plates are obscured.
