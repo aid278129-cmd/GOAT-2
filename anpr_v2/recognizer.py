@@ -222,13 +222,144 @@ class BaselineCRNNRecognizer:
         except Exception as e:
             return OCRResult(text="", raw_text="", confidence=0.0, engine=f"CRNN Error: {e}")
 
-_RECOGNIZER_INSTANCE = None
+class IndianFastPlateRecognizerWrapper:
+    """
+    Production wrapper for fine-tuned FastPlateOCR CCT-S-v2 for Indian license plates.
+    Conforms to the standard OCRResult contract.
+    """
+    def __init__(self):
+        from anpr_v2.fastplate_indian_recognizer import IndianFastPlateRecognizer
+        self._engine = IndianFastPlateRecognizer()
+        self.is_ready = True
+        
+    def recognize(self, crop_bgr: np.ndarray) -> OCRResult:
+        if crop_bgr is None or crop_bgr.size == 0:
+            return OCRResult(text="", raw_text="", confidence=0.0, engine="FastPlateOCR Indian")
+            
+        t0 = time.perf_counter()
+        raw_text, conf = self._engine.recognize(crop_bgr, handle_two_line=False)
+        cleaned = clean_ocr_raw_tokens(raw_text)
+        t_ms = (time.perf_counter() - t0) * 1000.0
+        return OCRResult(
+            text=cleaned,
+            raw_text=raw_text,
+            confidence=round(conf, 3),
+            character_confidences=[conf] * len(cleaned),
+            engine="FastPlateOCR CCT-S-v2 (Indian Fine-Tuned)",
+            inference_ms=round(t_ms, 2)
+        )
+
+class AdaptiveFallbackRecognizerWrapper:
+    """
+    Phase 13 Adaptive Complementary Engine:
+    Combines Indian Fine-Tuned CCT-S-v2 as primary with PP-OCRv4 as calibrated fallback.
+    """
+    def __init__(self):
+        from anpr_v2.fastplate_indian_recognizer import IndianFastPlateRecognizer
+        from anpr_v2.validator import validate_indian_registration
+        self._fastplate = IndianFastPlateRecognizer()
+        self._ppocr = PPOCRRecognizer()
+        self._validate = validate_indian_registration
+        self.is_ready = True
+        
+    def recognize(self, crop_bgr: np.ndarray) -> OCRResult:
+        if crop_bgr is None or crop_bgr.size == 0:
+            return OCRResult(text="", raw_text="", confidence=0.0, engine="Adaptive Fallback")
+            
+        t0 = time.perf_counter()
+        raw_ind, conf_ind = self._fastplate.recognize(crop_bgr, handle_two_line=False)
+        cleaned_ind = clean_ocr_raw_tokens(raw_ind)
+        val_ind = self._validate(cleaned_ind)
+        
+        # High confidence format match on primary: return immediately (~8-15ms)
+        if val_ind.is_valid and conf_ind >= 0.70:
+            t_ms = (time.perf_counter() - t0) * 1000.0
+            return OCRResult(
+                text=val_ind.cleaned_plate,
+                raw_text=raw_ind,
+                confidence=round(conf_ind, 3),
+                character_confidences=[conf_ind] * len(val_ind.cleaned_plate),
+                engine="FastPlateOCR Indian (Primary)",
+                inference_ms=round(t_ms, 2)
+            )
+            
+        # Fallback inspection with PP-OCRv4
+        res_pp = self._ppocr.recognize(crop_bgr)
+        val_pp = self._validate(res_pp.text)
+        t_ms = (time.perf_counter() - t0) * 1000.0
+        
+        if val_pp.is_valid and not val_ind.is_valid:
+            return OCRResult(
+                text=val_pp.cleaned_plate,
+                raw_text=res_pp.raw_text,
+                confidence=res_pp.confidence,
+                character_confidences=res_pp.character_confidences,
+                engine="PP-OCRv4 (Fallback Union)",
+                inference_ms=round(t_ms, 2)
+            )
+        elif val_ind.is_valid and not val_pp.is_valid:
+            return OCRResult(
+                text=val_ind.cleaned_plate,
+                raw_text=raw_ind,
+                confidence=round(conf_ind, 3),
+                character_confidences=[conf_ind] * len(val_ind.cleaned_plate),
+                engine="FastPlateOCR Indian (Format Valid)",
+                inference_ms=round(t_ms, 2)
+            )
+        elif val_ind.is_valid and val_pp.is_valid:
+            chosen = res_pp if res_pp.confidence > conf_ind else None
+            if chosen is not None:
+                return OCRResult(
+                    text=val_pp.cleaned_plate,
+                    raw_text=res_pp.raw_text,
+                    confidence=res_pp.confidence,
+                    character_confidences=res_pp.character_confidences,
+                    engine="PP-OCRv4 (Higher Confidence)",
+                    inference_ms=round(t_ms, 2)
+                )
+            else:
+                return OCRResult(
+                    text=val_ind.cleaned_plate,
+                    raw_text=raw_ind,
+                    confidence=round(conf_ind, 3),
+                    character_confidences=[conf_ind] * len(val_ind.cleaned_plate),
+                    engine="FastPlateOCR Indian (Higher Confidence)",
+                    inference_ms=round(t_ms, 2)
+                )
+        else:
+            if len(cleaned_ind) >= 8:
+                return OCRResult(
+                    text=cleaned_ind,
+                    raw_text=raw_ind,
+                    confidence=round(conf_ind, 3),
+                    character_confidences=[conf_ind] * len(cleaned_ind),
+                    engine="FastPlateOCR Indian",
+                    inference_ms=round(t_ms, 2)
+                )
+            else:
+                return OCRResult(
+                    text=res_pp.text,
+                    raw_text=res_pp.raw_text,
+                    confidence=res_pp.confidence,
+                    character_confidences=res_pp.character_confidences,
+                    engine="PP-OCRv4",
+                    inference_ms=round(t_ms, 2)
+                )
+
+_RECOGNIZERS = {}
 
 def get_recognizer(backend: Optional[str] = None):
-    global _RECOGNIZER_INSTANCE
+    global _RECOGNIZERS
     b = (backend or CONFIG.ocr_backend).lower()
-    if b == "crnn":
-        return BaselineCRNNRecognizer()
-    if _RECOGNIZER_INSTANCE is None:
-        _RECOGNIZER_INSTANCE = PPOCRRecognizer()
-    return _RECOGNIZER_INSTANCE
+    if b not in _RECOGNIZERS:
+        if b in ("fastplate_indian", "fastplate", "cct"):
+            _RECOGNIZERS[b] = IndianFastPlateRecognizerWrapper()
+        elif b in ("fastplate_fallback", "adaptive", "hybrid"):
+            _RECOGNIZERS[b] = AdaptiveFallbackRecognizerWrapper()
+        elif b in ("paddleocr", "ppocr"):
+            _RECOGNIZERS[b] = PPOCRRecognizer()
+        elif b == "crnn":
+            _RECOGNIZERS[b] = BaselineCRNNRecognizer()
+        else:
+            _RECOGNIZERS[b] = IndianFastPlateRecognizerWrapper()
+    return _RECOGNIZERS[b]

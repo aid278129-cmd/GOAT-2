@@ -412,6 +412,76 @@ function buildTrajectory(plate, detections, options = {}) {
     ...new Set(points.map((p) => p.cameraName || `CAM-${p.cameraId}`)),
   ];
 
+  // Phase 18: Deterministic Trajectory Route Anomalies
+  const routeAnomalies = [];
+
+  // Rule 1: IMPOSSIBLE_TRAVEL from segments
+  segments.forEach((seg) => {
+    if (seg.anomaly && seg.anomaly.type === 'IMPOSSIBLE_TRAVEL') {
+      routeAnomalies.push({
+        type: 'IMPOSSIBLE_TRAVEL',
+        severity: 'HIGH',
+        description: seg.anomaly.reason,
+        fromCamera: seg.fromCameraName,
+        toCamera: seg.toCameraName,
+        timestamp: seg.toTimestamp,
+        speedKmh: seg.anomaly.calculatedSpeedKmh,
+      });
+    }
+  });
+
+  // Rule 2: REPEATED_LOOP (Camera visited 3+ times in trajectory)
+  const camVisitCounts = {};
+  sightings.forEach((s) => {
+    const cId = String(s.cameraName || s.cameraLocation || s.cameraId || 'UNKNOWN');
+    camVisitCounts[cId] = (camVisitCounts[cId] || 0) + 1;
+  });
+  Object.entries(camVisitCounts).forEach(([cId, count]) => {
+    if (count >= 3) {
+      routeAnomalies.push({
+        type: 'REPEATED_LOOP',
+        severity: 'MEDIUM',
+        description: `Vehicle visited camera ${cId} ${count} times during trajectory, indicating circling or loitering pattern.`,
+        camera: cId,
+        occurrences: count,
+      });
+    }
+  });
+
+  // Rule 3: RESTRICTED_ZONE_ENTRY
+  sightings.forEach((s) => {
+    const zoneStr = String(s.zone || s.cameraZone || '').toUpperCase();
+    if (zoneStr.includes('RESTRICTED') || zoneStr.includes('RED') || s.isRestrictedZone) {
+      routeAnomalies.push({
+        type: 'RESTRICTED_ZONE_ENTRY',
+        severity: 'HIGH',
+        description: `Vehicle detected entering restricted zone: ${s.zone || 'RESTRICTED'} at camera ${s.cameraName || s.cameraId}`,
+        cameraId: s.cameraId,
+        zone: s.zone,
+        timestamp: s.timestamp,
+      });
+    }
+  });
+
+  // Rule 4: UNUSUAL_RAPID_SEQUENCE (< 5s between distinct cameras)
+  segments.forEach((seg) => {
+    if (
+      !seg.isSameCamera &&
+      seg.travelTimeSeconds !== null &&
+      seg.travelTimeSeconds > 0 &&
+      seg.travelTimeSeconds < 5
+    ) {
+      routeAnomalies.push({
+        type: 'UNUSUAL_RAPID_SEQUENCE',
+        severity: 'MEDIUM',
+        description: `Rapid inter-camera transition detected (${seg.travelTimeSeconds}s between ${seg.fromCameraName} and ${seg.toCameraName}).`,
+        fromCamera: seg.fromCameraName,
+        toCamera: seg.toCameraName,
+        travelTimeSeconds: seg.travelTimeSeconds,
+      });
+    }
+  });
+
   return {
     success: true,
     found: true,
@@ -430,6 +500,8 @@ function buildTrajectory(plate, detections, options = {}) {
     trail: points, // legacy compatibility for dashboard & tracking
     points, // roadmap standard
     segments, // enhanced segments with distance, speed, anomalies
+    anomalies: routeAnomalies, // Phase 18 deterministic route anomalies
+    hasAnomalies: routeAnomalies.length > 0,
   };
 }
 

@@ -114,23 +114,37 @@ def score_candidate_crop(
 def character_level_temporal_voting(sightings: List[SightingRecord]) -> Tuple[str, float]:
     """
     Performs character-level confidence-weighted voting across multi-frame sightings.
-    Adheres strictly to Phase 11:
-      VISUAL EVIDENCE FROM MULTIPLE FRAMES > FORMAT-BASED CHARACTER CORRECTION.
+    Upgraded for Phase 2:
+      1. Multi-factor weighting: OCR confidence * (0.8 + 0.2*det_conf) * (1.30 if valid Indian format else 0.70).
+      2. Track best validated single frame.
+      3. Guaranteed safety fallback: If consensus is invalid or lower confidence than best single frame,
+         emit best single frame.
     """
     if not sightings:
         return "", 0.0
 
-    if len(sightings) == 1:
-        return sightings[0].plate_text, sightings[0].confidence
+    # Score each sighting to find the best single frame
+    def score_sighting(s: SightingRecord) -> float:
+        val_is_valid = s.validation.is_valid if s.validation else False
+        bonus = 1.30 if val_is_valid else 0.70
+        return s.confidence * (0.8 + 0.2 * s.detector_confidence) * bonus
 
-    # 1. Group sightings by string length
+    best_single_sighting = max(sightings, key=score_sighting)
+    best_single_text = best_single_sighting.plate_text
+    best_single_conf = best_single_sighting.confidence
+
+    if len(sightings) == 1:
+        return best_single_text, best_single_conf
+
+    # 1. Group sightings by string length with format-weighted vote
     length_votes = defaultdict(float)
     for s in sightings:
         if s.plate_text:
-            length_votes[len(s.plate_text)] += s.confidence
+            w = score_sighting(s)
+            length_votes[len(s.plate_text)] += w
 
     if not length_votes:
-        return "", 0.0
+        return best_single_text, best_single_conf
 
     target_length = max(length_votes.keys(), key=lambda l: length_votes[l])
 
@@ -150,8 +164,7 @@ def character_level_temporal_voting(sightings: List[SightingRecord]) -> Tuple[st
         for s in filtered_sightings:
             if pos < len(s.plate_text):
                 char = s.plate_text[pos]
-                # Weight by combination of OCR confidence and detector confidence
-                weight = s.confidence * (0.8 + 0.2 * s.detector_confidence)
+                weight = score_sighting(s)
                 char_weights[char] += weight
                 total_weight += weight
 
@@ -167,6 +180,19 @@ def character_level_temporal_voting(sightings: List[SightingRecord]) -> Tuple[st
 
     consensus_str = "".join(consensus_chars)
     overall_conf = float(np.mean(char_confidences)) if char_confidences else 0.0
+
+    # 3. Absolute Safety Fallback Guard
+    consensus_val = validate_indian_registration(consensus_str, confidence=overall_conf)
+    best_single_val = best_single_sighting.validation if best_single_sighting.validation else validate_indian_registration(best_single_text, confidence=best_single_conf)
+
+    # If consensus fails syntax while a single frame passed syntax, fallback to best single frame
+    if not consensus_val.is_valid and best_single_val.is_valid:
+        return best_single_text, best_single_conf
+
+    # If consensus confidence is lower than best single frame and best single frame is valid
+    if overall_conf < best_single_conf and best_single_val.is_valid:
+        return best_single_text, best_single_conf
+
     return consensus_str, round(overall_conf, 3)
 
 

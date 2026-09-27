@@ -23,7 +23,7 @@ class ANPRConfig:
     # ── Pipeline Version & Active Backends ──
     anpr_version: str = "v2"
     detector_backend: str = "rfdetr"       # "rfdetr" (primary) or "yolo" (baseline)
-    ocr_backend: str = "paddleocr"         # "paddleocr" (PP-OCRv4 ONNX) or "crnn" (baseline)
+    ocr_backend: str = os.environ.get("OCR_ENGINE", "fastplate_indian")  # "fastplate_indian", "fastplate_fallback", "paddleocr", "crnn"
     device: str = "auto"                   # "auto" (cuda if available else cpu), "cuda", "cpu"
     
     # ── Model Checkpoint Paths ──

@@ -9,6 +9,7 @@ Exact drop-in replacement for scripts/anpr_server.py:
 """
 
 import os
+import sys
 import io
 import time
 import base64
@@ -16,6 +17,12 @@ import requests
 import urllib3
 import cv2
 import numpy as np
+
+# Ensure parent directory is in sys.path
+_PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _PARENT_DIR not in sys.path:
+    sys.path.insert(0, _PARENT_DIR)
+
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles

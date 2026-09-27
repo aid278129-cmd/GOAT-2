@@ -38,6 +38,12 @@ scratch/
 models/
 datasets/
 dataset/
+training/dataset_v2/
 benchmarks/**/crops/
 data/
 backup_before_stitch_integration/
+
+# Temporary scratch, work & output directories
+.ppt-work/
+output/
+*.original.*

@@ -1,0 +1,229 @@
+crop_file,ground_truth,ppocr_raw,pretrained_raw,v1_indian_raw,v2_real_raw,adaptive_raw,ppocr_correct,pretrained_correct,v1_correct,v2_correct,adaptive_correct,is_two_line,is_low_res,h,w
+voc_dc_auto_image_000021_bMXgvtud5K_obj0.jpg,KL34A465,KL340465,KL340465,KL340465,KL34A465,KL340465,False,False,False,True,False,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj1.jpg,KL34A465,XA5445,XA5445,XA5445,TA54455,XA5445,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj2.jpg,KL34F,KL34F,KL34F,KL34F,KL34IF,KL34F,True,True,True,False,True,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj3.jpg,KL35F4337,KL35F4337,KL35F433,KL35F4337,KL35F4337,KL35F4337,True,False,True,True,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj4.jpg,KL35H5834,KL35H5834,KL35H583,KL35H5834,KL35H58344,KL35H5834,True,False,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj5.jpg,KL03S6894,CL03080,CL13080,CL03080,KL1308533,KL1308533,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0.jpg,UP84AE9889,UP84AE9889,UP8EAE9889,UP84AE9889,UP84AE9889,UP84AE9889,True,False,True,True,True,True,False,128,272
+voc_dc_bus_image_000033_XUH0eV452t_obj0.jpg,GJ01DY6855,G010Y665,G010066,G0100665,GJ010Y6855,GJ010Y6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000039_9NispLHmAo_obj0.jpg,KL498262,K4498262,K4498262,K4498262,KL44992262,KL44992262,False,False,False,False,False,False,False,102,307
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0.jpg,WB42AX7446,WB42AX7446,WB42A7744,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0.jpg,MP07L7524,MP05L752,MP05L752,MP05L752,MP07LL7554,MP07LL7554,False,False,False,False,False,False,False,97,422
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0.jpg,MP04PA0434,MAPAAA043,MAPAAA04,MAPAAA043,MP04PA0434,MP04PA0434,False,False,False,True,True,False,False,574,2093
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0.jpg,RJ11GB1829,RJ11GB1889,RJ11GB1829,RJ11GB1889,RJ11GB1889,RJ11GB1889,False,True,False,False,False,True,False,84,160
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70011,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0.jpg,TN58D5353,CW7333,CW7333,CW7333,TK74333322,TK74333322,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0.jpg,KL07BX7197,KL07BX7197,KL07BX719,KL07BX7197,KL07BX7197,KL07BX7197,True,False,True,True,True,True,False,251,457
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0.jpg,UP84AE6664,UP84AE6664,UP84AE666,UP84AE6664,UP84AE6664,UP84AE6664,True,False,True,True,True,True,False,1082,2083
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0.jpg,KL10AG7249,KL10AG7249,KL10AG724,KL10AG7249,KL10AG7249,KL10AG7249,True,False,True,True,True,True,False,407,548
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12210,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0.jpg,RJ11GB8850,R088GB000,R0886800,R088GB000,RU86GB8850,RU86GB8850,False,False,False,False,False,False,False,353,1268
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0.jpg,MP13GA9462,MP13GA9462,MP13GA946,MP13GA9462,MP13GA9462,MP13GA9462,True,False,True,True,True,True,False,182,400
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_truck_image_001561_IEhCyPTs_obj0.jpg,MH18AA1002,MHAAA1002,MHA8A100,MHAAA1002,MH68AA0022,MH68AA0022,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001564_RZeQ1TZR_obj0.jpg,KA01AJ7533,KA01AJ753,KA01AJ753,KA01AJ753,KA01AJ7533,KA01AJ753,False,False,False,True,False,False,False,139,383
+challenge_Datacluster_number_plates (1)_obj0.jpg,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,True,True,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (101)_obj0.jpg,MH24MPL4282,MPMGG244,MPMGG244,MPMGG244,MPGGMG2446,MPGGMG2446,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (11)_obj0.jpg,DL3CBL1234,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (16)_obj0.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (18)_obj0.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L4547,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (4)_obj0.jpg,HR26BC7890,B2090726,B209072,B2090726,BR09072667,BR09072667,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (5)_obj0.jpg,KA04MH2345,4388,4338,4388,U38883,4388,False,False,False,False,False,True,False,873,1836
+live_crop_cam1_1789492231910_cand0.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492234498_cand0.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,True,False,False,True,True,False,True,45,123
+live_crop_cam1_1789492235502_cand0.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,False,50,127
+live_crop_cam1_1789492238497_cand0.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV886,False,False,False,True,False,False,False,50,129
+live_crop_cam1_1789492252501_cand0.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,138
+live_crop_cam1_1789492259500_cand0.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AY8866,MH01AY8866,True,False,True,False,False,False,False,59,191
+voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_blur.jpg,KL34A465,KL340465,KL340465,KL340465,KL34A465,KL340465,False,False,False,True,False,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_dim.jpg,KL34A465,KL340465,KL340465,KL340465,KL34D465,KL34D465,False,False,False,False,False,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_contrast.jpg,KL34A465,KL340465,KL340465,KL340465,KL34A465,KL34A465,False,False,False,True,True,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_jpeg.jpg,KL34A465,KL34A465,KL34A465,KL34A465,KL34A465,KL34A465,True,True,True,True,True,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj0_aug_rot.jpg,KL34A465,KL340465,KL340465,KL340465,KL34D465,KL340465,False,False,False,False,False,True,True,47,66
+voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_blur.jpg,KL34A465,,,,14455,,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_dim.jpg,KL34A465,TA5445,TA5455,TA5445,TA54455,TA5445,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_contrast.jpg,KL34A465,T45445,T45445,T45445,TA54455,T45445,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_jpeg.jpg,KL34A465,AA4455,AA455,AA4455,TA414555,TA414555,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj1_aug_rot.jpg,KL34A465,AA4455,AA4455,AA4455,TX444555,TX444555,False,False,False,False,False,True,False,54,31
+voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_blur.jpg,KL34F,KL34F,KL34F,KL34F,KL34FF,KL34F,True,True,True,False,True,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_dim.jpg,KL34F,KL34F,KL34F,KL34FF,KL34IF,KL34F,True,True,False,False,True,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_contrast.jpg,KL34F,KL34F,KL34F,KL34F,KL34FF,KL34F,True,True,True,False,True,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_jpeg.jpg,KL34F,KL344F,KL344F,KL0N4F,KL034FFF5,KL034FFF5,False,False,False,False,False,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj2_aug_rot.jpg,KL34F,KL34F,KL34F,KL34F,KL34IF5,KL34IF5,True,True,True,False,False,True,True,23,53
+voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_blur.jpg,KL35F4337,KL35F4337,KL35F433,KL35F4337,KL35F4337,KL35F4337,True,False,True,True,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_dim.jpg,KL35F4337,KL35F4337,KL35F433,KL35F4337,KL35F4337,KL35F4337,True,False,True,True,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_contrast.jpg,KL35F4337,KL35F4337,KL35F433,KL35F4337,KL35F4337,KL35F4337,True,False,True,True,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_jpeg.jpg,KL35F4337,KL35F433,KL35F433,KL35F433,KL35F4337,KL35F4337,False,False,False,True,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj3_aug_rot.jpg,KL35F4337,KL35F4337,KL35F433,KL35F4337,KL35F43377,KL35F4337,True,False,True,False,True,False,True,44,121
+voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_blur.jpg,KL35H5834,KL35H5834,KL35H583,KL35H5834,KL35H58334,KL35H5834,True,False,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_dim.jpg,KL35H5834,KL35H5834,KL35H5834,KL35H5834,KL35H58344,KL35H5834,True,True,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_contrast.jpg,KL35H5834,KL35H5834,KL35H583,KL35H5834,KL35H58344,KL35H5834,True,False,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_jpeg.jpg,KL35H5834,KL35H5834,KL35H583,KL35H5834,KL35H58344,KL35H5834,True,False,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj4_aug_rot.jpg,KL35H5834,KL35H5834,KL35H583,KL35H5834,KL35H58344,KL35H5834,True,False,True,False,True,True,False,218,412
+voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_blur.jpg,KL03S6894,CL03080,LL13080,CL03080,LL130803,LL130803,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_dim.jpg,KL03S6894,L1D8000,L1D8860,L1D8000,L113080355,L113080355,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_contrast.jpg,KL03S6894,CL030804,KL03086,CL030804,KL0308594,KL0308594,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_jpeg.jpg,KL03S6894,1103080,1103000,1103080,IT03J80223,IT03J80223,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000021_bMXgvtud5K_obj5_aug_rot.jpg,KL03S6894,CL030800,CL03080,CL030800,KL0308033,KL0308033,False,False,False,False,False,True,True,48,76
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_blur.jpg,UP84AE9889,UP84AE9889,UP8EAE9889,UP84AE9889,UP84AE9889,UP84AE9889,True,False,True,True,True,True,False,128,272
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_dim.jpg,UP84AE9889,UP84AE9889,UP84AE9889,UP84AE9889,UP84AE9889,UP84AE9889,True,True,True,True,True,True,False,128,272
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_contrast.jpg,UP84AE9889,UP84AE9889,UP8EAE9889,UP84AE9889,UP84AE9889,UP84AE9889,True,False,True,True,True,True,False,128,272
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_jpeg.jpg,UP84AE9889,UP8EAE9889,UPAEAE988,UP8EAE9889,UP8PAE9889,UP8PAE9889,False,False,False,False,False,True,False,128,272
+voc_dc_auto_image_000024_fqvRhfiO6i_obj0_aug_rot.jpg,UP84AE9889,UP84AE9889,UP8EAE9889,UP84AE9889,UP84AE9889,UP84AE9889,True,False,True,True,True,True,False,128,272
+voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_blur.jpg,GJ01DY6855,G0110665,50110665,G0100665,GJ100Y6855,GJ100Y6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_dim.jpg,GJ01DY6855,G0110665,G011066,G0100665,GJ010Y6855,GJ010Y6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_contrast.jpg,GJ01DY6855,G0100665,G010066,G0010665,GJ010Y6855,GJ010Y6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_jpeg.jpg,GJ01DY6855,G010Y685,S010Y685,GJ10Y685,GJ01YY6855,GJ01YY6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000033_XUH0eV452t_obj0_aug_rot.jpg,GJ01DY6855,GJ110665,G011066,G0100665,GJ010Y6855,GJ010Y6855,False,False,False,False,False,False,True,32,98
+voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_blur.jpg,KL498262,K4498826,24498262,K4498826,RL44992262,RL44992262,False,False,False,False,False,False,False,102,307
+voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_dim.jpg,KL498262,K4448862,2444826,K4448862,KL44992262,KL44992262,False,False,False,False,False,False,False,102,307
+voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_contrast.jpg,KL498262,K4498262,K4498262,K4498262,KL4482266,KL4482266,False,False,False,False,False,False,False,102,307
+voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_jpeg.jpg,KL498262,K4498262,24498262,K4498262,KL44992262,KL44992262,False,False,False,False,False,False,False,102,307
+voc_dc_bus_image_000039_9NispLHmAo_obj0_aug_rot.jpg,KL498262,K4448866,K4498862,K4448866,KL44992662,KL44992662,False,False,False,False,False,False,False,102,307
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_blur.jpg,WB42AX7446,WB42AX7446,WB42A7444,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_dim.jpg,WB42AX7446,WB42AX7446,WB42A7444,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_contrast.jpg,WB42AX7446,WB42AX7446,WB42A7444,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_jpeg.jpg,WB42AX7446,WB42AX7446,WB22A7444,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RBAQHKIXQMDFYZD_obj0_aug_rot.jpg,WB42AX7446,WB42AX7446,WB42A7444,WB42AX7446,WB42AX7446,WB42AX7446,True,False,True,True,True,False,False,206,678
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_blur.jpg,MP07L7524,MP07L7524,MP07L752,MP07L7524,MP07L77524,MP07L7524,True,False,True,False,True,False,False,97,422
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_dim.jpg,MP07L7524,MP05L752,MP05L75,MP05L752,MP07ZL7554,MP07ZL7554,False,False,False,False,False,False,False,97,422
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_contrast.jpg,MP07L7524,MP07L7522,MP07L752,MP07L7522,MP07LL7554,MP07LL7554,False,False,False,False,False,False,False,97,422
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_jpeg.jpg,MP07L7524,MP07L752,MP07L752,MP07L752,MP07LL7554,MP07LL7554,False,False,False,False,False,False,False,97,422
+voc_dc_license_plates_0RRPJCID3RRLSFTI_obj0_aug_rot.jpg,MP07L7524,MP07L7522,MP07L752,MP07L7522,MP07L77554,MP07L7522,False,False,False,False,False,False,False,97,422
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_blur.jpg,MP04PA0434,MAPAAA043,MAPAAA04,MAPAAA043,MP04PA0434,MP04PA0434,False,False,False,True,True,False,False,574,2093
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_dim.jpg,MP04PA0434,MP9APA043,MP9APA04,MP9APA043,MP04PA0434,MP04PA0434,False,False,False,True,True,False,False,574,2093
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_contrast.jpg,MP04PA0434,MAPAPA043,MAPAAA04,MAPAPA043,MP04PA0434,MP04PA0434,False,False,False,True,True,False,False,574,2093
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_jpeg.jpg,MP04PA0434,MAPPAA043,MAPAAA0,MAPPAA043,MP04PA0434,MP04PA0434,False,False,False,True,True,False,False,574,2093
+voc_dc_license_plates_2D9KWCA7PLD0NW31_obj0_aug_rot.jpg,MP04PA0434,MPPAPA0434,MPPAPA04,MPPAPA0434,MPP4PA0434,MPP4PA0434,False,False,False,False,False,False,False,574,2093
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_blur.jpg,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,True,True,True,True,True,True,False,84,160
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_dim.jpg,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,True,True,True,True,True,True,False,84,160
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_contrast.jpg,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1889,RJ11GB1889,True,True,True,False,False,True,False,84,160
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_jpeg.jpg,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1889,RJ11GB1889,True,True,True,False,False,True,False,84,160
+voc_dc_license_plates_2DZ4YT4ZJ9XJZSO0_obj0_aug_rot.jpg,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,RJ11GB1829,True,True,True,True,True,True,False,84,160
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_blur.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70011,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_dim.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70011,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_contrast.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70011,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_jpeg.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70011,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3GKHBM5PWHYXHMTE_obj0_aug_rot.jpg,KL41L7001,KL41L7001,KL41L7001,KL41L7001,KL41L70001,KL41L7001,True,True,True,False,True,False,False,137,507
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_blur.jpg,TN58D5353,FW7333,FW7333,FW7333,TN7N333322,TN7N333322,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_dim.jpg,TN58D5353,7N3333,7N3333,7N3333,7N71333322,7N71333322,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_contrast.jpg,TN58D5353,CK7N33,CK7N33,CK7N33,CK7N333322,CK7N333322,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_jpeg.jpg,TN58D5353,CK7N33,CK7333,CK7N33,TK7N333322,TK7N333322,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_3HE1J0YIRGRDENVO_obj0_aug_rot.jpg,TN58D5353,TW7N33,TW7N33,TW7N33,TV7N377727,TV7N377727,False,False,False,False,False,True,False,548,900
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_blur.jpg,KL07BX7197,KL07BX7197,KL07BX719,KL07BX7197,KL07BX7197,KL07BX7197,True,False,True,True,True,True,False,251,457
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_dim.jpg,KL07BX7197,KL07BX719,KL07BX719,KL07BX719,KL07BX7197,KL07BX7197,False,False,False,True,True,True,False,251,457
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_contrast.jpg,KL07BX7197,KL07BX7197,KL07BX719,KL07BX7197,KL07BX7197,KL07BX7197,True,False,True,True,True,True,False,251,457
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_jpeg.jpg,KL07BX7197,KL07BX719,KL078X719,KL07BX719,KL07BX7197,KL07BX7197,False,False,False,True,True,True,False,251,457
+voc_dc_license_plates_7K9NEIDD2KK46L6F_obj0_aug_rot.jpg,KL07BX7197,KL07BX7197,KL07BX719,KL07BX7197,KL07BX7197,KL07BX7197,True,False,True,True,True,True,False,251,457
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_blur.jpg,UP84AE6664,UP84AE6664,UP84AE666,UP84AE6664,UP84AE6664,UP84AE6664,True,False,True,True,True,True,False,1082,2083
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_dim.jpg,UP84AE6664,UP84AE6664,UP84AE666,UP84AE6664,UP84AE6664,UP84AE6664,True,False,True,True,True,True,False,1082,2083
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_contrast.jpg,UP84AE6664,UP84AE666,UP84AE666,UP84AE666,UP84AE6664,UP84AE6664,False,False,False,True,True,True,False,1082,2083
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_jpeg.jpg,UP84AE6664,UP84AE6664,UP84AE666,UP84AE6664,UP84AE6664,UP84AE6664,True,False,True,True,True,True,False,1082,2083
+voc_dc_license_plates_7L53OMODJOLUGUOE_obj0_aug_rot.jpg,UP84AE6664,UP84AE666,UP84AE666,UP84AE666,UP82AE6664,UP82AE6664,False,False,False,False,False,True,False,1082,2083
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_blur.jpg,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,True,True,True,True,True,True,False,407,548
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_dim.jpg,KL10AG7249,KL10AG7249,KL10AG724,KL10AG7249,KL10AG7249,KL10AG7249,True,False,True,True,True,True,False,407,548
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_contrast.jpg,KL10AG7249,KL10AG7249,KL10AG724,KL10AG7249,KL10AG7249,KL10AG7249,True,False,True,True,True,True,False,407,548
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_jpeg.jpg,KL10AG7249,KL10AG7249,KL10AG724,KL10AG7249,KL10AG7249,KL10AG7249,True,False,True,True,True,True,False,407,548
+voc_dc_license_plates_VTPRN3NAPF8MUGNF_obj0_aug_rot.jpg,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,KL10AG7249,True,True,True,True,True,True,False,407,548
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_blur.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_dim.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_contrast.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_jpeg.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VYA8KOAVKLW6PJYK_obj0_aug_rot.jpg,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,TN58AP5280,True,True,True,True,True,True,False,205,309
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_blur.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12110,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_dim.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12210,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_contrast.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12110,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_jpeg.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12210,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_VZUYOAPZ8633ZQTN_obj0_aug_rot.jpg,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD1210,DL3CD12200,DL3CD1210,True,True,True,False,True,False,False,107,362
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_blur.jpg,RJ11GB8850,R088GB800,R0886B03,R088GB800,RU86GB8850,RU86GB8850,False,False,False,False,False,False,False,353,1268
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_dim.jpg,RJ11GB8850,R0886B800,R088680,R0886B800,RU16GB8850,RU16GB8850,False,False,False,False,False,False,False,353,1268
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_contrast.jpg,RJ11GB8850,R088GB8000,R0886B066,R088GB8000,RU16GB8880,RU16GB8880,False,False,False,False,False,False,False,353,1268
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_jpeg.jpg,RJ11GB8850,RD886B800,RD8868000,RD886B800,RU86GB8850,RU86GB8850,False,False,False,False,False,False,False,353,1268
+voc_dc_license_plates_W1W3000C6IAY3F1X_obj0_aug_rot.jpg,RJ11GB8850,R018GB066,RO166B06,R018GB066,RG11GB8850,RG11GB8850,False,False,False,False,False,False,False,353,1268
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_blur.jpg,MP13GA9462,MP13GA9462,MP13GA946,MP13GA9462,MP13GA9462,MP13GA9462,True,False,True,True,True,True,False,182,400
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_dim.jpg,MP13GA9462,MP13GA9462,MP13GA446,MP13GA9462,MP13GA9452,MP13GA9452,True,False,True,False,False,True,False,182,400
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_contrast.jpg,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,True,True,True,True,True,True,False,182,400
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_jpeg.jpg,MP13GA9462,MP13GA9462,MP13GA446,MP13GA9462,MP13GA9462,MP13GA9462,True,False,True,True,True,True,False,182,400
+voc_dc_tempo_van__image_000489_73h4cMU8Z1_obj0_aug_rot.jpg,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,MP13GA9462,True,True,True,True,True,True,False,182,400
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_blur.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_dim.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_contrast.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_jpeg.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_tempo_van__image_000490_CF9bwJsyoX_obj0_aug_rot.jpg,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,KA09C2763,True,True,True,True,True,False,False,75,257
+voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_blur.jpg,MH18AA1002,MHA8A1002,MH10A100,MHA8A1002,MH68AA1022,MH68AA1022,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_dim.jpg,MH18AA1002,MHAAA100,MH10A100,MHAAA100,MH68AA0022,MH68AA0022,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_contrast.jpg,MH18AA1002,MH68A1002,MH68A100,MH68A1002,MH68AA1022,MH68AA1022,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_jpeg.jpg,MH18AA1002,MHAAA1002,MH10A100,MHAAA1002,MH68AA1022,MH68AA1022,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001561_IEhCyPTs_obj0_aug_rot.jpg,MH18AA1002,MH100100,MH10020,MH100100,MH18AA0002,MH18AA0002,False,False,False,False,False,True,False,186,340
+voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_blur.jpg,KA01AJ7533,KA01AJ753,KA01AJ753,KA01AJ753,KA01AJ7533,KA01AJ753,False,False,False,True,False,False,False,139,383
+voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_dim.jpg,KA01AJ7533,KA01AJ753,KAO1AJ753,KA01AJ753,KA01AJ7553,KA01AJ7553,False,False,False,False,False,False,False,139,383
+voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_contrast.jpg,KA01AJ7533,KA01AJ753,KA01AJ753,KA01AJ753,KA01AJ7533,KA01AJ7533,False,False,False,True,True,False,False,139,383
+voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_jpeg.jpg,KA01AJ7533,KA01AJ753,KA01AJ753,KA01AJ753,KA01AJ7539,KA01AJ753,False,False,False,False,False,False,False,139,383
+voc_dc_truck_image_001564_RZeQ1TZR_obj0_aug_rot.jpg,KA01AJ7533,K401AJ753,K401AJ753,K401AJ753,KA01AJ7533,KA01AJ7533,False,False,False,True,True,False,False,139,383
+challenge_Datacluster_number_plates (1)_obj0_aug_blur.jpg,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,True,True,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (1)_obj0_aug_dim.jpg,AP29AN0074,AP29AN0074,AP29AN007,AP29AN0074,AP29AN0074,AP29AN0074,True,False,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (1)_obj0_aug_contrast.jpg,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,True,True,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (1)_obj0_aug_jpeg.jpg,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,AP29AN0074,True,True,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (1)_obj0_aug_rot.jpg,AP29AN0074,AP29AN0074,AP29AN007,AP29AN0074,AP29AN0074,AP29AN0074,True,False,True,True,True,True,False,612,765
+challenge_Datacluster_number_plates (101)_obj0_aug_blur.jpg,MH24MPL4282,MPMGG244,MPMGG244,MPMGG244,MPGGMG2446,MPGGMG2446,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (101)_obj0_aug_dim.jpg,MH24MPL4282,MPMGG244,MPMGG244,MPMGG244,MP4GMG2446,MP4GMG2446,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (101)_obj0_aug_contrast.jpg,MH24MPL4282,MPMGG224,MPMGG244,MPMGG224,MP98MM2246,MP98MM2246,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (101)_obj0_aug_jpeg.jpg,MH24MPL4282,MPMGG244,MPMGG24,MPMGG244,MPGGMG2446,MPGGMG2446,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (101)_obj0_aug_rot.jpg,MH24MPL4282,MPMGG28,MPMGG24,MPMGG28,MPG2MG2246,MPG2MG2246,False,False,False,False,False,True,False,291,713
+challenge_Datacluster_number_plates (11)_obj0_aug_blur.jpg,DL3CBL1234,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (11)_obj0_aug_dim.jpg,DL3CBL1234,JH05AW2117,JH05AW21,JH05AW2117,JH05AW2117,JH05AW2117,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (11)_obj0_aug_contrast.jpg,DL3CBL1234,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (11)_obj0_aug_jpeg.jpg,DL3CBL1234,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,JH05AW2117,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (11)_obj0_aug_rot.jpg,DL3CBL1234,JH05AW2177,JH05AW2177,JH05AW2177,JH05AW2177,JH05AW2177,False,False,False,False,False,True,False,612,1060
+challenge_Datacluster_number_plates (16)_obj0_aug_blur.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (16)_obj0_aug_dim.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (16)_obj0_aug_contrast.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (16)_obj0_aug_jpeg.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (16)_obj0_aug_rot.jpg,AP09BN8123,KL02BM4659,KLO2BM4659,KL02BM4659,KL02BM4659,KL02BM4659,False,False,False,False,False,False,False,291,1059
+challenge_Datacluster_number_plates (18)_obj0_aug_blur.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L4547,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (18)_obj0_aug_dim.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L4547,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (18)_obj0_aug_contrast.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L4547,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (18)_obj0_aug_jpeg.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L4547,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (18)_obj0_aug_rot.jpg,DL1YB6543,TN23L4547,TN23L4547,TN23L4547,TN23L45477,TN23L4547,False,False,False,False,False,False,False,331,882
+challenge_Datacluster_number_plates (4)_obj0_aug_blur.jpg,HR26BC7890,B2090726,6209072,B2090726,BR09072667,BR09072667,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (4)_obj0_aug_dim.jpg,HR26BC7890,B20907267,B2090726,B20907267,BR09072657,BR09072657,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (4)_obj0_aug_contrast.jpg,HR26BC7890,B2090726,6209072,B2090726,BR09072667,BR09072667,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (4)_obj0_aug_jpeg.jpg,HR26BC7890,B2090726,6209072,B2090726,BR09072667,BR09072667,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (4)_obj0_aug_rot.jpg,HR26BC7890,6209072,6209072,6209072,BR09072667,BR09072667,False,False,False,False,False,False,False,181,492
+challenge_Datacluster_number_plates (5)_obj0_aug_blur.jpg,KA04MH2345,4388,4388,4388,U38883,4388,False,False,False,False,False,True,False,873,1836
+challenge_Datacluster_number_plates (5)_obj0_aug_dim.jpg,KA04MH2345,4388,4388,4388,U38843,4388,False,False,False,False,False,True,False,873,1836
+challenge_Datacluster_number_plates (5)_obj0_aug_contrast.jpg,KA04MH2345,4388,4388,4388,U38843,4388,False,False,False,False,False,True,False,873,1836
+challenge_Datacluster_number_plates (5)_obj0_aug_jpeg.jpg,KA04MH2345,43888,4338,43888,U388838,43888,False,False,False,False,False,True,False,873,1836
+challenge_Datacluster_number_plates (5)_obj0_aug_rot.jpg,KA04MH2345,4388,4388,4388,43884,4388,False,False,False,False,False,True,False,873,1836
+live_crop_cam1_1789492231910_cand0_aug_blur.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492231910_cand0_aug_dim.jpg,MH01AV8866,MH01AY886,MH01AV886,MH01AY886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492231910_cand0_aug_contrast.jpg,MH01AV8866,MH01AY8866,MHO1AY886,MH01AY8866,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492231910_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492231910_cand0_aug_rot.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,True,48,129
+live_crop_cam1_1789492234498_cand0_aug_blur.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,True,45,123
+live_crop_cam1_1789492234498_cand0_aug_dim.jpg,MH01AV8866,MH01AV886,MH01AV88,MH01AV886,MH01AV8866,MH01AV886,False,False,False,True,False,False,True,45,123
+live_crop_cam1_1789492234498_cand0_aug_contrast.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,True,45,123
+live_crop_cam1_1789492234498_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,True,45,123
+live_crop_cam1_1789492234498_cand0_aug_rot.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,True,45,123
+live_crop_cam1_1789492235502_cand0_aug_blur.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,False,50,127
+live_crop_cam1_1789492235502_cand0_aug_dim.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,False,50,127
+live_crop_cam1_1789492235502_cand0_aug_contrast.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,127
+live_crop_cam1_1789492235502_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,False,50,127
+live_crop_cam1_1789492235502_cand0_aug_rot.jpg,MH01AV8866,MH01AV886,MH11AV88,MH01AV886,MH01AV8866,MH01AV8866,False,False,False,True,True,False,False,50,127
+live_crop_cam1_1789492238497_cand0_aug_blur.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AY8866,False,False,False,False,False,False,False,50,129
+live_crop_cam1_1789492238497_cand0_aug_dim.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AY8866,MH01AV886,False,False,False,False,False,False,False,50,129
+live_crop_cam1_1789492238497_cand0_aug_contrast.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,129
+live_crop_cam1_1789492238497_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV886,False,False,False,True,False,False,False,50,129
+live_crop_cam1_1789492238497_cand0_aug_rot.jpg,MH01AV8866,MH01AV886,MH01AV886,MH01AV886,MH01AV8866,MH01AV886,False,False,False,True,False,False,False,50,129
+live_crop_cam1_1789492252501_cand0_aug_blur.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,138
+live_crop_cam1_1789492252501_cand0_aug_dim.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AY8866,MH01AV8866,True,False,True,False,True,False,False,50,138
+live_crop_cam1_1789492252501_cand0_aug_contrast.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,138
+live_crop_cam1_1789492252501_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,138
+live_crop_cam1_1789492252501_cand0_aug_rot.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AV8866,MH01AV8866,True,False,True,True,True,False,False,50,138
+live_crop_cam1_1789492259500_cand0_aug_blur.jpg,MH01AV8866,MH01AY8866,MH01AY886,MH01AY8866,MH01AY8866,MH01AY8866,False,False,False,False,False,False,False,59,191
+live_crop_cam1_1789492259500_cand0_aug_dim.jpg,MH01AV8866,MH01AY8866,MH01AY886,MH01AY8866,MH01AY8866,MH01AY8866,False,False,False,False,False,False,False,59,191
+live_crop_cam1_1789492259500_cand0_aug_contrast.jpg,MH01AV8866,MH01AV8866,MH01AV8866,MH01AV8866,MH01AV8866,MH01AV8866,True,True,True,True,True,False,False,59,191
+live_crop_cam1_1789492259500_cand0_aug_jpeg.jpg,MH01AV8866,MH01AV8866,MH01AV886,MH01AV8866,MH01AY8866,MH01AY8866,True,False,True,False,False,False,False,59,191
+live_crop_cam1_1789492259500_cand0_aug_rot.jpg,MH01AV8866,MH01AV8866,MHO1AV886,MH01AV8866,MH01AY8866,MH01AY8866,True,False,True,False,False,False,False,59,191

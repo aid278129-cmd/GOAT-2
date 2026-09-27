@@ -1,0 +1,56 @@
+{
+  "ppocr_v4": {
+    "exact_pct": 43.42,
+    "exact_count": 99,
+    "char_acc_pct": 74.35,
+    "avg_edit_dist": 2.46,
+    "avg_latency_ms": 72.8
+  },
+  "fastplate_pretrained": {
+    "exact_pct": 20.61,
+    "exact_count": 47,
+    "char_acc_pct": 69.15,
+    "avg_edit_dist": 2.98,
+    "avg_latency_ms": 23.1
+  },
+  "fastplate_v1_indian": {
+    "exact_pct": 42.54,
+    "exact_count": 97,
+    "char_acc_pct": 74.12,
+    "avg_edit_dist": 2.48,
+    "avg_latency_ms": 80.9
+  },
+  "fastplate_v2_real": {
+    "exact_pct": 41.23,
+    "exact_count": 94,
+    "char_acc_pct": 75.46,
+    "avg_edit_dist": 2.39,
+    "avg_latency_ms": 69.6
+  },
+  "adaptive_v2_fallback": {
+    "exact_pct": 48.68,
+    "exact_count": 111,
+    "char_acc_pct": 76.4,
+    "avg_edit_dist": 2.3,
+    "avg_latency_ms": 76.5
+  },
+  "layout_breakdown": {
+    "single_line": {
+      "total": 120,
+      "exact_v1": 44,
+      "exact_v2": 48
+    },
+    "two_line": {
+      "total": 108,
+      "exact_v1": 53,
+      "exact_v2": 46
+    },
+    "low_res": {
+      "total": 42,
+      "exact_v1": 12,
+      "exact_v2": 15
+    }
+  },
+  "oracle_pct": 55.26,
+  "oracle_count": 126
+}
