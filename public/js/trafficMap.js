@@ -859,46 +859,115 @@ const TrafficMap = (function () {
         return;
       }
 
-      // Draw polyline connecting sightings
-      const latlngs = validPoints.map((pt) => [pt.lat, pt.lng]);
-      const polyline = L.polyline(latlngs, {
-        color: '#00ff41',
-        weight: 4,
-        dashArray: '6, 6',
-        opacity: 0.9,
-      });
-      state.layers.trajectory.addLayer(polyline);
+      const boundsPoints = [];
 
-      // Add numbered waypoint markers
+      // 1. Draw observed route: Road-aligned solid polyline
+      if (res.roadAligned && res.roadLatLngs && res.roadLatLngs.length > 1) {
+        const roadPolyline = L.polyline(res.roadLatLngs, {
+          color: '#00b4ff',
+          weight: 5,
+          opacity: 0.95,
+          lineCap: 'round',
+          lineJoin: 'round',
+        });
+        roadPolyline.bindPopup(`
+          <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+            <b style="color:#00b4ff;font-size:13px;">Observed Road Route</b>
+            <div>Corridor: <b>${res.roadDistanceKm} km</b> (Road Aligned)</div>
+            <div style="color:#00ff41;">Status: ROAD NETWORK ALIGNED</div>
+          </div>
+        `);
+        state.layers.trajectory.addLayer(roadPolyline);
+        res.roadLatLngs.forEach((pt) => boundsPoints.push(pt));
+      } else {
+        const straightCoords = validPoints.map((pt) => [pt.lat, pt.lng]);
+        if (straightCoords.length > 1) {
+          const fallbackLine = L.polyline(straightCoords, {
+            color: '#ff9500',
+            weight: 2,
+            dashArray: '4, 8',
+            opacity: 0.7,
+          });
+          fallbackLine.bindPopup(`
+            <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+              <b style="color:#ff9500;">Approximate camera connection</b>
+              <div style="color:#ff3b30;">Road route unavailable</div>
+            </div>
+          `);
+          state.layers.trajectory.addLayer(fallbackLine);
+          straightCoords.forEach((pt) => boundsPoints.push(pt));
+        }
+      }
+
+      // 2. Draw predicted routes (dashed road-aligned lines)
+      (res.predictions || []).forEach((pred, pIdx) => {
+        const isPrimary = pIdx === 0;
+        const predRoute = pred.route;
+        if (predRoute && predRoute.latLngs && predRoute.latLngs.length > 1) {
+          const predLine = L.polyline(predRoute.latLngs, {
+            color: isPrimary ? '#00ff41' : '#ffb400',
+            weight: isPrimary ? 4 : 3,
+            opacity: isPrimary ? 0.9 : 0.5,
+            dashArray: isPrimary ? '8, 8' : '4, 6',
+          });
+          predLine.bindPopup(`
+            <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+              <b style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-size:13px;">${isPrimary ? 'Primary Predicted Route' : 'Alternative Predicted Route'}</b>
+              <div>Target: <b>${pred.cameraName}</b> (${pred.location})</div>
+              <div>Probability: <b>${Math.round(pred.probability * 100)}%</b> · Road Dist: <b>${predRoute.distanceKm} km</b></div>
+              <div style="color:var(--amber);">ETA: <b>${pred.etaFormatted}</b></div>
+            </div>
+          `);
+          state.layers.trajectory.addLayer(predLine);
+          predRoute.latLngs.forEach((pt) => boundsPoints.push(pt));
+        }
+
+        if (pred.lat && pred.lng) {
+          const predIcon = L.divIcon({
+            html: `<div style="padding:2px 6px;background:${isPrimary ? '#00ff41' : '#ffb400'};color:#050508;border-radius:10px;font-size:9px;font-weight:800;font-family:'Share Tech Mono',monospace;box-shadow:0 0 10px ${isPrimary ? 'rgba(0,255,65,0.7)' : 'rgba(255,180,0,0.7)'};">${Math.round(pred.probability * 100)}%</div>`,
+            className: '',
+            iconAnchor: [16, 10],
+          });
+          const pMarker = L.marker([pred.lat, pred.lng], { icon: predIcon, zIndexOffset: isPrimary ? 900 : 800 })
+            .bindPopup(`<b>Predicted Node: ${pred.cameraName}</b><br>Probability: ${Math.round(pred.probability * 100)}%<br>ETA: ${pred.etaFormatted}`);
+          state.layers.trajectory.addLayer(pMarker);
+          boundsPoints.push([pred.lat, pred.lng]);
+        }
+      });
+
+      // 3. Add numbered waypoint markers
       validPoints.forEach((pt, idx) => {
+        const isCurrent = idx === validPoints.length - 1;
         const waypointIcon = L.divIcon({
           className: 'trajectory-waypoint',
           html: `
-            <div style="width:24px;height:24px;border-radius:50%;background:#0c0d14;border:2px solid #00ff41;color:#00ff41;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;font-family:'Share Tech Mono',monospace;box-shadow:0 0 10px rgba(0,255,65,0.6);">
+            <div style="width:26px;height:26px;border-radius:50%;background:#0c0d14;border:2px solid ${isCurrent ? '#00ff41' : '#00b4ff'};color:${isCurrent ? '#00ff41' : '#00b4ff'};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;font-family:'Share Tech Mono',monospace;box-shadow:0 0 12px ${isCurrent ? 'rgba(0,255,65,0.8)' : 'rgba(0,180,255,0.6)'};">
               ${idx + 1}
             </div>
           `,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
         });
 
         const timeStr = pt.timestamp ? new Date(pt.timestamp).toLocaleTimeString() : '—';
-        const marker = L.marker([pt.lat, pt.lng], { icon: waypointIcon }).bindPopup(`
+        const marker = L.marker([pt.lat, pt.lng], { icon: waypointIcon, zIndexOffset: isCurrent ? 1000 : 600 }).bindPopup(`
           <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
-            <div style="color:#00ff41;font-weight:700;">Waypoint #${idx + 1} · ${cleanPlate}</div>
+            <div style="color:#00ff41;font-weight:700;">${isCurrent ? '📍 CURRENT LOCATION · ' : ''}Waypoint #${idx + 1} · ${cleanPlate}</div>
             <div>Camera: <b>${pt.cameraId}</b> (${pt.cameraName || ''})</div>
             <div>Time: ${timeStr}</div>
             ${pt.estimatedSpeedKmh ? `<div>Speed to next: <b>${pt.estimatedSpeedKmh} km/h</b></div>` : ''}
           </div>
         `);
         state.layers.trajectory.addLayer(marker);
+        boundsPoints.push([pt.lat, pt.lng]);
       });
 
-      if (fitBounds && latlngs.length > 0) {
-        state.map.fitBounds(latlngs, { padding: [40, 40], maxZoom: 15 });
+      if (fitBounds && boundsPoints.length > 0) {
+        state.map.fitBounds(boundsPoints, { padding: [40, 40], maxZoom: 15 });
       }
 
-      setMapStatus(`Tracking ${cleanPlate} (${validPoints.length} sightings, ${res.totalDistanceKm || 0} km)`);
+      const displayDist = res.roadDistanceKm !== null && res.roadDistanceKm !== undefined ? res.roadDistanceKm : (res.totalDistanceKm || 0);
+      setMapStatus(`Tracking ${cleanPlate} (${validPoints.length} sightings · ${displayDist} km ${res.roadAligned ? 'ROAD ALIGNED' : ''})`);
       updateLegendUI();
     } catch (err) {
       console.warn('Error loading trajectory:', err);

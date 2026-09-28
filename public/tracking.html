@@ -194,44 +194,70 @@ function renderResults(data) {
 
   // Stats
   const stats = document.getElementById('journeyStats');
-  const distStr = data.totalDistanceKm !== undefined && data.totalDistanceKm !== null ? `${data.totalDistanceKm} km` : '—';
+  const roadDist = data.roadDistanceKm !== null && data.roadDistanceKm !== undefined ? data.roadDistanceKm : null;
+  const distStr = roadDist !== null
+    ? `${roadDist} km <span style="font-size:10px;color:var(--green);font-weight:bold;">(ROAD)</span>`
+    : (data.totalDistanceKm !== undefined && data.totalDistanceKm !== null ? `${data.totalDistanceKm} km` : '—');
   const speedStr = data.averageJourneySpeedKmh ? `~${data.averageJourneySpeedKmh} km/h` : '—';
+  const primaryPred = (data.predictions && data.predictions.length > 0) ? data.predictions[0] : null;
+
+  let sessionTabsHtml = '';
+  if (data.journeys && data.journeys.length > 1) {
+    sessionTabsHtml = `
+      <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:8px; padding:8px 12px; background:rgba(0,180,255,0.08); border-radius:6px; margin-bottom:4px;">
+        <span style="font-size:11px; font-weight:700; color:#00b4ff; font-family:var(--mono);">TRIP SESSIONS (${data.journeys.length}):</span>
+        ${data.journeys.map((j, jidx) => `
+          <button onclick="selectJourneySession('${data.plate}', '${j.journeyId}')" style="background:${j.journeyId === data.journeyId ? 'var(--green)' : 'rgba(255,255,255,0.06)'}; color:${j.journeyId === data.journeyId ? '#050508' : '#dde2ec'}; border:none; padding:4px 10px; border-radius:4px; font-size:11px; cursor:pointer; font-weight:${j.journeyId === data.journeyId ? '800' : '600'}; font-family:var(--mono);">
+            ${j.isActive ? '⚡ Active Trip' : `Trip #${jidx + 1}`} (${j.sightingsCount} sights · ${j.durationMinutes}m)
+          </button>
+        `).join('')}
+      </div>
+    `;
+  }
+
   stats.innerHTML = `
+    ${sessionTabsHtml}
     <div class="stat-card">
       <div class="stat-label">Registration</div>
       <div class="stat-value" style="font-size:18px;color:var(--green)">${data.plate}</div>
+      <div class="stat-meta" style="color:var(--cyan);font-weight:bold;">${data.journeyId || 'Active Session'}</div>
     </div>
     <div class="stat-card blue">
-      <div class="stat-label">Total Sightings</div>
+      <div class="stat-label">Session Sightings</div>
       <div class="stat-value blue">${data.totalSightings}</div>
+      <div class="stat-meta">of ${data.allSightingsCount || data.totalSightings} total recorded</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Total Distance</div>
+      <div class="stat-label">Road Distance</div>
       <div class="stat-value" style="font-size:18px;color:#00b4ff">${distStr}</div>
+      <div class="stat-meta">${data.roadAligned ? '🛣️ Road Network Aligned' : '📐 Geodesic Approximation'}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">First Seen</div>
+      <div class="stat-label">Session Start</div>
       <div class="stat-value" style="font-size:15px">${new Date(data.firstSeen).toTimeString().slice(0,8)}</div>
       <div class="stat-meta">${new Date(data.firstSeen).toLocaleDateString('en-IN')}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Last Seen</div>
+      <div class="stat-label">Session End</div>
       <div class="stat-value" style="font-size:15px">${new Date(data.lastSeen).toTimeString().slice(0,8)}</div>
       <div class="stat-meta">${new Date(data.lastSeen).toLocaleDateString('en-IN')}</div>
     </div>
     <div class="stat-card amber">
-      <div class="stat-label">Travel Time</div>
+      <div class="stat-label">Trip Duration</div>
       <div class="stat-value amber">${data.totalTravelTimeMinutes || data.totalMinutes || 0}</div>
       <div class="stat-meta">minutes (${data.totalTravelTimeSeconds || 0}s)</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Avg Journey Speed</div>
       <div class="stat-value" style="font-size:18px;color:var(--amber)">${speedStr}</div>
+      <div class="stat-meta">${data.averageJourneySpeedKmh ? 'Active Trip Telemetry' : 'Stationary / Initial'}</div>
     </div>
     <div class="stat-card">
-      <div class="stat-label">Cameras Hit</div>
-      <div class="stat-value">${data.cameras.length}</div>
-      <div class="stat-meta">${data.cameras.join(' → ')}</div>
+      <div class="stat-label">Predicted Next Node</div>
+      <div class="stat-value" style="font-size:15px;color:var(--green)">
+        ${primaryPred ? `${primaryPred.cameraName} (${Math.round(primaryPred.probability * 100)}%)` : 'End of Corridor'}
+      </div>
+      <div class="stat-meta">${primaryPred ? `ETA: ~${primaryPred.etaFormatted} · ${primaryPred.route ? primaryPred.route.distanceKm + ' km' : ''}` : 'No forward route'}</div>
     </div>
   `;
 
@@ -240,106 +266,182 @@ function renderResults(data) {
 
   // Map
   initMap();
-  renderMap(data.trail);
+  renderMap(data);
 
   // Table
   renderTable(data.trail);
-  document.getElementById('detTableCount').textContent = `${data.trail.length} sightings`;
+  document.getElementById('detTableCount').textContent = `${data.trail.length} sightings in current trip`;
 }
 
-function renderTimeline(trail, segments) {
-  const container = document.getElementById('timelineContainer');
-  let html = '<div class="timeline" style="display:flex;flex-direction:column;gap:14px;">';
-  trail.forEach((det, i) => {
-    const time = new Date(det.timestamp).toTimeString().slice(0,8);
-    const conf = Math.round(det.confidence * 100);
-
-    if (i > 0 && segments && segments[i - 1]) {
-      const seg = segments[i - 1];
-      const segDist = seg.distanceKm !== null && seg.distanceKm !== undefined ? `${seg.distanceKm} km` : '—';
-      const segTime = seg.travelTimeSeconds !== null && seg.travelTimeSeconds !== undefined
-        ? (seg.travelTimeSeconds >= 60 ? `${Math.round(seg.travelTimeSeconds / 60)} min (${seg.travelTimeSeconds}s)` : `${seg.travelTimeSeconds}s`)
-        : '—';
-      const segSpeed = seg.estimatedSpeedKmh !== null && seg.estimatedSpeedKmh !== undefined
-        ? `~${seg.estimatedSpeedKmh} km/h`
-        : '—';
-
-      let badge = '';
-      if (seg.anomaly && seg.anomaly.type === 'IMPOSSIBLE_TRAVEL') {
-        badge = `<span class="badge danger" style="margin-left:6px;font-size:9px;">⚠️ IMPOSSIBLE TRAVEL (~${seg.estimatedSpeedKmh} km/h)</span>`;
-      } else if (seg.isSameCamera) {
-        badge = `<span class="badge dim" style="margin-left:6px;font-size:9px;">SAME CAMERA OBSERVATION</span>`;
-      }
-
-      html += `
-        <div style="margin-left:24px;padding:8px 12px;background:rgba(0,180,255,0.06);border-left:2px solid #00b4ff;border-radius:4px;font-family:var(--mono);font-size:11px;color:var(--text-dim);">
-          <div style="color:#00b4ff;font-weight:600;margin-bottom:2px;">↓ Leg ${i}: ${seg.fromCameraName} → ${seg.toCameraName}</div>
-          <div>📏 Distance: <b style="color:#dde2ec">${segDist}</b> · ⏱ Time: <b style="color:#dde2ec">${segTime}</b> · ⚡ Est. Avg Speed: <b style="color:var(--amber)">${segSpeed}</b> ${badge}</div>
-        </div>
-      `;
+async function selectJourneySession(plate, journeyId) {
+  try {
+    const data = await fetch(`/api/detections/trajectory/${plate}?journeyId=${encodeURIComponent(journeyId)}`).then(r => r.json());
+    if (data.found) {
+      renderResults(data);
     }
-
-    html += `
-      <div class="timeline-item">
-        <div class="timeline-dot">${i+1}</div>
-        <div class="timeline-content">
-          <div class="timeline-cam">${i+1}. ${det.cameraName} ${det.cameraLocation ? '— ' + det.cameraLocation : ''}</div>
-          <div class="timeline-meta">${det.location ? det.location + ' · ' : ''}${time} · ${conf}% conf · ${det.vehicleType}</div>
-        </div>
-      </div>
-    `;
-  });
-  html += '</div>';
-  container.innerHTML = html;
+  } catch (err) {
+    console.error('Session switch error:', err);
+  }
 }
 
-function renderMap(trail) {
+function renderMap(data) {
   // Clear previous layers (except base tiles + camera dots)
   map.eachLayer(layer => {
     if (layer._isTrajectoryLayer) map.removeLayer(layer);
   });
 
+  const trail = data.trail || data.points || [];
   const coords = [...new Map(trail.map(d => [d.cameraId, [d.lat, d.lng]])).values()];
-  const unique  = trail.filter((d,i,arr) => arr.findIndex(x => x.cameraId === d.cameraId) === i);
+  const unique = trail.filter((d,i,arr) => arr.findIndex(x => x.cameraId === d.cameraId) === i);
 
-  // Trajectory polyline
-  if (coords.length > 1) {
-    const line = L.polyline(coords, {
-      color: '#00ff41', weight: 3, opacity: 0.7,
-      dashArray: '8 5',
+  const boundsPoints = [];
+
+  // 1. Observed Trajectory: Road-aligned solid polyline
+  if (data.roadAligned && data.roadLatLngs && data.roadLatLngs.length > 1) {
+    const roadLine = L.polyline(data.roadLatLngs, {
+      color: '#00b4ff', // cyan solid road polyline
+      weight: 5,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round',
     });
-    line._isTrajectoryLayer = true;
-    line.addTo(map);
+    roadLine._isTrajectoryLayer = true;
+    roadLine.addTo(map).bindPopup(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+        <b style="color:#00b4ff;font-size:13px">Observed Road Route</b>
+        <div style="color:#dde2ec;margin-top:2px">Road-aligned physical corridor</div>
+        <div style="color:#4a5570">Road Distance: <b>${data.roadDistanceKm} km</b></div>
+        <div style="color:#00ff41">Status: ROAD NETWORK ALIGNED</div>
+      </div>
+    `);
+    data.roadLatLngs.forEach(pt => boundsPoints.push(pt));
+  } else if (coords.length > 1) {
+    // FALLBACK ONLY: Clearly labelled approximate connector
+    const fallbackLine = L.polyline(coords, {
+      color: '#ff9500',
+      weight: 2,
+      opacity: 0.7,
+      dashArray: '4, 8',
+    });
+    fallbackLine._isTrajectoryLayer = true;
+    fallbackLine.addTo(map).bindPopup(`
+      <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+        <b style="color:#ff9500">Approximate camera connection</b>
+        <div style="color:#ff3b30">Road route unavailable</div>
+      </div>
+    `);
+    coords.forEach(pt => boundsPoints.push(pt));
   }
 
-  // Highlight detected cameras
+  // 2. Predicted Next Camera Routes (Dashed road-aligned lines)
+  const predictions = data.predictions || [];
+  predictions.forEach((pred, pIdx) => {
+    const isPrimary = pIdx === 0;
+    const predRoute = pred.route;
+
+    if (predRoute && predRoute.latLngs && predRoute.latLngs.length > 1) {
+      const predLine = L.polyline(predRoute.latLngs, {
+        color: isPrimary ? '#00ff41' : '#ffb400',
+        weight: isPrimary ? 4 : 3,
+        opacity: isPrimary ? 0.9 : 0.5,
+        dashArray: isPrimary ? '8, 8' : '4, 6',
+      });
+      predLine._isTrajectoryLayer = true;
+      predLine.addTo(map).bindPopup(`
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+          <b style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-size:13px">${isPrimary ? 'Primary Predicted Road Route' : 'Alternative Predicted Route'}</b>
+          <div style="color:#dde2ec;margin-top:2px">Target: <b>${pred.cameraName}</b> (${pred.location})</div>
+          <div style="color:#dde2ec">Probability: <b>${Math.round(pred.probability * 100)}%</b></div>
+          <div style="color:#00b4ff">Road Distance: <b>${predRoute.distanceKm} km</b></div>
+          <div style="color:var(--amber)">Estimated Travel Time: <b>${pred.etaFormatted}</b></div>
+          <div style="color:#4a5570;margin-top:2px">Confidence: ${Math.round(pred.confidence * 100)}%</div>
+        </div>
+      `);
+      predRoute.latLngs.forEach(pt => boundsPoints.push(pt));
+    }
+
+    // Prediction Target Marker
+    if (pred.lat && pred.lng) {
+      const predIcon = L.divIcon({
+        html: `
+          <div style="position:relative;display:flex;flex-direction:column;align-items:center;">
+            <div style="padding:2px 6px;background:${isPrimary ? '#00ff41' : '#ffb400'};color:#050508;border-radius:10px;font-size:9px;font-weight:800;font-family:'Share Tech Mono',monospace;box-shadow:0 0 10px ${isPrimary ? 'rgba(0,255,65,0.7)' : 'rgba(255,180,0,0.7)'};white-space:nowrap;">
+              ${Math.round(pred.probability * 100)}%
+            </div>
+            <div style="width:10px;height:10px;border-radius:50%;background:${isPrimary ? '#00ff41' : '#ffb400'};margin-top:2px;border:2px solid #050508;"></div>
+          </div>
+        `,
+        className: '',
+        iconAnchor: [18, 22],
+      });
+      const pMarker = L.marker([pred.lat, pred.lng], { icon: predIcon, zIndexOffset: isPrimary ? 800 : 700 });
+      pMarker._isTrajectoryLayer = true;
+      pMarker.addTo(map).bindPopup(`
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+          <div style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-weight:bold;font-size:12px">Predicted Node: ${pred.cameraName}</div>
+          <div style="color:#dde2ec">${pred.location}</div>
+          <div style="color:#dde2ec;margin-top:4px">Probability: <b>${Math.round(pred.probability * 100)}%</b></div>
+          <div style="color:var(--amber)">ETA: <b>${pred.etaFormatted}</b></div>
+        </div>
+      `);
+      boundsPoints.push([pred.lat, pred.lng]);
+    }
+  });
+
+  // 3. Highlight detected cameras in current session
   unique.forEach((det, i) => {
-    const size  = 20;
-    const color = markerColors[i % markerColors.length];
-    const icon  = L.divIcon({
-      html: `<div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};border:3px solid #050508;box-shadow:0 0 12px ${color};display:flex;align-items:center;justify-content:center;color:#050508;font-weight:bold;font-size:9px">${det.cameraId}</div>`,
-      className: '', iconAnchor: [size/2, size/2],
+    const isCurrent = i === unique.length - 1;
+    const size  = isCurrent ? 26 : 20;
+    const color = isCurrent ? '#00ff41' : markerColors[i % markerColors.length];
+    const pulseStyle = isCurrent
+      ? 'border:3px solid #00ff41;box-shadow:0 0 16px rgba(0,255,65,0.9);animation:pulse 1.5s infinite;'
+      : `border:2px solid #050508;box-shadow:0 0 10px ${color};`;
+
+    const icon = L.divIcon({
+      html: `
+        <div style="width:${size}px;height:${size}px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:#050508;font-weight:bold;font-size:${isCurrent ? '11px' : '9px'};${pulseStyle}">
+          ${det.cameraId}
+        </div>
+      `,
+      className: '',
+      iconAnchor: [size/2, size/2],
     });
-    const marker = L.marker([det.lat, det.lng], { icon });
+
+    const marker = L.marker([det.lat, det.lng], { icon, zIndexOffset: isCurrent ? 1000 : 500 });
     marker._isTrajectoryLayer = true;
     const time = new Date(det.timestamp).toTimeString().slice(0,8);
     marker.addTo(map).bindPopup(`
       <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
-        <div style="color:${color};font-size:13px;font-weight:bold;margin-bottom:4px">${det.plate}</div>
+        <div style="color:${color};font-size:13px;font-weight:bold;margin-bottom:4px">
+          ${isCurrent ? '📍 CURRENT LOCATION · ' : ''}${det.plate}
+        </div>
         <div style="color:#dde2ec">${det.cameraName}</div>
         <div style="color:#4a5570">${det.location}</div>
         <div style="color:#4a5570;margin-top:4px">${time}</div>
         <div style="color:#4a5570">${Math.round(det.confidence*100)}% confidence</div>
       </div>
     `);
+    boundsPoints.push([det.lat, det.lng]);
   });
 
-  // Direction arrow (if >1 point)
-  if (coords.length > 1) {
-    document.getElementById('mapStatus').textContent = `${coords.length} nodes · route visualized`;
+  // 4. Update Map Status Bar
+  const mapStatusEl = document.getElementById('mapStatus');
+  if (mapStatusEl) {
+    if (data.roadAligned) {
+      mapStatusEl.innerHTML = `<span style="color:#00ff41">●</span> Road-aligned route (${data.roadDistanceKm} km) · ${predictions.length > 0 ? `Next: ${predictions[0].cameraName} (${Math.round(predictions[0].probability*100)}%)` : 'Active'}`;
+    } else if (coords.length > 1) {
+      mapStatusEl.innerHTML = `<span style="color:#ff9500">▲</span> Road route unavailable · Approximate camera connection`;
+    } else {
+      mapStatusEl.innerHTML = `<span style="color:#00ff41">●</span> Single observation · Next predictions visualized`;
+    }
   }
 
-  map.fitBounds(coords, { padding: [30, 30] });
+  // 5. Fit bounds with actual route geometry
+  if (boundsPoints.length > 1) {
+    map.fitBounds(boundsPoints, { padding: [40, 40], maxZoom: 16 });
+  } else if (boundsPoints.length === 1) {
+    map.setView(boundsPoints[0], 14);
+  }
 }
 
 function renderTable(trail) {

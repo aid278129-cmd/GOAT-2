@@ -1,6 +1,7 @@
 'use strict';
 
 const express    = require('express');
+const http       = require('http');
 const https      = require('https');
 const { Server } = require('socket.io');
 const selfsigned = require('selfsigned');
@@ -11,6 +12,8 @@ const fs         = require('fs');
 const crypto     = require('crypto');
 const trajectoryService = require('./services/trajectoryService');
 const analyticsService  = require('./services/analyticsService');
+const roadRoutingService = require('./services/roadRoutingService');
+const routePredictionService = require('./services/routePredictionService');
 
 // ─────────────────────────────────────────────
 //  Utilities
@@ -743,6 +746,74 @@ app.get('/api/detections/trajectory/:plate', trajectoryHandler);
 app.get('/api/trajectory/:plate', trajectoryHandler);
 
 // ─────────────────────────────────────────────
+//  Road Routing & Camera Prediction Endpoints
+// ─────────────────────────────────────────────
+
+/** GET /api/routing/cameras/network — Camera network topology with road attributes */
+app.get('/api/routing/cameras/network', (req, res) => {
+  const topology = roadRoutingService.loadCameraTopology();
+  res.json(topology);
+});
+
+/** GET /api/routing/cameras/:from/:to — Road-aligned routing between camera nodes */
+app.get('/api/routing/cameras/:from/:to', async (req, res) => {
+  try {
+    const route = await roadRoutingService.getRoadRoute(req.params.from, req.params.to);
+    res.json({
+      fromCamera: route.fromCamera,
+      toCamera: route.toCamera,
+      geometry: route.geometry,
+      latLngs: route.latLngs,
+      distanceMeters: route.distanceMeters,
+      distanceKm: route.distanceKm,
+      estimatedTravelSeconds: route.durationSeconds,
+      durationSeconds: route.durationSeconds,
+      provider: route.provider,
+      roadAligned: route.roadAligned,
+      routingStatus: route.routingStatus,
+      cached: !!route.cached,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Routing failed', message: err.message });
+  }
+});
+
+/** GET /api/trajectory/:plate/predict — Road-aware next-camera prediction */
+const predictionHandler = async (req, res) => {
+  const plate = req.params.plate;
+  const result = trajectoryService.buildTrajectory(plate, detections, req.query);
+  if (!result.found) {
+    return res.status(404).json({
+      success: false,
+      found: false,
+      plate: trajectoryService.normalizePlate(plate),
+      message: 'No detections found for this plate',
+      currentCamera: null,
+      nextCameras: [],
+    });
+  }
+
+  const activePoints = result.activeJourney ? result.activeJourney.points : result.points;
+  const currentPt = activePoints && activePoints.length > 0 ? activePoints[activePoints.length - 1] : null;
+
+  res.json({
+    success: true,
+    found: true,
+    plate: result.plate,
+    activeJourneyId: result.journeyId,
+    currentCamera: currentPt ? currentPt.cameraId : null,
+    currentCameraName: currentPt ? currentPt.cameraName : null,
+    currentLocation: currentPt ? (currentPt.cameraLocation || currentPt.location) : '',
+    lastSeen: currentPt ? currentPt.timestamp : result.lastSeen,
+    nextCameras: result.predictions || [],
+    multiHopRoute: result.multiHopPrediction || null,
+  });
+};
+
+app.get('/api/trajectory/:plate/predict', predictionHandler);
+app.get('/api/detections/trajectory/:plate/predict', predictionHandler);
+
+// ─────────────────────────────────────────────
 //  Phase C: Macro Traffic Flow & Movement Analytics Endpoints
 // ─────────────────────────────────────────────
 
@@ -1168,3 +1239,10 @@ httpsServer.listen(PORT, '0.0.0.0', () => {
   console.log('║  ⚠️  Phones: accept the certificate warning once              ║');
   console.log('╚══════════════════════════════════════════════════════════════╝\n');
 });
+
+const HTTP_PORT = 3001;
+const httpServer = http.createServer(app);
+httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
+  console.log(`🌐 HTTP Local Server running at http://localhost:${HTTP_PORT}`);
+});
+

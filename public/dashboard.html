@@ -2409,7 +2409,12 @@ function renderTrajectoryTab(data) {
   const avgSpeedEl = document.getElementById('statAvgSpeed');
 
   if (sightingsEl) sightingsEl.textContent = data.totalSightings || 0;
-  if (distEl) distEl.textContent = data.totalDistanceKm != null ? `${data.totalDistanceKm} km` : '0 km';
+  if (distEl) {
+    const roadDist = data.roadDistanceKm != null ? data.roadDistanceKm : null;
+    distEl.innerHTML = roadDist != null
+      ? `${roadDist} km <span style="font-size:10px;color:#00ff41;font-weight:700;">(ROAD)</span>`
+      : (data.totalDistanceKm != null ? `${data.totalDistanceKm} km` : '0 km');
+  }
   if (durationEl) {
     const mins = data.totalTravelTimeMinutes || data.totalMinutes || 0;
     const secs = data.totalTravelTimeSeconds || 0;
@@ -2422,7 +2427,21 @@ function renderTrajectoryTab(data) {
   // 2. Render Chronological Journey Timeline
   const timelineEl = document.getElementById('timelineContainer');
   if (timelineEl) {
-    let html = '<div class="timeline" style="display:flex;flex-direction:column;gap:14px;">';
+    let html = '';
+    if (data.journeys && data.journeys.length > 1) {
+      html += `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(0,180,255,0.08);border-radius:6px;margin-bottom:12px;">
+          <span style="font-size:11px;font-weight:700;color:#00b4ff;font-family:var(--mono);">TRIP SESSIONS (${data.journeys.length}):</span>
+          ${data.journeys.map((j, idx) => `
+            <button onclick="searchPlateTrajectory('${data.plate}&journeyId=${encodeURIComponent(j.journeyId)}')" style="background:${j.journeyId === data.journeyId ? 'var(--green)' : 'rgba(255,255,255,0.06)'};color:${j.journeyId === data.journeyId ? '#050508' : '#dde2ec'};border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer;font-weight:700;font-family:var(--mono);">
+              ${j.isActive ? '⚡ Active' : `Trip #${idx + 1}`} (${j.sightingsCount} sights · ${j.durationMinutes}m)
+            </button>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    html += '<div class="timeline" style="display:flex;flex-direction:column;gap:14px;">';
     data.trail.forEach((det, i) => {
       const time = new Date(det.timestamp).toLocaleTimeString('en-IN');
       const conf = Math.round((det.confidence || 0) * 100);
@@ -2473,7 +2492,7 @@ function renderTrajectoryTab(data) {
     timelineEl.innerHTML = html;
   }
 
-  // 3. Render Leaflet Trajectory Map
+  // 3. Render Leaflet Trajectory Map (Road-Aware)
   initTrackMap();
   if (vehicleTrackingMapInstance) {
     trackMarkers.forEach(m => vehicleTrackingMapInstance.removeLayer(m));
@@ -2483,13 +2502,84 @@ function renderTrajectoryTab(data) {
       trackPolyline = null;
     }
 
-    const points = [];
+    const boundsPoints = [];
     const colors = ['#00ff41', '#00b4ff', '#ffb400', '#ff3b30', '#9b5de5'];
 
+    // 3a. Observed Route: Road-aligned solid polyline
+    if (data.roadAligned && data.roadLatLngs && data.roadLatLngs.length > 1) {
+      trackPolyline = L.polyline(data.roadLatLngs, {
+        color: '#00b4ff', weight: 5, opacity: 0.95, lineCap: 'round', lineJoin: 'round'
+      }).addTo(vehicleTrackingMapInstance);
+
+      trackPolyline.bindPopup(`
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+          <b style="color:#00b4ff;font-size:13px;">Observed Road Route</b>
+          <div style="color:#dde2ec;margin-top:2px;">Road-following physical corridor</div>
+          <div style="color:#4a5570;">Road Distance: <b>${data.roadDistanceKm} km</b></div>
+          <div style="color:#00ff41;">Status: ROAD NETWORK ALIGNED</div>
+        </div>
+      `);
+      data.roadLatLngs.forEach(pt => boundsPoints.push(pt));
+    } else {
+      const straightCoords = (data.trail || []).filter(d => d.lat && d.lng).map(d => [d.lat, d.lng]);
+      if (straightCoords.length > 1) {
+        trackPolyline = L.polyline(straightCoords, {
+          color: '#ff9500', weight: 2, opacity: 0.7, dashArray: '4, 8',
+        }).addTo(vehicleTrackingMapInstance);
+        trackPolyline.bindPopup(`
+          <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+            <b style="color:#ff9500;">Approximate camera connection</b>
+            <div style="color:#ff3b30;">Road route unavailable</div>
+          </div>
+        `);
+        straightCoords.forEach(pt => boundsPoints.push(pt));
+      }
+    }
+
+    // 3b. Predicted Next Camera Routes (Dashed road-aligned lines)
+    (data.predictions || []).forEach((pred, pIdx) => {
+      const isPrimary = pIdx === 0;
+      const predRoute = pred.route;
+      if (predRoute && predRoute.latLngs && predRoute.latLngs.length > 1) {
+        const predLine = L.polyline(predRoute.latLngs, {
+          color: isPrimary ? '#00ff41' : '#ffb400',
+          weight: isPrimary ? 4 : 3,
+          opacity: isPrimary ? 0.9 : 0.5,
+          dashArray: isPrimary ? '8, 8' : '4, 6',
+        }).addTo(vehicleTrackingMapInstance);
+
+        predLine.bindPopup(`
+          <div style="font-family:'Share Tech Mono',monospace;font-size:11px;">
+            <b style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-size:13px;">${isPrimary ? 'Primary Predicted Route' : 'Alternative Predicted Route'}</b>
+            <div style="color:#dde2ec;margin-top:2px;">Target: <b>${pred.cameraName}</b> (${pred.location})</div>
+            <div style="color:#dde2ec;">Probability: <b>${Math.round(pred.probability * 100)}%</b></div>
+            <div style="color:#00b4ff;">Road Distance: <b>${predRoute.distanceKm} km</b></div>
+            <div style="color:var(--amber);">ETA: <b>${pred.etaFormatted}</b></div>
+          </div>
+        `);
+        trackMarkers.push(predLine);
+        predRoute.latLngs.forEach(pt => boundsPoints.push(pt));
+      }
+
+      if (pred.lat && pred.lng) {
+        const predIcon = L.divIcon({
+          html: `<div style="padding:2px 6px;background:${isPrimary ? '#00ff41' : '#ffb400'};color:#050508;border-radius:10px;font-size:9px;font-weight:800;font-family:'Share Tech Mono',monospace;box-shadow:0 0 10px ${isPrimary ? 'rgba(0,255,65,0.7)' : 'rgba(255,180,0,0.7)'};white-space:nowrap;">${Math.round(pred.probability * 100)}%</div>`,
+          className: '', iconAnchor: [18, 12],
+        });
+        const pMarker = L.marker([pred.lat, pred.lng], { icon: predIcon, zIndexOffset: isPrimary ? 900 : 800 })
+          .addTo(vehicleTrackingMapInstance)
+          .bindPopup(`<b>Predicted Node: ${pred.cameraName}</b><br>Probability: ${Math.round(pred.probability * 100)}%<br>ETA: ${pred.etaFormatted}`);
+        trackMarkers.push(pMarker);
+        boundsPoints.push([pred.lat, pred.lng]);
+      }
+    });
+
+    // 3c. Camera Waypoint Markers
     data.trail.forEach((det, i) => {
       if (!det.lat || !det.lng) return;
-      points.push([det.lat, det.lng]);
-      const color = colors[i % colors.length];
+      boundsPoints.push([det.lat, det.lng]);
+      const isCurrent = i === data.trail.length - 1;
+      const color = isCurrent ? '#00ff41' : colors[i % colors.length];
 
       const icon = L.divIcon({
         html: `<div style="width:26px;height:26px;border-radius:50%;background:${color};border:3px solid #050508;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:#000;box-shadow:0 0 14px ${color};">${i + 1}</div>`,
@@ -2499,7 +2589,7 @@ function renderTrajectoryTab(data) {
 
       let popupHtml = `
         <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:200px;">
-          <div style="color:${color};font-size:14px;font-weight:bold;margin-bottom:4px;">Sighting #${i + 1} · ${det.cameraName}</div>
+          <div style="color:${color};font-size:14px;font-weight:bold;margin-bottom:4px;">${isCurrent ? '📍 CURRENT LOCATION · ' : ''}Sighting #${i + 1} · ${det.cameraName}</div>
           <div style="color:#dde2ec;font-size:12px;">${det.location || det.cameraLocation || ''}</div>
           <div style="color:var(--text-dim);margin-top:4px;">⏱ Timestamp: ${new Date(det.timestamp).toLocaleTimeString('en-IN')}</div>
           <div style="color:var(--text-dim);">🎯 OCR Confidence: ${Math.round((det.confidence || 0) * 100)}%</div>
@@ -2520,22 +2610,18 @@ function renderTrajectoryTab(data) {
       }
       popupHtml += `</div>`;
 
-      const marker = L.marker([det.lat, det.lng], { icon, zIndexOffset: 1000 })
+      const marker = L.marker([det.lat, det.lng], { icon, zIndexOffset: isCurrent ? 1000 : 500 })
         .addTo(vehicleTrackingMapInstance)
         .bindPopup(popupHtml);
       trackMarkers.push(marker);
     });
 
-    if (points.length > 1) {
-      trackPolyline = L.polyline(points, {
-        color: '#00ff41', weight: 4, opacity: 0.9, dashArray: '8, 8',
-      }).addTo(vehicleTrackingMapInstance);
-
+    if (boundsPoints.length > 1) {
       vehicleTrackingMapInstance.invalidateSize();
-      vehicleTrackingMapInstance.fitBounds(trackPolyline.getBounds(), { padding: [50, 50], maxZoom: 15 });
-    } else if (points.length === 1) {
+      vehicleTrackingMapInstance.fitBounds(boundsPoints, { padding: [50, 50], maxZoom: 15 });
+    } else if (boundsPoints.length === 1) {
       vehicleTrackingMapInstance.invalidateSize();
-      vehicleTrackingMapInstance.setView(points[0], 14);
+      vehicleTrackingMapInstance.setView(boundsPoints[0], 14);
     }
   }
 

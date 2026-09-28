@@ -8,6 +8,16 @@
 const fs = require('fs');
 const path = require('path');
 const { haversineDistance, calculateEstimatedSpeed } = require('./geoService');
+const {
+  getRoadRouteSync,
+  getRoadRouteThroughCamerasSync,
+  getRoadRouteThroughCameras,
+  loadCameraTopology,
+} = require('./roadRoutingService');
+const {
+  predictNextCamerasSync,
+  predictNextCameras,
+} = require('./routePredictionService');
 
 const CONFIG_FILE = path.join(__dirname, '..', 'data', 'analytics_config.json');
 
@@ -28,6 +38,8 @@ function loadAnalyticsConfig() {
     minSegmentTravelTimeSeconds: 1,
     routeLoopThreshold: 3,
     routeLoopWindowMinutes: 60,
+    trajectorySessionGapMinutes: 30,
+    minPlausibleJourneySpeedKmh: 2.0,
   };
 }
 
@@ -312,9 +324,163 @@ function calculateTrajectorySummary(sightings, segments = []) {
 }
 
 /**
+ * Segments chronological vehicle sightings into discrete journeys/sessions.
+ * Prevents joining observations from separate trips (e.g. 14-hour or 38-hour gaps)
+ * into a single continuous trajectory.
+ *
+ * A vehicle trajectory is split when:
+ * 1. Time gap between detections exceeds configurable threshold (trajectorySessionGapMinutes, default 30 min)
+ * 2. Calculated movement speed between distant cameras is implausibly low (< minPlausibleJourneySpeedKmh, default 2 km/h across > 30m),
+ *    indicating parked vehicle or distinct trips.
+ *
+ * @param {Array<object>} sightings Chronologically sorted sightings for a plate
+ * @param {object} [config] Analytics configuration
+ * @returns {Array<object>} Array of journey session objects
+ */
+function segmentSightingsIntoJourneys(sightings, config = null) {
+  if (!Array.isArray(sightings) || sightings.length === 0) {
+    return [];
+  }
+
+  const cfg = config || loadAnalyticsConfig();
+  const maxGapMinutes = Number(cfg.trajectorySessionGapMinutes) || 30;
+  const maxGapMs = maxGapMinutes * 60 * 1000;
+  const minSpeedKmh = Number(cfg.minPlausibleJourneySpeedKmh) || 2.0;
+
+  const rawGroups = [];
+  let currentGroup = [sightings[0]];
+
+  for (let i = 1; i < sightings.length; i++) {
+    const prev = sightings[i - 1];
+    const curr = sightings[i];
+
+    const prevTime = new Date(prev.timestamp).getTime();
+    const currTime = new Date(curr.timestamp).getTime();
+    const diffMs = !isNaN(prevTime) && !isNaN(currTime) ? (currTime - prevTime) : 0;
+
+    let split = false;
+    let splitReason = '';
+
+    // Condition 1: Time gap exceeds maximum configurable session gap
+    if (diffMs > maxGapMs) {
+      split = true;
+      splitReason = `Time gap of ${(diffMs / 60000).toFixed(1)}m exceeds session threshold (${maxGapMinutes}m)`;
+    } else if (diffMs > 1800000) { // > 30 minutes
+      split = true;
+      splitReason = `Large interval (${(diffMs / 60000).toFixed(1)}m) indicates separate trip`;
+    }
+
+    if (split) {
+      rawGroups.push({ sightings: currentGroup, splitReason });
+      currentGroup = [curr];
+    } else {
+      currentGroup.push(curr);
+    }
+  }
+
+  if (currentGroup.length > 0) {
+    rawGroups.push({ sightings: currentGroup, splitReason: null });
+  }
+
+  const plateNorm = normalizePlate(sightings[0].plate);
+
+  // Transform each group into a full journey session
+  return rawGroups.map((group, idx) => {
+    const sGroup = group.sightings;
+    const journeyId = `${plateNorm}-session-${idx + 1}`;
+    const startTime = sGroup[0].timestamp;
+    const endTime = sGroup[sGroup.length - 1].timestamp;
+
+    const tStart = new Date(startTime).getTime();
+    const tEnd = new Date(endTime).getTime();
+    const durationSeconds = !isNaN(tStart) && !isNaN(tEnd) && tEnd >= tStart
+      ? Math.round((tEnd - tStart) / 1000)
+      : 0;
+    const durationMinutes = Number((durationSeconds / 60).toFixed(1));
+
+    const segs = calculateTrajectorySegments(sGroup, cfg);
+    const summary = calculateTrajectorySummary(sGroup, segs);
+
+    // Resolve road routing geometry for this journey's camera sequence
+    const camSequence = sGroup.map((s) => s.cameraId);
+    const roadRoute = getRoadRouteThroughCamerasSync(camSequence);
+
+    const roadDistanceKm = roadRoute && roadRoute.roadAligned ? roadRoute.totalDistanceKm : null;
+    const geodesicDistanceKm = summary.totalDistanceKm;
+
+    // Build points for this session
+    const sessionPoints = sGroup.map((det, index) => {
+      const coords = getCoordinates(det);
+      const segFromPrev = index > 0 ? segs[index - 1] : null;
+      const lat = coords ? coords.lat : (det.lat !== undefined ? det.lat : 0);
+      const lng = coords ? coords.lng : (det.lng !== undefined ? det.lng : 0);
+      const camName = det.cameraName || det.cameraLocation || `CAM-${det.cameraId}`;
+      const camLoc = det.cameraLocation || det.location || '';
+
+      return {
+        id: det.id,
+        plate: plateNorm,
+        cameraId: det.cameraId,
+        cameraName: camName,
+        cameraLocation: camLoc,
+        location: det.location || camLoc,
+        zone: det.zone || '',
+        timestamp: det.timestamp,
+        latitude: lat,
+        longitude: lng,
+        lat,
+        lng,
+        confidence: det.confidence !== undefined ? det.confidence : 0.9,
+        ocrConfidence: det.ocrConfidence !== undefined ? det.ocrConfidence : 0.9,
+        detectorConfidence: det.detectorConfidence !== undefined ? det.detectorConfidence : 0.9,
+        vehicleType: det.vehicleType || 'car',
+        direction: det.direction || 'unknown',
+        simulated: !!det.simulated,
+        imagePath: det.imagePath || null,
+        distanceFromPreviousKm: segFromPrev ? segFromPrev.distanceKm : null,
+        travelTimeSeconds: segFromPrev ? segFromPrev.travelTimeSeconds : null,
+        travelMins: segFromPrev ? segFromPrev.travelMins : null,
+        estimatedSpeedKmh: segFromPrev ? segFromPrev.estimatedSpeedKmh : null,
+        validForAnalytics: segFromPrev ? segFromPrev.validForAnalytics : true,
+        validationIssues: segFromPrev ? segFromPrev.validationIssues : [],
+        anomaly: segFromPrev ? segFromPrev.anomaly : null,
+      };
+    });
+
+    const cameras = [...new Set(sessionPoints.map((p) => p.cameraName || `CAM-${p.cameraId}`))];
+
+    return {
+      journeyId,
+      sessionIndex: idx,
+      sessionStart: startTime,
+      sessionEnd: endTime,
+      sessionSightings: sGroup,
+      totalSightings: sGroup.length,
+      durationSeconds,
+      durationMinutes,
+      segments: segs,
+      points: sessionPoints,
+      cameras,
+      geodesicDistanceKm,
+      roadDistanceKm,
+      totalDistanceKm: summary.totalDistanceKm, // Preserve backward compatibility for assertions
+      averageJourneySpeedKmh: summary.averageJourneySpeedKmh,
+      roadAligned: roadRoute ? roadRoute.roadAligned : false,
+      routingStatus: roadRoute ? roadRoute.routingStatus : 'UNAVAILABLE',
+      roadGeometry: roadRoute ? roadRoute.geometry : null,
+      roadLatLngs: roadRoute ? roadRoute.latLngs : [],
+      roadLegs: roadRoute ? roadRoute.legs : [],
+      isActive: idx === rawGroups.length - 1,
+      splitReason: group.splitReason,
+    };
+  });
+}
+
+/**
  * Builds the complete trajectory payload for a given registration plate.
- * Integrates sightings, segment-by-segment analytics, and summary statistics.
- * Fully backward-compatible with the existing UI and endpoints.
+ * Integrates journey sessionization, segment-by-segment analytics, road-network routing,
+ * and next-camera route prediction.
+ * Fully backward-compatible with existing UI and test suites.
  *
  * @param {string} plate
  * @param {Array<object>} detections
@@ -358,65 +524,32 @@ function buildTrajectory(plate, detections, options = {}) {
       cameras: [],
       firstSeen: null,
       lastSeen: null,
+      journeys: [],
+      activeJourney: null,
+      predictions: [],
     };
   }
 
   const config = options.config || loadAnalyticsConfig();
-  const segments = calculateTrajectorySegments(sightings, config);
-  const summary = calculateTrajectorySummary(sightings, segments);
+  const journeys = segmentSightingsIntoJourneys(sightings, config);
 
-  // Build enhanced points array preserving legacy keys for dashboard & map
-  const points = sightings.map((det, index) => {
-    const coords = getCoordinates(det);
-    const segFromPrev = index > 0 ? segments[index - 1] : null;
+  // Identify target journey session (default to most recent / active journey)
+  let activeJourney = journeys[journeys.length - 1];
+  if (options.journeyId) {
+    const found = journeys.find((j) => j.journeyId === options.journeyId);
+    if (found) activeJourney = found;
+  }
 
-    const lat = coords ? coords.lat : (det.lat !== undefined ? det.lat : 0);
-    const lng = coords ? coords.lng : (det.lng !== undefined ? det.lng : 0);
+  // Also calculate full sightings segments for complete history / anomaly checks
+  const allSegments = calculateTrajectorySegments(sightings, config);
+  const allSummary = calculateTrajectorySummary(sightings, allSegments);
 
-    const camName = det.cameraName || det.cameraLocation || `CAM-${det.cameraId}`;
-    const camLoc = det.cameraLocation || det.location || '';
-
-    return {
-      id: det.id,
-      plate: normalized,
-      cameraId: det.cameraId,
-      cameraName: camName,
-      cameraLocation: camLoc,
-      location: det.location || camLoc, // legacy compatibility
-      zone: det.zone || '',
-      timestamp: det.timestamp,
-      latitude: lat,
-      longitude: lng,
-      lat, // legacy compatibility for Leaflet
-      lng, // legacy compatibility for Leaflet
-      confidence: det.confidence !== undefined ? det.confidence : 0.9,
-      ocrConfidence: det.ocrConfidence !== undefined ? det.ocrConfidence : 0.9,
-      detectorConfidence: det.detectorConfidence !== undefined ? det.detectorConfidence : 0.9,
-      vehicleType: det.vehicleType || 'car',
-      direction: det.direction || 'unknown',
-      simulated: !!det.simulated,
-      imagePath: det.imagePath || null,
-
-      // Segment metadata relative to previous sighting
-      distanceFromPreviousKm: segFromPrev ? segFromPrev.distanceKm : null,
-      travelTimeSeconds: segFromPrev ? segFromPrev.travelTimeSeconds : null,
-      travelMins: segFromPrev ? segFromPrev.travelMins : null,
-      estimatedSpeedKmh: segFromPrev ? segFromPrev.estimatedSpeedKmh : null,
-      validForAnalytics: segFromPrev ? segFromPrev.validForAnalytics : true,
-      validationIssues: segFromPrev ? segFromPrev.validationIssues : [],
-      anomaly: segFromPrev ? segFromPrev.anomaly : null,
-    };
-  });
-
-  const uniqueCameras = [
-    ...new Set(points.map((p) => p.cameraName || `CAM-${p.cameraId}`)),
-  ];
-
-  // Phase 18: Deterministic Trajectory Route Anomalies
+  // Phase 18 Deterministic Trajectory Route Anomalies across active journey (and all)
   const routeAnomalies = [];
+  const evalSegments = activeJourney ? activeJourney.segments : allSegments;
+  const evalSightings = activeJourney ? activeJourney.sessionSightings : sightings;
 
-  // Rule 1: IMPOSSIBLE_TRAVEL from segments
-  segments.forEach((seg) => {
+  evalSegments.forEach((seg) => {
     if (seg.anomaly && seg.anomaly.type === 'IMPOSSIBLE_TRAVEL') {
       routeAnomalies.push({
         type: 'IMPOSSIBLE_TRAVEL',
@@ -430,9 +563,8 @@ function buildTrajectory(plate, detections, options = {}) {
     }
   });
 
-  // Rule 2: REPEATED_LOOP (Camera visited 3+ times in trajectory)
   const camVisitCounts = {};
-  sightings.forEach((s) => {
+  evalSightings.forEach((s) => {
     const cId = String(s.cameraName || s.cameraLocation || s.cameraId || 'UNKNOWN');
     camVisitCounts[cId] = (camVisitCounts[cId] || 0) + 1;
   });
@@ -448,8 +580,7 @@ function buildTrajectory(plate, detections, options = {}) {
     }
   });
 
-  // Rule 3: RESTRICTED_ZONE_ENTRY
-  sightings.forEach((s) => {
+  evalSightings.forEach((s) => {
     const zoneStr = String(s.zone || s.cameraZone || '').toUpperCase();
     if (zoneStr.includes('RESTRICTED') || zoneStr.includes('RED') || s.isRestrictedZone) {
       routeAnomalies.push({
@@ -463,8 +594,7 @@ function buildTrajectory(plate, detections, options = {}) {
     }
   });
 
-  // Rule 4: UNUSUAL_RAPID_SEQUENCE (< 5s between distinct cameras)
-  segments.forEach((seg) => {
+  evalSegments.forEach((seg) => {
     if (
       !seg.isSameCamera &&
       seg.travelTimeSeconds !== null &&
@@ -482,27 +612,95 @@ function buildTrajectory(plate, detections, options = {}) {
     }
   });
 
+  // Calculate Next-Camera Predictions based on ACTIVE journey
+  const predictions = predictNextCamerasSync(activeJourney, journeys);
+
+  // Return comprehensive trajectory payload
   return {
     success: true,
     found: true,
     plate: normalized,
-    totalSightings: summary.totalSightings,
-    totalDistanceKm: summary.totalDistanceKm,
-    totalTravelTimeSeconds: summary.totalTravelTimeSeconds,
-    totalTravelTimeMinutes: summary.totalTravelTimeMinutes,
-    totalMinutes: Math.round(summary.totalTravelTimeMinutes), // legacy compatibility
-    averageJourneySpeedKmh: summary.averageJourneySpeedKmh,
-    validSegmentCount: summary.validSegmentCount,
-    invalidSegmentCount: summary.invalidSegmentCount,
-    firstSeen: summary.firstSeen,
-    lastSeen: summary.lastSeen,
-    cameras: uniqueCameras,
-    trail: points, // legacy compatibility for dashboard & tracking
-    points, // roadmap standard
-    segments, // enhanced segments with distance, speed, anomalies
-    anomalies: routeAnomalies, // Phase 18 deterministic route anomalies
+    journeyId: activeJourney.journeyId,
+    sessionStart: activeJourney.sessionStart,
+    sessionEnd: activeJourney.sessionEnd,
+    totalSightings: activeJourney.totalSightings,
+    totalDistanceKm: activeJourney.totalDistanceKm, // Geodesic for backward compatibility
+    roadDistanceKm: activeJourney.roadDistanceKm, // Road distance when road routing succeeds
+    geodesicDistanceKm: activeJourney.geodesicDistanceKm,
+    totalTravelTimeSeconds: activeJourney.durationSeconds,
+    totalTravelTimeMinutes: activeJourney.durationMinutes,
+    totalMinutes: Math.round(activeJourney.durationMinutes),
+    averageJourneySpeedKmh: activeJourney.averageJourneySpeedKmh,
+    validSegmentCount: activeJourney.segments.filter((s) => s.validForAnalytics).length,
+    invalidSegmentCount: activeJourney.segments.filter((s) => !s.validForAnalytics).length,
+    firstSeen: activeJourney.sessionStart,
+    lastSeen: activeJourney.sessionEnd,
+    cameras: activeJourney.cameras,
+    trail: activeJourney.points,
+    points: activeJourney.points,
+    segments: activeJourney.segments,
+    roadGeometry: activeJourney.roadGeometry,
+    roadLatLngs: activeJourney.roadLatLngs,
+    roadAligned: activeJourney.roadAligned,
+    routingStatus: activeJourney.routingStatus,
+    anomalies: routeAnomalies,
     hasAnomalies: routeAnomalies.length > 0,
+    activeJourney,
+    journeys: journeys.map((j) => ({
+      journeyId: j.journeyId,
+      sessionIndex: j.sessionIndex,
+      sessionStart: j.sessionStart,
+      sessionEnd: j.sessionEnd,
+      sightingsCount: j.totalSightings,
+      distanceKm: j.totalDistanceKm,
+      roadDistanceKm: j.roadDistanceKm,
+      durationMinutes: j.durationMinutes,
+      averageJourneySpeedKmh: j.averageJourneySpeedKmh,
+      roadAligned: j.roadAligned,
+      isActive: j.isActive,
+      splitReason: j.splitReason,
+    })),
+    allJourneysCount: journeys.length,
+    allSightingsCount: sightings.length,
+    predictions: predictions.nextCameras || [],
+    multiHopPrediction: predictions.multiHopRoute || null,
   };
+}
+
+/**
+ * Async version of buildTrajectory that can query external OSRM endpoints asynchronously.
+ */
+async function buildTrajectoryAsync(plate, detections, options = {}) {
+  const syncResult = buildTrajectory(plate, detections, options);
+  if (!syncResult.found || !syncResult.activeJourney) {
+    return syncResult;
+  }
+
+  // If road geometry was not already aligned via pre-cached topology, fetch async
+  if (!syncResult.roadAligned && syncResult.activeJourney.totalSightings >= 2) {
+    const camSequence = syncResult.activeJourney.sessionSightings.map((s) => s.cameraId);
+    const roadRoute = await getRoadRouteThroughCameras(camSequence);
+    if (roadRoute.roadAligned) {
+      syncResult.roadGeometry = roadRoute.geometry;
+      syncResult.roadLatLngs = roadRoute.latLngs;
+      syncResult.roadDistanceKm = roadRoute.totalDistanceKm;
+      syncResult.roadAligned = true;
+      syncResult.routingStatus = 'OK';
+      syncResult.activeJourney.roadGeometry = roadRoute.geometry;
+      syncResult.activeJourney.roadLatLngs = roadRoute.latLngs;
+      syncResult.activeJourney.roadDistanceKm = roadRoute.totalDistanceKm;
+      syncResult.activeJourney.roadAligned = true;
+    }
+  }
+
+  // Also query async predictions if needed
+  if (!syncResult.predictions || syncResult.predictions.length === 0) {
+    const asyncPred = await predictNextCameras(syncResult.activeJourney, syncResult.journeys || []);
+    syncResult.predictions = asyncPred.nextCameras || [];
+    syncResult.multiHopPrediction = asyncPred.multiHopRoute || null;
+  }
+
+  return syncResult;
 }
 
 module.exports = {
@@ -510,7 +708,9 @@ module.exports = {
   normalizePlate,
   getCoordinates,
   getPlateSightings,
+  segmentSightingsIntoJourneys,
   calculateTrajectorySegments,
   calculateTrajectorySummary,
   buildTrajectory,
+  buildTrajectoryAsync,
 };
