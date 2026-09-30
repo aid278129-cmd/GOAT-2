@@ -1,0 +1,76 @@
+{
+  "best_epoch": 6,
+  "best_exact_match": 83.2,
+  "history": [
+    {
+      "epoch": 0,
+      "train_loss": null,
+      "val_exact": 53.33,
+      "val_char_acc": 86.94,
+      "val_avg_ed": 1.3,
+      "single_line_acc": 42.83,
+      "two_line_acc": 74.6,
+      "low_res_acc": 25.68
+    },
+    {
+      "epoch": 1,
+      "train_loss": 2.8507,
+      "val_exact": 74.13,
+      "val_char_acc": 92.65,
+      "val_avg_ed": 0.73,
+      "single_line_acc": 64.74,
+      "two_line_acc": 93.15,
+      "low_res_acc": 55.86
+    },
+    {
+      "epoch": 2,
+      "train_loss": 2.7933,
+      "val_exact": 80.13,
+      "val_char_acc": 94.5,
+      "val_avg_ed": 0.55,
+      "single_line_acc": 71.12,
+      "two_line_acc": 98.39,
+      "low_res_acc": 66.22
+    },
+    {
+      "epoch": 3,
+      "train_loss": 2.7758,
+      "val_exact": 82.0,
+      "val_char_acc": 95.01,
+      "val_avg_ed": 0.5,
+      "single_line_acc": 73.31,
+      "two_line_acc": 99.6,
+      "low_res_acc": 69.82
+    },
+    {
+      "epoch": 4,
+      "train_loss": 2.767,
+      "val_exact": 82.8,
+      "val_char_acc": 95.32,
+      "val_avg_ed": 0.47,
+      "single_line_acc": 74.7,
+      "two_line_acc": 99.19,
+      "low_res_acc": 71.62
+    },
+    {
+      "epoch": 5,
+      "train_loss": 2.7647,
+      "val_exact": 82.67,
+      "val_char_acc": 95.43,
+      "val_avg_ed": 0.45,
+      "single_line_acc": 74.5,
+      "two_line_acc": 99.19,
+      "low_res_acc": 70.72
+    },
+    {
+      "epoch": 6,
+      "train_loss": 2.7614,
+      "val_exact": 83.2,
+      "val_char_acc": 95.51,
+      "val_avg_ed": 0.45,
+      "single_line_acc": 75.1,
+      "two_line_acc": 99.6,
+      "low_res_acc": 72.52
+    }
+  ]
+}

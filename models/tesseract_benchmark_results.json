@@ -1,0 +1,261 @@
+{
+  "totalPlatesTested": 25,
+  "exactMatchCount": 4,
+  "exactMatchAccuracyPercent": 16.0,
+  "stateMatchCount": 12,
+  "stateMatchAccuracyPercent": 48.0,
+  "averageCER": 0.415,
+  "tesseractVersion": "5.4.0",
+  "detailedResults": [
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL344465",
+      "predicted": "KL344465",
+      "confidence": 0.66,
+      "ocrEngine": "Tesseract OCR (PSM 6, clahe)",
+      "exactMatch": true,
+      "stateMatch": true,
+      "cer": 0.0
+    },
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL344465",
+      "predicted": "",
+      "confidence": 0.0,
+      "ocrEngine": "Tesseract OCR v5.4.0",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 1.0
+    },
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL34F",
+      "predicted": "RLJ66",
+      "confidence": 0.23,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.8
+    },
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL35F4337",
+      "predicted": "3SL3J7",
+      "confidence": 0.63,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.6
+    },
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL35H5834",
+      "predicted": "KL35JH5834",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.053
+    },
+    {
+      "image": "dc_auto_image_000021_bMXgvtud5K.jpg",
+      "groundTruth": "KL03S6894",
+      "predicted": "AV896",
+      "confidence": 0.3,
+      "ocrEngine": "Tesseract OCR (PSM 6, clahe)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.714
+    },
+    {
+      "image": "dc_auto_image_000024_fqvRhfiO6i.jpg",
+      "groundTruth": "UP84AE9889",
+      "predicted": "UP81AE9889",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.1
+    },
+    {
+      "image": "dc_bus_image_000033_XUH0eV452t.jpg",
+      "groundTruth": "GJ01DY6855",
+      "predicted": "F6010Y655",
+      "confidence": 0.25,
+      "ocrEngine": "Tesseract OCR (PSM 8, otsu)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.368
+    },
+    {
+      "image": "dc_bus_image_000039_9NispLHmAo.jpg",
+      "groundTruth": "KL498262",
+      "predicted": "KL498262",
+      "confidence": 0.71,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": true,
+      "stateMatch": true,
+      "cer": 0.0
+    },
+    {
+      "image": "dc_license_plates_0RBAQHKIXQMDFYZD.jpg",
+      "groundTruth": "WB42AX7446",
+      "predicted": "WB42AX7446",
+      "confidence": 0.99,
+      "ocrEngine": "Tesseract OCR (PSM 7, clahe)",
+      "exactMatch": true,
+      "stateMatch": true,
+      "cer": 0.0
+    },
+    {
+      "image": "dc_license_plates_0RRPJCID3RRLSFTI.jpg",
+      "groundTruth": "MP07L7524",
+      "predicted": "7S24MPOZL",
+      "confidence": 0.8,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.667
+    },
+    {
+      "image": "dc_license_plates_2D9KWCA7PLD0NW31.jpg",
+      "groundTruth": "MP04PA0434",
+      "predicted": "TR871145",
+      "confidence": 0.72,
+      "ocrEngine": "Tesseract OCR (PSM 6, clahe)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.889
+    },
+    {
+      "image": "dc_license_plates_2DZ4YT4ZJ9XJZSO0.jpg",
+      "groundTruth": "RJ11GB1829",
+      "predicted": "RJ06LE1829",
+      "confidence": 0.93,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.4
+    },
+    {
+      "image": "dc_license_plates_3GKHBM5PWHYXHMTE.jpg",
+      "groundTruth": "KL41L7001",
+      "predicted": "KL41L7007",
+      "confidence": 0.99,
+      "ocrEngine": "Tesseract OCR (PSM 6, otsu)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.111
+    },
+    {
+      "image": "dc_license_plates_3HE1J0YIRGRDENVO.jpg",
+      "groundTruth": "TN58D5353",
+      "predicted": "ZINAS8D53532",
+      "confidence": 0.43,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.333
+    },
+    {
+      "image": "dc_license_plates_7K9NEIDD2KK46L6F.jpg",
+      "groundTruth": "KL07BX7197",
+      "predicted": "KL07INDBX7197",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.13
+    },
+    {
+      "image": "dc_license_plates_7L53OMODJOLUGUOE.jpg",
+      "groundTruth": "UP84AE6664",
+      "predicted": "UP81AE666416WXINDAA2013376292M",
+      "confidence": 0.92,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.55
+    },
+    {
+      "image": "dc_license_plates_VTPRN3NAPF8MUGNF.jpg",
+      "groundTruth": "KL10AG7249",
+      "predicted": "KL10AG7249",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": true,
+      "stateMatch": true,
+      "cer": 0.0
+    },
+    {
+      "image": "dc_license_plates_VYA8KOAVKLW6PJYK.jpg",
+      "groundTruth": "TN58AP5280",
+      "predicted": "TN59OS",
+      "confidence": 0.48,
+      "ocrEngine": "Tesseract OCR (PSM 6, clahe)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.625
+    },
+    {
+      "image": "dc_license_plates_VZUYOAPZ8633ZQTN.jpg",
+      "groundTruth": "DL3CD1210",
+      "predicted": "DL3CD1210P2UK1",
+      "confidence": 0.75,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": true,
+      "cer": 0.217
+    },
+    {
+      "image": "dc_license_plates_W1W3000C6IAY3F1X.jpg",
+      "groundTruth": "RJ11GB8850",
+      "predicted": "VAC6650F",
+      "confidence": 0.67,
+      "ocrEngine": "Tesseract OCR (PSM 7, clahe)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.778
+    },
+    {
+      "image": "dc_tempo_van__image_000489_73h4cMU8Z1.jpg",
+      "groundTruth": "MP13GA9462",
+      "predicted": "HP13G49452",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.3
+    },
+    {
+      "image": "dc_tempo_van__image_000490_CF9bwJsyoX.jpg",
+      "groundTruth": "KA09C2763",
+      "predicted": "7902762",
+      "confidence": 0.24,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.5
+    },
+    {
+      "image": "dc_truck_image_001561_IEhCyPTs.jpg",
+      "groundTruth": "MH18AA1002",
+      "predicted": "APCFBBRPRAISBOSSRNEEYP4VEPCEPADFERECSBAACESE4M4PSSYSPNTONGSALTL4NEHEMABBWASHETP3FESLPL5SEALL3POTE46AMCAFMOROICESDISAWEFCRRSSTTE55",
+      "confidence": 0.47,
+      "ocrEngine": "Tesseract OCR (PSM 6, adaptive)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.971
+    },
+    {
+      "image": "dc_truck_image_001564_RZeQ1TZR.jpg",
+      "groundTruth": "KA01AJ7533",
+      "predicted": "KL04J7533",
+      "confidence": 0.99,
+      "ocrEngine": "EasyOCR (Fallback)",
+      "exactMatch": false,
+      "stateMatch": false,
+      "cer": 0.263
+    }
+  ]
+}
