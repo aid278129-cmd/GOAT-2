@@ -370,6 +370,24 @@ function segmentSightingsIntoJourneys(sightings, config = null) {
       splitReason = `Large interval (${(diffMs / 60000).toFixed(1)}m) indicates separate trip`;
     }
 
+    // Phase 5: Low speed is a SUPPORTING SIGNAL (congestion, signal delay), NOT a hard split
+    if (!split && diffMs > 0 && prev.cameraId !== curr.cameraId) {
+      const pCoord = getCoordinates(prev);
+      const cCoord = getCoordinates(curr);
+      if (pCoord && cCoord) {
+        const segDist = haversineDistance(pCoord.lat, pCoord.lng, cCoord.lat, cCoord.lng) || 0;
+        const segSpeed = segDist / (diffMs / 3600000);
+        if (segSpeed < minSpeedKmh) {
+          if (!curr.supportingSignals) curr.supportingSignals = [];
+          curr.supportingSignals.push({
+            type: 'LOW_SPEED_CONGESTION',
+            speedKmh: Number(segSpeed.toFixed(2)),
+            message: `Low transit speed (${segSpeed.toFixed(1)} km/h) treated as supporting signal for congestion, not journey split`,
+          });
+        }
+      }
+    }
+
     if (split) {
       rawGroups.push({ sightings: currentGroup, splitReason });
       currentGroup = [curr];
@@ -393,7 +411,7 @@ function segmentSightingsIntoJourneys(sightings, config = null) {
 
     const tStart = new Date(startTime).getTime();
     const tEnd = new Date(endTime).getTime();
-    const durationSeconds = !isNaN(tStart) && !isNaN(tEnd) && tEnd >= tStart
+    const durationSeconds = !isNaN(tStart) && !isNaN(tEnd) && tEnd >= tStart && sGroup.length >= 2
       ? Math.round((tEnd - tStart) / 1000)
       : 0;
     const durationMinutes = Number((durationSeconds / 60).toFixed(1));
@@ -403,10 +421,16 @@ function segmentSightingsIntoJourneys(sightings, config = null) {
 
     // Resolve road routing geometry for this journey's camera sequence
     const camSequence = sGroup.map((s) => s.cameraId);
-    const roadRoute = getRoadRouteThroughCamerasSync(camSequence);
+    let roadRoute = null;
+    let roadDistanceKm = 0;
+    if (sGroup.length >= 2) {
+      roadRoute = getRoadRouteThroughCamerasSync(camSequence);
+      roadDistanceKm = roadRoute && roadRoute.roadAligned ? roadRoute.totalDistanceKm : summary.totalDistanceKm;
+    }
 
-    const roadDistanceKm = roadRoute && roadRoute.roadAligned ? roadRoute.totalDistanceKm : null;
-    const geodesicDistanceKm = summary.totalDistanceKm;
+    // Phase 6: Single sighting active journey reports 0 distance and null speed
+    const geodesicDistanceKm = sGroup.length >= 2 ? summary.totalDistanceKm : 0;
+    const averageJourneySpeedKmh = sGroup.length >= 2 ? summary.averageJourneySpeedKmh : null;
 
     // Build points for this session
     const sessionPoints = sGroup.map((det, index) => {
@@ -612,8 +636,11 @@ function buildTrajectory(plate, detections, options = {}) {
     }
   });
 
-  // Calculate Next-Camera Predictions based on ACTIVE journey
-  const predictions = predictNextCamerasSync(activeJourney, journeys);
+  // Calculate Next-Camera Predictions based on ACTIVE journey using fleet-wide historical journey corpus
+  const fleetJourneys = Array.isArray(detections) && detections.length > 5
+    ? extractFleetJourneys(detections, config)
+    : journeys;
+  const predictions = predictNextCamerasSync(activeJourney, fleetJourneys);
 
   // Return comprehensive trajectory payload
   return {
@@ -703,14 +730,35 @@ async function buildTrajectoryAsync(plate, detections, options = {}) {
   return syncResult;
 }
 
+/**
+ * Extracts all multi-camera journey sessions across all vehicles in the detections corpus.
+ */
+function extractFleetJourneys(allDetections, config = null) {
+  if (!Array.isArray(allDetections) || allDetections.length === 0) return [];
+  const plates = [...new Set(allDetections.map((d) => normalizePlate(d.plate)))];
+  const fleetJourneys = [];
+  plates.forEach((p) => {
+    const s = getPlateSightings(p, allDetections);
+    const jList = segmentSightingsIntoJourneys(s, config);
+    jList.forEach((j) => {
+      if ((j.sessionSightings || j.sightings || []).length >= 2) {
+        fleetJourneys.push(j);
+      }
+    });
+  });
+  return fleetJourneys;
+}
+
 module.exports = {
   loadAnalyticsConfig,
   normalizePlate,
   getCoordinates,
   getPlateSightings,
   segmentSightingsIntoJourneys,
+  extractFleetJourneys,
   calculateTrajectorySegments,
   calculateTrajectorySummary,
   buildTrajectory,
   buildTrajectoryAsync,
 };
+

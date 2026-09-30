@@ -13,6 +13,7 @@ const {
   filterDetectionsByTime,
 } = require('./analyticsUtils');
 const trajectoryService = require('./trajectoryService');
+const { getRoadRouteSync } = require('./roadRoutingService');
 
 /**
  * Extracts and aggregates all valid camera-to-camera route segments across vehicle trajectories.
@@ -55,54 +56,66 @@ function calculateRouteDensity(detections, options = {}) {
       return (isNaN(tA) ? 0 : tA) - (isNaN(tB) ? 0 : tB);
     });
 
-    const segments = trajectoryService.calculateTrajectorySegments(sorted, options.config);
+    // Sessionize into discrete journeys to prevent merging separate trips
+    const journeys = trajectoryService.segmentSightingsIntoJourneys(sorted, options.config);
 
-    segments.forEach((seg) => {
-      // Respect data quality rules: strictly valid segments only
-      if (!seg.validForAnalytics || seg.isSameCamera || seg.anomaly) {
-        return;
-      }
+    journeys.forEach((journey) => {
+      const segments = journey.segments || [];
 
-      if (seg.distanceKm === null || seg.travelTimeSeconds === null || seg.travelTimeSeconds <= 0) {
-        return;
-      }
+      segments.forEach((seg) => {
+        // Respect data quality rules: strictly valid segments only
+        if (!seg.validForAnalytics || seg.isSameCamera || seg.anomaly) {
+          return;
+        }
 
-      const fromCam = resolveCamera(seg.fromCameraId, cameras);
-      const toCam = resolveCamera(seg.toCameraId, cameras);
+        if (seg.distanceKm === null || seg.travelTimeSeconds === null || seg.travelTimeSeconds <= 0) {
+          return;
+        }
 
-      const fromId = fromCam.standardId;
-      const toId = toCam.standardId;
-      const routeKey = `${fromId}->${toId}`;
+        const fromCam = resolveCamera(seg.fromCameraId, cameras);
+        const toCam = resolveCamera(seg.toCameraId, cameras);
 
-      if (!routeAggregates.has(routeKey)) {
-        routeAggregates.set(routeKey, {
-          route: routeKey,
-          fromCameraId: fromId,
-          toCameraId: toId,
-          fromCameraNumericId: fromCam.cameraId,
-          toCameraNumericId: toCam.cameraId,
-          fromCameraName: fromCam.name,
-          toCameraName: toCam.name,
-          fromLocation: fromCam.roadName,
-          toLocation: toCam.roadName,
-          fromLatitude: fromCam.latitude || null,
-          fromLongitude: fromCam.longitude || null,
-          toLatitude: toCam.latitude || null,
-          toLongitude: toCam.longitude || null,
-          fromCoordinates: (fromCam.latitude && fromCam.longitude) ? [fromCam.latitude, fromCam.longitude] : null,
-          toCoordinates: (toCam.latitude && toCam.longitude) ? [toCam.latitude, toCam.longitude] : null,
-          vehicleCount: 0,
-          uniquePlates: new Set(),
-          totalDistanceKm: 0,
-          totalTravelTimeSeconds: 0,
-        });
-      }
+        const fromId = fromCam.standardId;
+        const toId = toCam.standardId;
+        const routeKey = `${fromId}->${toId}`;
 
-      const agg = routeAggregates.get(routeKey);
-      agg.vehicleCount++;
-      agg.uniquePlates.add(plate);
-      agg.totalDistanceKm += seg.rawDistanceKm !== undefined ? seg.rawDistanceKm : seg.distanceKm;
-      agg.totalTravelTimeSeconds += seg.travelTimeSeconds;
+        // Prefer road network distance if available
+        let segmentDistanceKm = seg.rawDistanceKm !== undefined ? seg.rawDistanceKm : seg.distanceKm;
+        const roadRoute = getRoadRouteSync(fromId, toId);
+        if (roadRoute && roadRoute.roadAligned && roadRoute.distanceKm > 0) {
+          segmentDistanceKm = roadRoute.distanceKm;
+        }
+
+        if (!routeAggregates.has(routeKey)) {
+          routeAggregates.set(routeKey, {
+            route: routeKey,
+            fromCameraId: fromId,
+            toCameraId: toId,
+            fromCameraNumericId: fromCam.cameraId,
+            toCameraNumericId: toCam.cameraId,
+            fromCameraName: fromCam.name,
+            toCameraName: toCam.name,
+            fromLocation: fromCam.roadName,
+            toLocation: toCam.roadName,
+            fromLatitude: fromCam.latitude || null,
+            fromLongitude: fromCam.longitude || null,
+            toLatitude: toCam.latitude || null,
+            toLongitude: toCam.longitude || null,
+            fromCoordinates: (fromCam.latitude && fromCam.longitude) ? [fromCam.latitude, fromCam.longitude] : null,
+            toCoordinates: (toCam.latitude && toCam.longitude) ? [toCam.latitude, toCam.longitude] : null,
+            vehicleCount: 0,
+            uniquePlates: new Set(),
+            totalDistanceKm: 0,
+            totalTravelTimeSeconds: 0,
+          });
+        }
+
+        const agg = routeAggregates.get(routeKey);
+        agg.vehicleCount++;
+        agg.uniquePlates.add(plate);
+        agg.totalDistanceKm += segmentDistanceKm;
+        agg.totalTravelTimeSeconds += seg.travelTimeSeconds;
+      });
     });
   });
 

@@ -240,7 +240,7 @@ async function main() {
 
     const primary = pred.nextCameras[0];
     assert(primary.probability > 0.3, `Primary probability was ${primary.probability}`);
-    assert(primary.confidence > 0.7);
+    assert(primary.confidence === 'HIGH' || primary.confidenceScore > 0.7 || primary.confidence > 0.7, 'Must have high confidence');
     assert.strictEqual(primary.route.roadAligned, true);
     assert(primary.route.latLngs.length > 10, 'Must have road geometry latLngs');
     assert(primary.etaSeconds > 0);

@@ -377,11 +377,20 @@ function renderMap(data) {
       const pMarker = L.marker([pred.lat, pred.lng], { icon: predIcon, zIndexOffset: isPrimary ? 800 : 700 });
       pMarker._isTrajectoryLayer = true;
       pMarker.addTo(map).bindPopup(`
-        <div style="font-family:'Share Tech Mono',monospace;font-size:11px">
+        <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:180px">
           <div style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-weight:bold;font-size:12px">Predicted Node: ${pred.cameraName}</div>
           <div style="color:#dde2ec">${pred.location}</div>
-          <div style="color:#dde2ec;margin-top:4px">Probability: <b>${Math.round(pred.probability * 100)}%</b></div>
+          <div style="color:#dde2ec;margin-top:4px">Probability: <b>${Math.round(pred.probability * 100)}%</b> · <span style="color:${pred.confidence === 'HIGH' ? '#00ff41' : (pred.confidence === 'MEDIUM' ? '#ffb400' : '#8899aa')};font-weight:bold">${pred.confidence || 'MEDIUM'}</span></div>
           <div style="color:var(--amber)">ETA: <b>${pred.etaFormatted}</b></div>
+          ${pred.evidence ? `
+            <div style="border-top:1px solid rgba(255,255,255,0.1);margin-top:6px;padding-top:4px;color:#8899aa;font-size:10px;line-height:1.4">
+              <span style="color:#00e5ff">WHY THIS PREDICTION?</span><br/>
+              • <b>${pred.evidence.firstOrderTransitions} / ${pred.evidence.totalOutgoingTransitions}</b> historical transitions<br/>
+              • Road connection: <b>${pred.evidence.topologyVerified ? '✓ Verified' : 'Unverified'}</b><br/>
+              • Direction: <b>${pred.evidence.directionCompatible ? '✓ Compatible' : 'Reversal Penalty'}</b><br/>
+              ${pred.evidence.historicalMedianTravelSeconds ? `• Historical travel median: <b>${Math.round(pred.evidence.historicalMedianTravelSeconds/60)}m</b>` : ''}
+            </div>
+          ` : ''}
         </div>
       `);
       boundsPoints.push([pred.lat, pred.lng]);

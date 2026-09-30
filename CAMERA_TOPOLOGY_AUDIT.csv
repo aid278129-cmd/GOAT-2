@@ -1,0 +1,13 @@
+fromCamera,toCamera,roadRoutable,historicalTransitionCount,directionSupported,source,verified,notes
+CAM_01,CAM_02,true,3,true,OSM_VERIFIED+HISTORICAL_TRANSITION_OBSERVED,YES,Direct corridor via Raja Muthiah Rd to Pantheon Rd (2749m); observed in 3 vehicle trips
+CAM_01,CAM_03,true,0,true,OSRM_ROUTABLE,YES,Routable arterial via Ekambareswara Agraharam St (1894m); no direct transition in sample
+CAM_01,CAM_04,true,0,false,OSRM_ROUTABLE,YES,Distant highway corridor (4932m); not in primary outgoing direction list
+CAM_02,CAM_01,true,0,true,OSRM_ROUTABLE,YES,Return arterial route to Chennai Central (2749m); routable on street network
+CAM_02,CAM_03,true,5,true,OSM_VERIFIED+HISTORICAL_TRANSITION_OBSERVED,YES,Major north-east transit corridor to Perambur (3621m); observed in 5 vehicle trips (100% of CAM_02 exits)
+CAM_02,CAM_04,true,0,false,OSRM_ROUTABLE,YES,Southbound highway arterial to Guindy (5624m); routable on street network
+CAM_03,CAM_01,true,0,true,OSRM_ROUTABLE,YES,Inbound arterial route to Central (1894m); routable on street network
+CAM_03,CAM_02,true,0,true,OSRM_ROUTABLE,YES,Southwest arterial route to T. Nagar (3621m); routable on street network
+CAM_03,CAM_04,true,3,true,OSM_VERIFIED+HISTORICAL_TRANSITION_OBSERVED,YES,Cross-city corridor from Perambur to Guindy (6240m); observed in 3 vehicle trips
+CAM_04,CAM_01,true,1,true,OSM_VERIFIED+HISTORICAL_TRANSITION_OBSERVED,YES,Highway entry return loop to Central (4932m); observed in 1 vehicle trip
+CAM_04,CAM_02,true,0,true,OSRM_ROUTABLE,YES,Highway arterial into T. Nagar (5624m); routable on street network
+CAM_04,CAM_03,true,0,false,OSRM_ROUTABLE,YES,Distant cross-city arterial (6240m); not in primary outgoing direction list

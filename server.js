@@ -104,7 +104,13 @@ let detections   = [];
 let alertHistory = [];
 let watchlist    = new Map(); // plate → { reason, priority, notes, active, addedAt, createdAt, updatedAt, plate }
 const lastDetTime = new Map(); // `${plate}:${cameraId}` → timestamp ms
-const cameraRuntimeStats = new Map(); // camId -> { lastSeenAt, lastFrameAt, lastDetectionAt }
+const lastAlertTime = new Map(); // `${plate}:${cameraId}` → timestamp ms (duplicate alert suppression)
+const ALERT_COOLDOWN_MS = 60000; // 60s cooldown for same plate + same camera alert deduplication
+const cameraRuntimeStats = new Map(); // camId -> { lastSeenAt, lastHeartbeat, lastFrameAt, connectionState, disconnectAt }
+
+// Phase 25: Live Prediction Evaluation History Store
+const activePredictions = new Map(); // plate -> pending prediction object
+const predictionEvaluationHistory = []; // array of resolved prediction events
 
 function loadData() {
   try {
@@ -188,20 +194,79 @@ function storeDetection(data) {
     lastFrameAt: now,
   });
 
-  // Watchlist check
+  // Watchlist check with duplicate alert suppression
   if (watchlist.has(detection.plate)) {
     const wlEntry = watchlist.get(detection.plate);
     if (wlEntry && wlEntry.active !== false) {
-      const alert = {
-        ...detection,
-        alertId:   crypto.randomUUID(),
-        reason:    wlEntry.reason || 'Watchlisted vehicle',
-        priority:  wlEntry.priority || 'HIGH',
-        alertTime: new Date().toISOString(),
+      const alertKey = `${detection.plate}:${detection.cameraId}`;
+      const lastAlertTs = lastAlertTime.get(alertKey) || 0;
+      const isCooldownActive = (now - lastAlertTs < ALERT_COOLDOWN_MS);
+
+      if (!isCooldownActive || data.forceAlert) {
+        lastAlertTime.set(alertKey, now);
+        const alert = {
+          alertId:            crypto.randomUUID(),
+          plate:              detection.plate,
+          cameraId:           detection.cameraStringId || `CAM_0${detection.cameraId}`,
+          cameraNumericId:    detection.cameraId,
+          cameraName:         detection.cameraName,
+          cameraLocation:     detection.cameraLocation || detection.location || camNode.name,
+          location:           detection.cameraLocation || detection.location || camNode.name,
+          timestamp:          detection.timestamp,
+          alertTime:          new Date().toISOString(),
+          reason:             wlEntry.reason || 'Watchlisted vehicle',
+          priority:           wlEntry.priority || 'HIGH',
+          notes:              wlEntry.notes || '',
+          ocrConfidence:      detection.ocrConfidence !== undefined ? detection.ocrConfidence : 0.9,
+          detectorConfidence: detection.detectorConfidence !== undefined ? detection.detectorConfidence : 0.9,
+          confidence:         detection.confidence !== undefined ? detection.confidence : 0.9,
+          imagePath:          detection.imagePath || null,
+          status:             'ACTIVE',
+        };
+        alertHistory.push(alert);
+        if (alertHistory.length > 2000) alertHistory.shift();
+        io.emit('anpr:alert', alert);
+        console.log(`🚨  WATCHLIST HIT: ${detection.plate} (${alert.priority}) at ${detection.cameraName}`);
+      } else {
+        console.log(`ℹ️   Watchlist alert suppressed by cooldown for ${detection.plate} at CAM_${detection.cameraId}`);
+      }
+    }
+  }
+
+  // Phase 25: Automatically resolve previous prediction for this vehicle if arriving at a new camera
+  if (activePredictions.has(detection.plate)) {
+    const prevPred = activePredictions.get(detection.plate);
+    const arrivedCam = `CAM_${String(detection.cameraId).padStart(2, '0')}`;
+    const prevCam = String(prevPred.currentCamera);
+
+    if (prevCam !== arrivedCam && prevCam !== String(detection.cameraId)) {
+      const isTop1Correct = prevPred.predictedCamera === arrivedCam || prevPred.predictedCamera === String(detection.cameraId);
+      const isTop3Correct = (prevPred.predictedCandidates || []).some(
+        (c) => c.cameraId === arrivedCam || c.cameraId === String(detection.cameraId)
+      );
+      const actualElapsedSec = Math.round((Date.now() - prevPred.createdAt) / 1000);
+      const topPredEta = prevPred.predictedCandidates && prevPred.predictedCandidates[0] ? prevPred.predictedCandidates[0].etaSeconds : null;
+
+      const evalRecord = {
+        predictionId: prevPred.predictionId,
+        plate: prevPred.plate,
+        journeyId: prevPred.journeyId,
+        predictedAt: prevPred.timestamp,
+        fromCamera: prevPred.currentCamera,
+        actualNextCamera: arrivedCam,
+        predictedTopCamera: prevPred.predictedCamera,
+        predictedProbability: prevPred.predictedProbability,
+        predictionCorrect: isTop1Correct,
+        top3Correct: isTop3Correct,
+        actualArrivalTimestamp: detection.timestamp,
+        actualTravelTimeSeconds: actualElapsedSec,
+        ETAErrorSeconds: topPredEta !== null ? Math.abs(topPredEta - actualElapsedSec) : null,
       };
-      alertHistory.push(alert);
-      io.emit('anpr:alert', alert);
-      console.log(`🚨  WATCHLIST HIT: ${detection.plate} (${alert.priority}) at ${detection.cameraName}`);
+
+      predictionEvaluationHistory.push(evalRecord);
+      if (predictionEvaluationHistory.length > 500) predictionEvaluationHistory.shift();
+      activePredictions.delete(detection.plate);
+      io.emit('anpr:prediction_evaluated', evalRecord);
     }
   }
 
@@ -251,6 +316,36 @@ app.get('/api/cameras/config', (req, res) => {
   res.json(result);
 });
 
+/** POST /api/cameras/:id/heartbeat — Lightweight camera heartbeat tracking */
+app.post('/api/cameras/:id/heartbeat', (req, res) => {
+  const idRaw = req.params.id;
+  const numId = parseInt(String(idRaw).replace(/\D/g, ''), 10);
+  if (!numId || numId < 1 || numId > 12) {
+    return res.status(400).json({ success: false, error: 'Invalid camera ID. Expected numeric ID 1-12 or CAM_01.' });
+  }
+
+  const now = Date.now();
+  const current = cameraRuntimeStats.get(numId) || {};
+  const hasFrame = !!req.body.hasFrame;
+
+  cameraRuntimeStats.set(numId, {
+    ...current,
+    lastSeenAt: now,
+    lastHeartbeat: now,
+    lastFrameAt: hasFrame ? now : (current.lastFrameAt || null),
+    connectionState: 'connected',
+  });
+
+  res.json({
+    success: true,
+    cameraId: `CAM_${numId < 10 ? '0' + numId : numId}`,
+    cameraNumericId: numId,
+    status: 'acknowledged',
+    connectionState: 'connected',
+    timestamp: new Date(now).toISOString(),
+  });
+});
+
 /** GET /api/cameras/status — Dynamic operational camera status & ANPR health */
 app.get('/api/cameras/status', (req, res) => {
   const connectedIds = new Set(Object.keys(cameras).map(Number));
@@ -258,53 +353,98 @@ app.get('/api/cameras/status', (req, res) => {
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
 
+  // Retrieve density & congestion analytics for real-time flow and congestion status
+  const densityMetrics = analyticsService.trafficAnalytics.getDensityByCamera(detections, {
+    timeRange: { fromDate: new Date(now - 15 * 60000), toDate: new Date(now) },
+    interval: '15m',
+  });
+  const densityMap = new Map();
+  densityMetrics.forEach(dm => densityMap.set(dm.cameraId, dm));
+
   const cameraStatuses = CAMERA_NODES.map(cam => {
-    const isConnected = connectedIds.has(cam.id);
+    const isSocketConnected = connectedIds.has(cam.id);
     const rt = cameraRuntimeStats.get(cam.id) || {};
-    
-    // ANPR status: ACTIVE if frame/detection within last 45s, STANDBY if connected, INACTIVE otherwise
-    let anprStatus = 'INACTIVE';
-    if (isConnected) {
-      if (rt.lastFrameAt && (now - rt.lastFrameAt < 45000)) {
-        anprStatus = 'ACTIVE';
-      } else {
-        anprStatus = 'STANDBY';
-      }
-    }
+    const lastHeartbeatMs = rt.lastHeartbeat || 0;
+    const isExplicitlyDisconnected = rt.connectionState === 'disconnected';
+    const isHeartbeatFresh = !isExplicitlyDisconnected && (now - lastHeartbeatMs < 15000);
+    const isConnected = (isSocketConnected && !isExplicitlyDisconnected) || isHeartbeatFresh;
 
-    // Connection status: ONLINE, DEGRADED, OFFLINE
+    // Define Camera States: ONLINE, DEGRADED, DISCONNECTED, OFFLINE
     let status = 'OFFLINE';
+    let stream = 'INACTIVE';
+
     if (isConnected) {
-      if (rt.lastFrameAt && (now - rt.lastFrameAt > 60000)) {
-        status = 'DEGRADED';
-      } else {
+      const lastFrameMs = rt.lastFrameAt || 0;
+      if (lastFrameMs && (now - lastFrameMs <= 30000)) {
         status = 'ONLINE';
+        stream = 'ACTIVE';
+      } else if (lastFrameMs && (now - lastFrameMs > 30000)) {
+        status = 'DEGRADED';
+        stream = 'STANDBY';
+      } else {
+        // Connected / heartbeat active, awaiting first frame
+        status = 'ONLINE';
+        stream = 'STANDBY';
+      }
+    } else {
+      if (rt.connectionState === 'disconnected' && (now - (rt.disconnectAt || 0) < 60000)) {
+        status = 'DISCONNECTED';
+        stream = 'INACTIVE';
+      } else {
+        status = 'OFFLINE';
+        stream = 'INACTIVE';
       }
     }
 
-    const camDets = detections.filter(d => d.cameraId === cam.id || d.cameraNumericId === cam.id || String(d.cameraId) === `CAM_0${cam.id}`);
+    const standardCamId = `CAM_${cam.id < 10 ? '0' + cam.id : cam.id}`;
+    const camDets = detections.filter(d =>
+      d.cameraId === cam.id ||
+      d.cameraNumericId === cam.id ||
+      String(d.cameraId) === standardCamId ||
+      d.cameraStringId === standardCamId
+    );
     const todayDets = camDets.filter(d => new Date(d.timestamp) >= startOfDay);
     const lastDet = camDets[camDets.length - 1];
 
+    // Unique normalized vehicles detected at this camera
+    const uniquePlatesSet = new Set(
+      camDets.map(d => (d.plate || '').toString().toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean)
+    );
+
+    // Live flow and congestion metrics from analytics
+    const dm = densityMap.get(standardCamId) || {};
+    const flow5m = dm.flowRatePer5Min !== undefined ? dm.flowRatePer5Min : 0;
+    const congestionLevel = dm.densityLevel || 'LOW';
+
     return {
-      cameraId: `CAM_0${cam.id}`,
+      cameraId: standardCamId,
       id: cam.id,
+      cameraNumericId: cam.id,
       name: cam.name,
-      location: cam.location || cam.roadName || '',
+      location: cam.roadName || cam.location || '',
       roadName: cam.roadName || cam.location || '',
       zone: cam.zone || '',
       lat: cam.lat,
       lng: cam.lng,
       direction: cam.direction || '',
       connected: isConnected,
-      status, // ONLINE, DEGRADED, OFFLINE
-      anprStatus, // ACTIVE, STANDBY, INACTIVE
-      lastSeenAt: rt.lastSeenAt ? new Date(rt.lastSeenAt).toISOString() : (isConnected ? new Date().toISOString() : null),
-      lastFrameAt: rt.lastFrameAt ? new Date(rt.lastFrameAt).toISOString() : null,
-      lastDetectionAt: lastDet ? lastDet.timestamp : (rt.lastDetectionAt ? new Date(rt.lastDetectionAt).toISOString() : null),
-      lastPlate: lastDet ? lastDet.plate : null,
-      detectionsToday: todayDets.length,
+      status, // ONLINE, DEGRADED, DISCONNECTED, OFFLINE
+      stream, // ACTIVE, STANDBY, INACTIVE
+      anprStatus: stream === 'ACTIVE' ? 'ACTIVE' : (isConnected ? 'STANDBY' : 'INACTIVE'),
+      detections: camDets.length,
       totalDetections: camDets.length,
+      detectionsToday: todayDets.length,
+      uniqueVehicles: uniquePlatesSet.size,
+      currentFlow: `${flow5m} veh / 5 min`,
+      currentFlowValue: flow5m,
+      congestion: congestionLevel,
+      lastDetection: lastDet ? lastDet.timestamp : (rt.lastDetectionAt ? new Date(rt.lastDetectionAt).toISOString() : null),
+      lastDetectionAt: lastDet ? lastDet.timestamp : (rt.lastDetectionAt ? new Date(rt.lastDetectionAt).toISOString() : null),
+      lastHeartbeat: rt.lastHeartbeat ? new Date(rt.lastHeartbeat).toISOString() : null,
+      lastFrameTimestamp: rt.lastFrameAt ? new Date(rt.lastFrameAt).toISOString() : null,
+      lastFrameAt: rt.lastFrameAt ? new Date(rt.lastFrameAt).toISOString() : null,
+      lastPlate: lastDet ? lastDet.plate : null,
+      connectionState: isConnected ? 'connected' : (rt.connectionState || 'disconnected'),
     };
   });
 
@@ -313,6 +453,8 @@ app.get('/api/cameras/status', (req, res) => {
     online: cameraStatuses.filter(c => c.status === 'ONLINE').length,
     offline: cameraStatuses.filter(c => c.status === 'OFFLINE').length,
     degraded: cameraStatuses.filter(c => c.status === 'DEGRADED').length,
+    disconnected: cameraStatuses.filter(c => c.status === 'DISCONNECTED').length,
+    activeStreams: cameraStatuses.filter(c => c.stream === 'ACTIVE').length,
     anprActive: cameraStatuses.filter(c => c.anprStatus === 'ACTIVE').length,
   };
 
@@ -796,6 +938,25 @@ const predictionHandler = async (req, res) => {
   const activePoints = result.activeJourney ? result.activeJourney.points : result.points;
   const currentPt = activePoints && activePoints.length > 0 ? activePoints[activePoints.length - 1] : null;
 
+  // Phase 25: Record pending prediction for this vehicle
+  if (result.predictions && result.predictions.length > 0 && currentPt) {
+    activePredictions.set(result.plate, {
+      predictionId: crypto.randomUUID(),
+      plate: result.plate,
+      journeyId: result.journeyId,
+      timestamp: new Date().toISOString(),
+      currentCamera: currentPt.cameraId,
+      predictedCandidates: result.predictions.map((p) => ({
+        cameraId: p.cameraId,
+        probability: p.probability,
+        etaSeconds: p.etaSeconds,
+      })),
+      predictedCamera: result.predictions[0].cameraId,
+      predictedProbability: result.predictions[0].probability,
+      createdAt: Date.now(),
+    });
+  }
+
   res.json({
     success: true,
     found: true,
@@ -812,6 +973,16 @@ const predictionHandler = async (req, res) => {
 
 app.get('/api/trajectory/:plate/predict', predictionHandler);
 app.get('/api/detections/trajectory/:plate/predict', predictionHandler);
+
+/** GET /api/trajectory/predictions/history — Phase 25: Prediction Evaluation History */
+app.get('/api/trajectory/predictions/history', (req, res) => {
+  res.json({
+    totalEvaluated: predictionEvaluationHistory.length,
+    activePending: activePredictions.size,
+    history: [...predictionEvaluationHistory].reverse().slice(0, 50),
+  });
+});
+
 
 // ─────────────────────────────────────────────
 //  Phase C: Macro Traffic Flow & Movement Analytics Endpoints
@@ -1199,6 +1370,21 @@ io.on('connection', (socket) => {
     dashboardSockets.forEach(dashId => io.to(dashId).emit('camera:restart', { cameraId }));
   });
 
+  // ── Camera Heartbeat socket listener ──
+  socket.on('camera:heartbeat', ({ cameraId, hasFrame }) => {
+    const id = parseInt(cameraId, 10);
+    if (!id || id < 1 || id > 12) return;
+    const now = Date.now();
+    const current = cameraRuntimeStats.get(id) || {};
+    cameraRuntimeStats.set(id, {
+      ...current,
+      lastSeenAt: now,
+      lastHeartbeat: now,
+      lastFrameAt: hasFrame ? now : (current.lastFrameAt || null),
+      connectionState: 'connected',
+    });
+  });
+
   // ── NEW: ANPR Detection submitted by browser ANPR engine ──
   socket.on('anpr:submit', (data) => {
     storeDetection(data);
@@ -1214,8 +1400,18 @@ io.on('connection', (socket) => {
     const camId = socket.data.cameraId;
     if (camId && cameras[camId] && cameras[camId].socketId === socket.id) {
       delete cameras[camId];
+      const now = Date.now();
+      const current = cameraRuntimeStats.get(camId) || {};
+      cameraRuntimeStats.set(camId, {
+        ...current,
+        connectionState: 'disconnected',
+        disconnectAt: now,
+      });
       console.log(`📷  Camera ${camId} disconnected`);
-      dashboardSockets.forEach(dashId => io.to(dashId).emit('camera:disconnected', { cameraId: camId }));
+      dashboardSockets.forEach(dashId => io.to(dashId).emit('camera:disconnected', {
+        cameraId: camId,
+        timestamp: new Date(now).toISOString(),
+      }));
       broadcastCameraStatus();
     }
   });

@@ -18,13 +18,15 @@
 
 /**
  * Normalizes camera detection density for Leaflet.heat layer.
- * Formula: intensity = clamp(0.15, 1.0, vehicleCount / maxVehicleCount)
+ * Formula: intensity = clamp(0.15, 1.0, metricValue / maxMetricValue)
+ * Supports explicitly selected metrics: 'vehicleCount' (Traffic Volume), 'congestion', 'uniqueVehicles', 'cameraLoad'.
  * Handles zero max, null coordinates, and missing values safely.
  *
  * @param {Array<object>} camerasData - Output of GET /api/analytics/density
+ * @param {string} [metric='vehicleCount'] - Metric key: 'vehicleCount' | 'congestion' | 'uniqueVehicles' | 'cameraLoad'
  * @returns {Array<Array<number>>} Array of [lat, lng, intensity]
  */
-function normalizeHeatmapData(camerasData) {
+function normalizeHeatmapData(camerasData, metric = 'vehicleCount') {
   if (!Array.isArray(camerasData) || camerasData.length === 0) {
     return [];
   }
@@ -38,16 +40,42 @@ function normalizeHeatmapData(camerasData) {
 
   if (validCameras.length === 0) return [];
 
-  const maxCount = Math.max(...validCameras.map((c) => Number(c.vehicleCount) || 0), 0);
+  // Determine value extractor based on metric
+  const getValue = (c) => {
+    if (metric === 'congestion') {
+      const level = c.densityLevel || 'LOW';
+      if (level === 'SEVERE') return 1.0;
+      if (level === 'HIGH') return 0.75;
+      if (level === 'MEDIUM') return 0.5;
+      return 0.25;
+    }
+    if (metric === 'cameraLoad' || metric === 'totalDetections') {
+      return Number(c.totalDetections !== undefined ? c.totalDetections : (c.rawDetections || c.vehicleCount)) || 0;
+    }
+    if (metric === 'uniqueVehicles' || metric === 'uniquePlateCount') {
+      return Number(c.uniquePlateCount || c.uniqueVehicles || c.vehicleCount) || 0;
+    }
+    return Number(c.vehicleCount) || 0;
+  };
+
+  if (metric === 'congestion') {
+    return validCameras.map((c) => {
+      const lat = Number(c.latitude !== undefined ? c.latitude : c.lat);
+      const lng = Number(c.longitude !== undefined ? c.longitude : c.lng);
+      return [lat, lng, getValue(c)];
+    });
+  }
+
+  const maxVal = Math.max(...validCameras.map(getValue), 0);
 
   return validCameras.map((c) => {
     const lat = Number(c.latitude !== undefined ? c.latitude : c.lat);
     const lng = Number(c.longitude !== undefined ? c.longitude : c.lng);
-    const count = Number(c.vehicleCount) || 0;
+    const val = getValue(c);
 
     let intensity = 0;
-    if (maxCount > 0 && count > 0) {
-      const ratio = count / maxCount;
+    if (maxVal > 0 && val > 0) {
+      const ratio = val / maxVal;
       // Clamp between 0.15 (subtle floor for visibility) and 1.0
       intensity = Math.max(0.15, Math.min(1.0, Number(ratio.toFixed(3))));
     }
@@ -306,6 +334,7 @@ const TrafficMap = (function () {
     map: null,
     containerId: 'analyticsMap',
     mode: 'heatmap', // 'heatmap' | 'routes' | 'congestion' | 'trajectory' | 'cameras'
+    heatmapMetric: 'vehicleCount', // 'vehicleCount' | 'congestion' | 'uniqueVehicles' | 'cameraLoad'
     showCameras: true,
     timeFilter: '15m',
     customFrom: null,
@@ -689,7 +718,7 @@ const TrafficMap = (function () {
       state.map.removeLayer(state.layers.heatmap);
     }
 
-    const heatPoints = normalizeHeatmapData(camerasList);
+    const heatPoints = normalizeHeatmapData(camerasList, state.heatmapMetric || 'vehicleCount');
 
     if (heatPoints.length === 0) {
       return;
@@ -929,7 +958,21 @@ const TrafficMap = (function () {
             iconAnchor: [16, 10],
           });
           const pMarker = L.marker([pred.lat, pred.lng], { icon: predIcon, zIndexOffset: isPrimary ? 900 : 800 })
-            .bindPopup(`<b>Predicted Node: ${pred.cameraName}</b><br>Probability: ${Math.round(pred.probability * 100)}%<br>ETA: ${pred.etaFormatted}`);
+            .bindPopup(`
+              <div style="font-family:'Share Tech Mono',monospace;font-size:11px;min-width:180px;">
+                <b style="color:${isPrimary ? '#00ff41' : '#ffb400'};font-size:12px;">Predicted Node: ${pred.cameraName}</b>
+                <div>Probability: <b>${Math.round(pred.probability * 100)}%</b> · <span style="color:${pred.confidence === 'HIGH' ? '#00ff41' : (pred.confidence === 'MEDIUM' ? '#ffb400' : '#8899aa')}">${pred.confidence || 'MEDIUM'}</span></div>
+                <div style="color:var(--amber);">ETA: <b>${pred.etaFormatted}</b></div>
+                ${pred.evidence ? `
+                  <div style="border-top:1px solid #252840;margin-top:6px;padding-top:4px;font-size:10px;color:#8899aa;">
+                    <b style="color:#00e5ff;">WHY?</b><br/>
+                    • <b>${pred.evidence.firstOrderTransitions} / ${pred.evidence.totalOutgoingTransitions}</b> historical transitions<br/>
+                    • Road: <b>${pred.evidence.topologyVerified ? '✓ Verified' : 'Unverified'}</b><br/>
+                    • Direction: <b>${pred.evidence.directionCompatible ? '✓ Compatible' : 'Reversal'}</b>
+                  </div>
+                ` : ''}
+              </div>
+            `);
           state.layers.trajectory.addLayer(pMarker);
           boundsPoints.push([pred.lat, pred.lng]);
         }
@@ -1072,9 +1115,17 @@ const TrafficMap = (function () {
     }, 150);
   }
 
+  function setHeatmapMetric(metric) {
+    state.heatmapMetric = metric || 'vehicleCount';
+    if (state.cameraDataCache && state.cameraDataCache.length > 0) {
+      renderHeatmap(state.cameraDataCache);
+    }
+  }
+
   return {
     init,
     setMode,
+    setHeatmapMetric,
     toggleCamerasBaseLayer,
     setTimeFilter,
     applyCustomTime,

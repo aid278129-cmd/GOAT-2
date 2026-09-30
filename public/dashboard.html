@@ -564,6 +564,12 @@
             <button class="traffic-mode-btn" data-mode="routes" onclick="TrafficMap.setMode('routes')">🛣 Route Density</button>
             <button class="traffic-mode-btn" data-mode="congestion" onclick="TrafficMap.setMode('congestion')">🚦 Congestion</button>
             <button class="traffic-mode-btn" data-mode="trajectory" onclick="TrafficMap.setMode('trajectory')">🚗 Vehicle Trajectory</button>
+            <select id="heatmapMetricSelect" title="Select Heatmap Intensity Metric" onchange="TrafficMap.setHeatmapMetric(this.value)" style="background:#0c0d14;border:1px solid #252840;color:#00e5ff;padding:3px 8px;border-radius:4px;font-family:var(--mono);font-size:11px;cursor:pointer;">
+              <option value="vehicleCount">Heat: Traffic Volume</option>
+              <option value="congestion">Heat: Congestion</option>
+              <option value="uniqueVehicles">Heat: Unique Vehicles</option>
+              <option value="cameraLoad">Heat: Camera Load</option>
+            </select>
           </div>
         </div>
 
@@ -634,16 +640,19 @@
             <thead>
               <tr>
                 <th>Node ID</th>
-                <th>Name / Road</th>
-                <th>Zone</th>
+                <th>Location / Road</th>
                 <th>Status</th>
-                <th>ANPR</th>
+                <th>Stream</th>
                 <th>Detections</th>
-                <th>Coordinates</th>
+                <th>Unique Veh</th>
+                <th>Current Flow</th>
+                <th>Congestion</th>
+                <th>Last Heartbeat</th>
+                <th>Last Detection</th>
               </tr>
             </thead>
             <tbody id="networkTableBody">
-              <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--text-dim)">Loading camera nodes…</td></tr>
+              <tr><td colspan="10" style="text-align:center;padding:24px;color:var(--text-dim)">Loading camera nodes…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1381,12 +1390,28 @@ function addAlertToSidebar(alert) {
   const time = new Date(alert.alertTime || alert.timestamp).toTimeString().slice(0, 8);
   const el   = document.createElement('div');
   el.className = 'alert-item';
+  el.style.cursor = 'pointer';
+  el.title = `Click to track vehicle ${alert.plate}`;
+  el.onclick = () => {
+    switchTab('track');
+    const input = document.getElementById('trackPlateInput');
+    if (input) {
+      input.value = alert.plate;
+      if (typeof searchPlateTrajectory === 'function') searchPlateTrajectory();
+    }
+  };
   el.innerHTML = `
-    <div class="alert-plate">${alert.plate}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="alert-plate">${alert.plate}</div>
+      <span class="badge ${alert.priority === 'CRITICAL' ? 'red' : 'amber'}" style="font-size:9px;padding:1px 5px;">${alert.priority || 'HIGH'}</span>
+    </div>
     <div class="det-meta">
-      <span class="det-cam">${alert.cameraName}</span>
+      <span class="det-cam">${alert.cameraLocation || alert.cameraName}</span>
       <span>${time}</span>
       <span>${alert.reason || ''}</span>
+    </div>
+    <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:#00ff41;margin-top:2px;">
+      Track Vehicle ↗
     </div>
   `;
   feed.insertBefore(el, feed.firstChild);
@@ -1396,9 +1421,10 @@ function addAlertToSidebar(alert) {
 function showAlertBanner(alert) {
   const banner = document.getElementById('wlBanner');
   const text   = document.getElementById('wlBannerText');
-  text.textContent = `WATCHLIST ALERT — ${alert.plate} detected at ${alert.cameraName} | ${new Date(alert.alertTime||alert.timestamp).toTimeString().slice(0,8)} | Reason: ${alert.reason || 'Watchlisted'}`;
+  const loc = alert.cameraLocation || alert.cameraName || 'Camera';
+  text.innerHTML = `<strong>WATCHLIST ALERT:</strong> ${alert.plate} (${alert.priority || 'HIGH'}) detected at ${loc} | Reason: ${alert.reason || 'Watchlisted'} <a href="#track" onclick="switchTab('track'); document.getElementById('trackPlateInput').value='${alert.plate}'; if (typeof searchPlateTrajectory==='function') searchPlateTrajectory(); return false;" style="color:#00ff41;text-decoration:underline;margin-left:8px;font-weight:bold;">Track Vehicle ↗</a>`;
   banner.classList.add('visible');
-  setTimeout(() => banner.classList.remove('visible'), 12000);
+  setTimeout(() => banner.classList.remove('visible'), 15000);
 }
 
 async function initSidebarFeed() {
@@ -2180,21 +2206,34 @@ async function loadNetworkTab() {
           statusBadge = '<span class="badge green"><span class="cam-status-dot online" style="margin-right:4px"></span>ONLINE</span>';
         } else if (cam.status === 'DEGRADED') {
           statusBadge = '<span class="badge amber"><span class="cam-status-dot offline" style="margin-right:4px;background:#ffb400;"></span>DEGRADED</span>';
+        } else if (cam.status === 'DISCONNECTED') {
+          statusBadge = '<span class="badge orange"><span class="cam-status-dot offline" style="margin-right:4px;background:#ff6b00;"></span>DISCONNECTED</span>';
         }
 
-        const anprBadge = cam.anprStatus === 'ACTIVE'
-          ? '<span class="badge green">ACTIVE</span>'
-          : '<span class="badge dim">STANDBY</span>';
+        let streamBadge = '<span class="badge dim">INACTIVE</span>';
+        if (cam.stream === 'ACTIVE') {
+          streamBadge = '<span class="badge green">ACTIVE</span>';
+        } else if (cam.stream === 'STANDBY') {
+          streamBadge = '<span class="badge amber">STANDBY</span>';
+        }
+
+        let congBadge = `<span class="badge dim">${cam.congestion || 'LOW'}</span>`;
+        if (cam.congestion === 'SEVERE') congBadge = `<span class="badge red">SEVERE</span>`;
+        else if (cam.congestion === 'HIGH') congBadge = `<span class="badge orange">HIGH</span>`;
+        else if (cam.congestion === 'MEDIUM' || cam.congestion === 'MODERATE') congBadge = `<span class="badge amber">MEDIUM</span>`;
 
         return `
           <tr>
-            <td style="font-family:'Share Tech Mono',monospace;color:#00b4ff;font-weight:700;">CAM-0${cam.id}</td>
-            <td style="font-weight:600;">${cam.name} <small style="color:var(--text-dim);">(${cam.location || cam.roadName})</small></td>
-            <td><span class="badge dim">${cam.zone}</span></td>
+            <td style="font-family:'Share Tech Mono',monospace;color:#00b4ff;font-weight:700;">${cam.cameraId || 'CAM-0' + cam.id}</td>
+            <td style="font-weight:600;">${cam.location || cam.roadName || cam.name}</td>
             <td>${statusBadge}</td>
-            <td>${anprBadge}</td>
-            <td style="font-family:'Share Tech Mono',monospace;color:var(--green)">${cam.detectionsToday || 0}</td>
-            <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${cam.lat.toFixed(4)}°N, ${cam.lng.toFixed(4)}°E</td>
+            <td>${streamBadge}</td>
+            <td style="font-family:'Share Tech Mono',monospace;color:var(--green)">${cam.detections || cam.totalDetections || 0}</td>
+            <td style="font-family:'Share Tech Mono',monospace;color:#00e5ff">${cam.uniqueVehicles || 0}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:11px;">${cam.currentFlow || '0 veh / 5 min'}</td>
+            <td>${congBadge}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${cam.lastHeartbeat ? new Date(cam.lastHeartbeat).toLocaleTimeString() : '—'}</td>
+            <td style="font-family:'Share Tech Mono',monospace;font-size:10px;color:var(--text-dim)">${cam.lastDetection ? new Date(cam.lastDetection).toLocaleTimeString() : '—'}</td>
           </tr>
         `;
       }).join('');
@@ -2207,25 +2246,48 @@ async function loadNetworkTab() {
         let statusColor = 'var(--green)';
         if (cam.status === 'OFFLINE') statusColor = 'var(--red)';
         else if (cam.status === 'DEGRADED') statusColor = 'var(--amber)';
+        else if (cam.status === 'DISCONNECTED') statusColor = '#ff6b00';
 
-        const anprColor = cam.anprStatus === 'ACTIVE' ? 'var(--green)' : 'var(--text-dim)';
+        const streamColor = cam.stream === 'ACTIVE' ? 'var(--green)' : (cam.stream === 'STANDBY' ? 'var(--amber)' : 'var(--text-dim)');
+
+        let congColor = 'var(--text-dim)';
+        if (cam.congestion === 'SEVERE') congColor = 'var(--red)';
+        else if (cam.congestion === 'HIGH') congColor = 'var(--orange)';
+        else if (cam.congestion === 'MEDIUM' || cam.congestion === 'MODERATE') congColor = 'var(--amber)';
+        else if (cam.congestion === 'LOW') congColor = 'var(--green)';
 
         return `
           <div class="card">
             <div class="card-header" style="padding:10px 14px">
-              <span style="font-family:'Share Tech Mono',monospace;font-size:11px;color:${statusColor};font-weight:700;">CAM-0${cam.id}</span>
-              <span class="cam-status-dot ${cam.status === 'ONLINE' ? 'online' : 'offline'}"></span>
+              <span style="font-family:'Share Tech Mono',monospace;font-size:11px;color:${statusColor};font-weight:700;">${cam.cameraId || 'CAM-0' + cam.id}</span>
+              <span class="badge" style="font-size:9px;padding:2px 6px;color:${statusColor};border-color:${statusColor}">${cam.status}</span>
             </div>
             <div style="padding:14px">
               <div style="font-weight:700;font-size:15px;margin-bottom:2px">${cam.name}</div>
               <div style="font-size:11px;color:var(--text-dim);margin-bottom:10px">${cam.location || cam.roadName} · ${cam.zone}</div>
-              <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-family:var(--mono);font-size:11px;">
-                <span style="color:var(--text-dim)">ANPR State:</span>
-                <b style="color:${anprColor}">${cam.anprStatus}</b>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:var(--mono);font-size:11px;">
+                <span style="color:var(--text-dim)">Stream State:</span>
+                <b style="color:${streamColor}">${cam.stream || 'INACTIVE'}</b>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:var(--mono);font-size:11px;">
+                <span style="color:var(--text-dim)">Current Flow:</span>
+                <b style="color:#00e5ff">${cam.currentFlow || '0 veh / 5 min'}</b>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:var(--mono);font-size:11px;">
+                <span style="color:var(--text-dim)">Congestion:</span>
+                <b style="color:${congColor}">${cam.congestion || 'LOW'}</b>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:var(--mono);font-size:11px;">
+                <span style="color:var(--text-dim)">Unique Vehicles:</span>
+                <b style="color:var(--green)">${cam.uniqueVehicles || 0}</b>
               </div>
               <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-family:var(--mono);font-size:11px;">
-                <span style="color:var(--text-dim)">Detections Today:</span>
-                <b style="color:#00b4ff">${cam.detectionsToday || 0}</b>
+                <span style="color:var(--text-dim)">Total Detections:</span>
+                <b style="color:#00b4ff">${cam.detections || cam.totalDetections || 0}</b>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-family:var(--mono);font-size:10px;color:var(--text-dim);">
+                <span>Last Heartbeat:</span>
+                <span>${cam.lastHeartbeat ? new Date(cam.lastHeartbeat).toLocaleTimeString() : 'None'}</span>
               </div>
               ${cam.lastPlate ? `
                 <div style="background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.15);border-radius:4px;padding:8px 10px;margin-top:8px;">
@@ -2234,7 +2296,7 @@ async function loadNetworkTab() {
                     <button class="btn btn-sm" onclick="trackCameraPlate('${cam.lastPlate}')" style="padding:2px 6px;font-size:9px;">Track ↗</button>
                   </div>
                   <div style="font-family:'Share Tech Mono',monospace;font-size:9px;color:var(--text-dim);margin-top:2px;">
-                    ${cam.lastDetectionAt ? new Date(cam.lastDetectionAt).toLocaleTimeString() : 'Recent'}
+                    ${cam.lastDetection ? new Date(cam.lastDetection).toLocaleTimeString() : (cam.lastDetectionAt ? new Date(cam.lastDetectionAt).toLocaleTimeString() : 'Recent')}
                   </div>
                 </div>
               ` : `

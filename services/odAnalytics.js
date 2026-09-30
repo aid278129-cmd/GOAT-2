@@ -53,33 +53,41 @@ function calculateOriginDestination(detections, options = {}) {
       return (isNaN(tA) ? 0 : tA) - (isNaN(tB) ? 0 : tB);
     });
 
-    const originCam = resolveCamera(sorted[0].cameraId, cameras);
-    const destCam = resolveCamera(sorted[sorted.length - 1].cameraId, cameras);
+    // Sessionize into discrete journeys
+    const journeys = trajectoryService.segmentSightingsIntoJourneys(sorted, options.config);
 
-    const origId = originCam.standardId;
-    const destId = destCam.standardId;
+    journeys.forEach((journey) => {
+      const sGroup = journey.sessionSightings;
+      if (!Array.isArray(sGroup) || sGroup.length < 2) return;
 
-    if (!allowSameOriginDestination && origId === destId) {
-      return; // Skip non-journey stationary observations
-    }
+      const originCam = resolveCamera(sGroup[0].cameraId, cameras);
+      const destCam = resolveCamera(sGroup[sGroup.length - 1].cameraId, cameras);
 
-    const key = `${origId}->${destId}`;
-    if (!pairCounts.has(key)) {
-      pairCounts.set(key, {
-        originCameraId: origId,
-        destinationCameraId: destId,
-        originCameraNumericId: originCam.cameraId,
-        destinationCameraNumericId: destCam.cameraId,
-        originCameraName: originCam.name,
-        destinationCameraName: destCam.name,
-        originLocation: originCam.roadName,
-        destinationLocation: destCam.roadName,
-        vehicleCount: 0,
-      });
-    }
+      const origId = originCam.standardId;
+      const destId = destCam.standardId;
 
-    pairCounts.get(key).vehicleCount++;
-    totalJourneysEvaluated++;
+      if (!allowSameOriginDestination && origId === destId) {
+        return; // Skip non-journey stationary observations
+      }
+
+      const key = `${origId}->${destId}`;
+      if (!pairCounts.has(key)) {
+        pairCounts.set(key, {
+          originCameraId: origId,
+          destinationCameraId: destId,
+          originCameraNumericId: originCam.cameraId,
+          destinationCameraNumericId: destCam.cameraId,
+          originCameraName: originCam.name,
+          destinationCameraName: destCam.name,
+          originLocation: originCam.roadName,
+          destinationLocation: destCam.roadName,
+          vehicleCount: 0,
+        });
+      }
+
+      pairCounts.get(key).vehicleCount++;
+      totalJourneysEvaluated++;
+    });
   });
 
   // Convert to sorted array

@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-09-28 17:16:13",
+  "total_samples": 300,
+  "detector": {
+    "recall": 84.0,
+    "precision": 100.0,
+    "avg_latency_ms": 81.61
+  },
+  "ocr": {
+    "exact_match_pct": 71.0,
+    "exact_match_of_detected_pct": 84.52,
+    "character_accuracy_pct": 80.07,
+    "mean_edit_distance": 1.99,
+    "avg_latency_ms": 76.8
+  },
+  "end_to_end": {
+    "accuracy_pct": 71.0,
+    "avg_total_latency_ms": 254.44
+  },
+  "conditions": {
+    "high_resolution": {
+      "count": 258,
+      "exact_pct": 81.78,
+      "char_acc_pct": 92.32,
+      "e2e_pct": 81.78
+    },
+    "low_resolution": {
+      "count": 42,
+      "exact_pct": 4.76,
+      "char_acc_pct": 4.76,
+      "e2e_pct": 4.76
+    },
+    "single_line": {
+      "count": 210,
+      "exact_pct": 59.05,
+      "char_acc_pct": 71.9,
+      "e2e_pct": 59.05
+    },
+    "two_line": {
+      "count": 90,
+      "exact_pct": 98.89,
+      "char_acc_pct": 99.11,
+      "e2e_pct": 98.89
+    }
+  },
+  "top_confusions": [
+    {
+      "gt": "9",
+      "pred": "0",
+      "count": 2
+    },
+    {
+      "gt": "3",
+      "pred": "0",
+      "count": 2
+    },
+    {
+      "gt": "V",
+      "pred": "Y",
+      "count": 1
+    },
+    {
+      "gt": "W",
+      "pred": "2",
+      "count": 1
+    },
+    {
+      "gt": "B",
+      "pred": "8",
+      "count": 1
+    },
+    {
+      "gt": "2",
+      "pred": "H",
+      "count": 1
+    },
+    {
+      "gt": "8",
+      "pred": "7",
+      "count": 1
+    },
+    {
+      "gt": "R",
+      "pred": "7",
+      "count": 1
+    },
+    {
+      "gt": "N",
+      "pred": "7",
+      "count": 1
+    },
+    {
+      "gt": "7",
+      "pred": "6",
+      "count": 1
+    }
+  ]
+}

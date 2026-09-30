@@ -1,0 +1,6 @@
+probabilityBin,sampleCount,meanPredictedProbability,actualAccuracyPercent,calibrationError
+0-20%,0,0.0000,0.00%,0.00%
+20-40%,0,0.0000,0.00%,0.00%
+40-60%,14,0.5349,57.14%,+3.65%
+60-80%,129,0.7282,84.50%,+11.68%
+80-100%,51,0.9843,96.08%,-2.35%

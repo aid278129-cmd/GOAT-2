@@ -44,11 +44,22 @@ function getVehicleCountByCamera(detections, timeRange = null, config = null) {
   const cameras = loadCameras();
 
   const countMap = new Map();
+  const rawCountMap = new Map();
   const platesMap = new Map();
 
   cameras.forEach((c) => {
     countMap.set(c.standardId, 0);
+    rawCountMap.set(c.standardId, 0);
     platesMap.set(c.standardId, new Set());
+  });
+
+  timeFiltered.forEach((det) => {
+    const cam = resolveCamera(det.cameraId, cameras);
+    const standardId = cam.standardId;
+    if (!rawCountMap.has(standardId)) {
+      rawCountMap.set(standardId, 0);
+    }
+    rawCountMap.set(standardId, rawCountMap.get(standardId) + 1);
   });
 
   deduped.forEach((det) => {
@@ -68,7 +79,7 @@ function getVehicleCountByCamera(detections, timeRange = null, config = null) {
     }
   });
 
-  return { countMap, platesMap, dedupedTotal: deduped.length, rawTotal: timeFiltered.length };
+  return { countMap, rawCountMap, platesMap, dedupedTotal: deduped.length, rawTotal: timeFiltered.length };
 }
 
 /**
@@ -80,15 +91,29 @@ function getDensityByCamera(detections, options = {}) {
   const interval = options.interval || `${cfg.defaultAnalyticsIntervalMinutes || 15}m`;
   const filterCameraId = options.cameraId ? formatStandardCameraId(options.cameraId) : null;
 
-  const { countMap, platesMap } = getVehicleCountByCamera(detections, timeRange, cfg);
+  const { countMap, rawCountMap, platesMap } = getVehicleCountByCamera(detections, timeRange, cfg);
   const cameras = loadCameras();
+
+  let durationMinutes = 15;
+  if (timeRange.fromDate && timeRange.toDate) {
+    const diffMs = timeRange.toDate.getTime() - timeRange.fromDate.getTime();
+    if (diffMs > 0) durationMinutes = diffMs / 60000;
+  } else if (interval) {
+    const intRes = parseInterval(interval);
+    if (intRes.valid) durationMinutes = intRes.durationMs / 60000;
+  }
 
   const results = cameras
     .filter((c) => !filterCameraId || c.standardId === filterCameraId || String(c.cameraId) === filterCameraId)
     .map((c) => {
+      const totalDets = rawCountMap ? (rawCountMap.get(c.standardId) || 0) : 0;
       const vehicleCount = countMap.get(c.standardId) || 0;
       const uniquePlates = platesMap.get(c.standardId) ? platesMap.get(c.standardId).size : 0;
       const densityLevel = classifyDensityLevel(vehicleCount, cfg.densityThresholds);
+
+      const flowRatePerMinute = durationMinutes > 0 ? Number((vehicleCount / durationMinutes).toFixed(2)) : 0;
+      const flowRatePer5Min = durationMinutes > 0 ? Number(((vehicleCount / durationMinutes) * 5).toFixed(2)) : 0;
+      const flowRatePerHour = durationMinutes > 0 ? Number(((vehicleCount / durationMinutes) * 60).toFixed(1)) : 0;
 
       return {
         cameraId: c.standardId,
@@ -99,8 +124,13 @@ function getDensityByCamera(detections, options = {}) {
         zone: c.zone,
         latitude: c.latitude,
         longitude: c.longitude,
+        totalDetections: totalDets,
         vehicleCount,
         uniquePlateCount: uniquePlates,
+        uniqueVehicles: uniquePlates,
+        flowRatePerMinute,
+        flowRatePer5Min,
+        flowRatePerHour,
         interval,
         densityLevel,
       };

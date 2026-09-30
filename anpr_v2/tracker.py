@@ -202,6 +202,11 @@ class TemporalConsensusTracker:
         self.tracks: Dict[str, TrackedPlate] = {}
         self._next_id = 1
 
+    def reset(self):
+        """Clears all active temporal tracks."""
+        self.tracks.clear()
+        self._next_id = 1
+
     def update_tracks_and_vote(
         self,
         camera_id: int,
